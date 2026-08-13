@@ -1,4 +1,13 @@
-# Usage Monitor for Claude (Claude 사용량 모니터)
+# Claude 사용량 모니터
+[![RELEASE](https://img.shields.io/github/release/deuxdoom/usage-monitor-for-claude?style=flat&logo=github&logoColor=white&label=RELEASE&labelColor=2f353a&color=0ea5e9)](https://github.com/deuxdoom/usage-monitor-for-claude/releases/latest)
+[![Downloads Latest](https://img.shields.io/github/downloads/deuxdoom/usage-monitor-for-claude/latest/total?logo=github&style=flat&label=DOWNLOADS@LATEST)](https://github.com/deuxdoom/usage-monitor-for-claude/releases/latest)
+[![Downloads Total](https://img.shields.io/github/downloads/deuxdoom/usage-monitor-for-claude/total?logo=github&style=flat&label=DOWNLOADS)](https://github.com/deuxdoom/usage-monitor-for-claude/releases)
+[![LICENSE](https://img.shields.io/badge/LICENSE-MIT-f43f5e?style=flat&labelColor=2f353a)](https://opensource.org/licenses/MIT)  
+[![Platform](https://img.shields.io/badge/PLATFORM-WINDOWS%20X64-blue?style=flat&logo=windows)](https://github.com/deuxdoom/usage-monitor-for-claude)
+[![PYTHON](https://img.shields.io/badge/PYTHON-3.10%2B-3776ab?style=flat&logo=python&logoColor=white&labelColor=2f353a)](https://www.python.org/)
+[![Made for Claude](https://img.shields.io/badge/Works%20with-Claude-d97757?style=plastic&logo=anthropic&logoColor=white)](https://claude.ai/)
+[![Lightweight](https://img.shields.io/badge/Lightweight-No%20Electron-black?style=plastic)](https://github.com/deuxdoom/usage-monitor-for-claude)
+---
 
 **윈도우 시스템 트레이에서 실시간으로 Claude 사용량 제한을 확인하세요.**
 
@@ -8,7 +17,7 @@
 
 ## ✨ 주요 기능
 
-* **포터블 (무설치):** ~12.5MB 용량의 단일 EXE 파일로, 다운로드 후 바로 실행할 수 있습니다. 삭제하려면 파일을 지우기만 하면 됩니다.
+* **포터블 (무설치):** 16MB 용량의 단일 EXE 파일로, 다운로드 후 바로 실행할 수 있습니다. 삭제하려면 파일을 지우기만 하면 됩니다.
 * **제로 구성(Zero Configuration):** 기존 Claude Code 로그인을 통해 자동으로 인증되므로, API 키를 따로 입력할 필요가 없습니다.
 * **실시간 트레이 아이콘:** 트레이 아이콘에 진행률 표시줄이나 퍼센트 수치로 남은 사용량을 직관적으로 보여줍니다.
 * **상세 팝업 기능:** 트레이 아이콘을 클릭하면 계정 정보와 활성화된 모든 할당량(세션, 주간 한도 등), 추가 사용량, 초기화 남은 시간 등을 상세히 볼 수 있습니다. 수동 새로고침 버튼과 핀 고정 기능도 제공합니다.
@@ -68,6 +77,7 @@
   "bar_fg": "#00cc66",
   "bar_fg_warn": "#ff6600"
 }
+```
 
 ## 📄 라이선스
 
