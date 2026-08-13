@@ -1,227 +1,81 @@
-# Usage Monitor for Claude
+# Usage Monitor for Claude (Claude 사용량 모니터)
 
-[![Feature Ideas](https://img.shields.io/badge/Feature_Ideas-Vote_%26_Discuss-blue?style=for-the-badge&logo=github)](https://github.com/jens-duttke/usage-monitor-for-claude/discussions/categories/ideas)
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-ff69b4?style=for-the-badge&logo=github)](https://github.com/sponsors/jens-duttke)
+**윈도우 시스템 트레이에서 실시간으로 Claude 사용량 제한을 확인하세요.**
 
-**Monitor your Claude rate limits in real time - right from your Windows system tray.**
+설치가 필요 없는 가벼운 윈도우 네이티브 트레이 앱입니다. claude.ai, Claude Code, VS Code 및 JetBrains 확장 프로그램 등에서 공유되는 사용량 제한을 한눈에 보여줍니다. 세션 및 주간 한도(Sonnet, Opus, Fable 등)가 얼마나 남았는지 항상 파악할 수 있습니다.
 
-A native Windows tray app that shows your Claude usage at a glance - lightweight, portable, and fully auditable. Rate limits are shared across claude.ai, Claude Code, Claude Code Cowork, and IDE extensions for VS Code and JetBrains - always know how much of your session and weekly limits (Sonnet, Opus, Fable, Cowork, and any future quota types) you have left.
+![Claude 사용량 모니터 스크린샷](screenshot.png)
 
-![Detail popup showing account info and usage bars](screenshot.png)
+## ✨ 주요 기능
 
-> [!TIP]
-> **Companion tool: [Agent Monitor for Claude](https://github.com/jens-duttke/agent-monitor-for-claude)**
->
-> Usage Monitor for Claude tells you *how much* of your rate limits you have left. Its companion tool, [**Agent Monitor for Claude**](https://github.com/jens-duttke/agent-monitor-for-claude), tells you *what your agents are actually doing* - a live overview of every running Claude Code agent across all your projects: which ones are working, waiting for your input, blocked, finished, or errored, refreshed every few seconds. Agents are grouped by project with the ones that need attention floated to the top, each with its estimated cost, token breakdown, model, and host - and one click brings any agent's window to the foreground. If you run more than one agent at a time, it turns "which window was that again?" into a glance at the tray.
->
-> You can even [launch it with a double-click on the tray icon](docs/event-commands.md#launch-agent-monitor-for-claude-on-double-click).
-
-## Features
-
-- **Portable** - single EXE (~12.5 MB), no installation, no Electron, no runtime required. Download, place anywhere, run. To uninstall, delete the file
-- **Zero configuration** - authenticates through your existing Claude Code login, no API key or manual token entry needed
-- **Live tray icon** with two [configurable](docs/configuration.md#tray-icon-bars) progress bars (session + weekly by default) or, via the `icon_style` setting, both values as stacked percentages, plus [configurable tooltip](docs/configuration.md#tooltip-fields), percentage display, and theme-aware colors for light and dark taskbars
-- **Detail popup** (left-click) showing account info, dynamically detected usage bars for all active quota types (Session, Weekly, Sonnet, Opus, Fable, Cowork, and any new quotas Anthropic adds) with [configurable field selection](docs/configuration.md#popup-fields) and a [hide list](docs/configuration.md#hidden-popup-fields) for quota types you do not care about, extra usage, reset countdowns, a manual refresh button, and a stale-data indicator when values may be outdated; pin it open and move it while pinned to keep usage details visible during long sessions, and [configure a compact pinned view](docs/configuration.md#compact-pinned-view) that hides the sections and bars you do not need. Reset times follow your Windows 24-hour or 12-hour clock format automatically
-- **Claude Code versions** - the popup shows which version is installed in each environment (native CLI, VS Code, Cursor, Windsurf), making it easy to spot when your IDE extension is ahead of or behind the CLI. Run Claude Code somewhere the app cannot see it, such as WSL? Add it with the [`cli_command`](docs/configuration.md#claude-cli-command) setting and its version is listed alongside the rest
-- **Smart alerts** - configurable threshold notifications per quota type, with time-aware mode that only alerts when usage outpaces elapsed time. Reset notifications when a nearly exhausted quota refills. Extra usage can also alert on absolute spending amounts (e.g. $50 / $100 / $150 spent), the only alert available when it has no monthly limit
-- **[Event commands](docs/event-commands.md)** - run a custom shell command when a quota resets, a usage threshold is crossed, the app starts up, or you double-click the tray icon. Send push notifications to your phone, resume an AI agent, start a fresh 5-hour session automatically, play an alert sound, launch a companion tool like [Agent Monitor for Claude](https://github.com/jens-duttke/agent-monitor-for-claude) on double-click, or trigger any custom workflow
-- **Time marker** on each bar showing elapsed time in the current period - in the detail popup and on the tray icon bars - so you can instantly see whether your usage is ahead of or behind the clock; bars that outpace the clock turn red, in the popup and tray alike
-- **Automatic token refresh** - when the OAuth session expires, runs `claude update` in the background to renew the token without user intervention. If a CLI update is installed, shows a notification (which you can turn off via the `notify_claude_update` setting)
-- **Adaptive polling** - speeds up during active usage, pauses when the computer is idle or locked, aligns to imminent quota resets, and backs off on rate-limit errors. Switching your Claude account refreshes the tray immediately, so it never lingers on the previous account's usage
-- **Multi-account** - monitor several Claude accounts side by side: launch one instance per account with `--config-dir="<path>"` pointing at each account's Claude config directory. Each tray icon shows its account's usage, with a `[dir-name]` tooltip prefix, per-instance settings, and its own autostart entry
-- **13 languages** (English, German, French, Spanish, Portuguese, Italian, Japanese, Korean, Hindi, Indonesian, Chinese Simplified, Chinese Traditional, Ukrainian) - auto-detected from your Windows display language, with optional manual override via the `language` setting
-- **[Customizable](docs/configuration.md)** - optionally override polling intervals, colors, alert thresholds, and more via a JSON settings file
+* **포터블 (무설치):** ~12.5MB 용량의 단일 EXE 파일로, 다운로드 후 바로 실행할 수 있습니다. 삭제하려면 파일을 지우기만 하면 됩니다.
+* **제로 구성(Zero Configuration):** 기존 Claude Code 로그인을 통해 자동으로 인증되므로, API 키를 따로 입력할 필요가 없습니다.
+* **실시간 트레이 아이콘:** 트레이 아이콘에 진행률 표시줄이나 퍼센트 수치로 남은 사용량을 직관적으로 보여줍니다.
+* **상세 팝업 기능:** 트레이 아이콘을 클릭하면 계정 정보와 활성화된 모든 할당량(세션, 주간 한도 등), 추가 사용량, 초기화 남은 시간 등을 상세히 볼 수 있습니다. 수동 새로고침 버튼과 핀 고정 기능도 제공합니다.
+* **설치된 Claude Code 버전 확인:** CLI, VS Code 등 각 환경에 설치된 버전을 팝업에서 바로 확인할 수 있습니다.
+* **스마트 알림:** 설정한 사용량 임계값이나 금액(추가 결제 한도)을 초과할 때 알림을 받을 수 있습니다.
+* **시간 마커 표시:** 현재 기간 내에 경과한 시간을 바(bar)에 표시하여, 시간 대비 사용량이 많을 경우 진행률이 빨간색으로 경고해 줍니다.
+* **자동 토큰 갱신:** 세션이 만료되면 백그라운드에서 자동으로 토큰을 갱신합니다.
+* **다중 계정 지원:** `--config-dir` 설정을 통해 여러 Claude 계정을 동시에 모니터링할 수 있습니다.
+* **다국어 지원:** 한국어를 포함한 13개 언어를 지원하며 윈도우 시스템 언어에 맞춰 자동 적용됩니다.
 
 ---
 
-## Security & Transparency
+## 🔒 보안 및 투명성
 
-This tool handles your Claude Code OAuth token, so you should be able to verify it is safe. The codebase is deliberately structured for easy auditing:
+이 앱은 사용자의 Claude Code OAuth 토큰을 사용하므로 보안이 가장 중요합니다.
 
-- **Single network destination** - communicates exclusively with `api.anthropic.com`, no other hosts
-- **Credentials stay local** - the OAuth token is used only in HTTP Authorization headers, never logged, stored elsewhere, or transmitted to third parties
-- **Writes no files** - the app never writes files to disk. The only lasting changes on your system are two `HKEY_CURRENT_USER` registry values: the toast notification identity (display name and icon, re-registered on every start) and the autostart entry, written only when you enable autostart. An expired OAuth token additionally triggers `claude update`, which may install a newer Claude Code version
-- **No dynamic code execution** - no `eval()`, `exec()`, `compile()`, or dynamic imports
-- **No obfuscation** - no encoded strings, no hidden URLs, no minified logic
-- **Modular architecture** - small, focused modules with security-critical code (credentials, API calls) isolated in a single file ([`api.py`](usage_monitor_for_claude/api.py))
-- **Minimal runtime dependencies** - only four well-known packages: [requests](https://pypi.org/project/requests/), [Pillow](https://pypi.org/project/pillow/), [pystray](https://pypi.org/project/pystray/), [pywebview](https://pypi.org/project/pywebview/)
+* **단일 네트워크 통신:** 오직 `api.anthropic.com`과 통신하며, 다른 서버로 데이터를 보내지 않습니다.
+* **로컬 보안:** 토큰은 외부로 전송되거나 기록되지 않습니다.
+* **디스크 쓰기 없음:** 파일 시스템에 어떤 파일도 생성하지 않으며, 윈도우 레지스트리에 알림 및 자동 시작 정보만 최소한으로 등록합니다.
 
 ---
 
-## Requirements
+## 💻 요구 사항
 
-- **Windows 10 or Windows 11** (64-bit)
-- **[Claude Code](https://docs.anthropic.com/en/docs/claude-code)** installed and logged in (CLI, VS Code extension, or JetBrains plugin - any variant works). The app reads the OAuth token that Claude Code stores locally (`~/.claude/.credentials.json`). If you have `CLAUDE_CONFIG_DIR` set, the app uses that directory instead, and the `--config-dir="<path>"` command-line parameter overrides both - useful to run one instance per Claude account (log each extra account in via Claude Code with `CLAUDE_CONFIG_DIR` pointing to its own directory first).
-
-> [!TIP]
-> If the token expires, the app automatically runs `claude update` to refresh it. If the token is missing entirely, the app shows a notification and a "!" icon - log in to Claude Code and the monitor picks it up automatically.
+* **Windows 10 또는 Windows 11 (64비트)**
+* **Claude Code 설치 및 로그인 필수:** 이 앱은 Claude Code가 로컬에 저장한 인증 토큰을 읽어와 작동합니다.
 
 ---
 
-## Quick Start
+## 🚀 시작하기
 
-**No Python required.** Download the latest [**UsageMonitorForClaude.exe**](https://github.com/jens-duttke/usage-monitor-for-claude/releases/latest), place it wherever you like, and run it. To remove, disable "Start with Windows" in the context menu first (if enabled), then delete the file.
+별도의 설치가 필요 없습니다. 최신 릴리즈의 `UsageMonitorForClaude.exe`를 다운로드하여 원하는 폴더에 넣고 실행하기만 하면 됩니다. 
 
----
+### 기본 사용법
 
-## How to Use
-
-| Action | What happens |
+| 동작 | 결과 |
 |---|---|
-| **Hover** over the tray icon | Tooltip shows 5h and 7d usage percentages with reset times |
-| **Left-click** the tray icon | Opens the detail popup with account info and all usage bars |
-| **Double-click** the tray icon | Runs the [`on_double_click_command`](docs/event-commands.md) if configured (e.g. launch [Agent Monitor for Claude](https://github.com/jens-duttke/agent-monitor-for-claude)); otherwise does nothing |
-| **Right-click** the tray icon | Context menu: open popup, autostart toggle, restart, GitHub link, or quit (plus a test submenu when event commands are configured) |
-| **Refresh button** in the popup | Fetches usage data immediately, instead of waiting for the next scheduled poll |
-| **Click the account row** | Reveals the email address (hidden behind your name, or blurred, by default); click again to hide it |
-| **Escape** or click outside | Closes the detail popup |
+| **아이콘에 마우스 오버** | 툴팁으로 사용량 퍼센트 및 초기화 시간 표시 |
+| **좌클릭** | 계정 정보 및 상세 사용량 팝업 열기 |
+| **우클릭** | 팝업 열기, 윈도우 시작 시 자동 실행 켜기/끄기, 종료 등의 메뉴 열기 |
+| **새로고침 버튼 (팝업 내)** | 다음 자동 갱신을 기다리지 않고 즉시 데이터 가져오기 |
+| **팝업에서 계정 이름 클릭** | 숨겨져 있던 이메일 주소 보이기 / 숨기기 |
 
-### Tray icon not visible?
-
-Windows may hide new tray icons by default. To keep the icon always visible:
-
-1. Right-click the **taskbar** → **Taskbar settings**
-2. Expand **Other system tray icons** (Win 11) or **Select which icons appear on the taskbar** (Win 10)
-3. Toggle **UsageMonitorForClaude** to **On**
-
-### Reading the progress bars
-
-Each bar in the detail popup has up to four visual elements:
-
-1. **Blue fill** - how much of the limit you have used
-2. **Time dividers** - subtle gaps splitting the session bar into equal hour sections and marking local midnights on the weekly bars, visually grouping usage into hour and day segments
-3. **White vertical line** - how much *time* has passed in the current period. The fill turns **red** when it passes this marker, warning that you may hit the limit before the period resets.
-4. **Reset text** - when the limit resets, shown as a countdown with clock time
+> **💡 트레이 아이콘이 보이지 않나요?**
+> 윈도우가 기본적으로 새 아이콘을 숨길 수 있습니다. 작업 표시줄을 우클릭하여 설정에 들어간 뒤, '시스템 트레이 아이콘' 설정에서 **UsageMonitorForClaude**를 켬(On)으로 변경해 주세요.
 
 ---
 
-## Configuration
+## ⚙️ 설정 (선택 사항)
 
-All settings work out of the box - no configuration file is needed. To customize behavior, create a file called `usage-monitor-settings.json` with only the keys you want to change:
+앱은 기본 설정으로도 완벽하게 작동하지만, 설정을 커스텀하고 싶다면 실행 파일과 같은 위치에 `usage-monitor-settings.json` 파일을 만들어 원하는 값만 덮어쓸 수 있습니다. 
 
+*예시:*
 ```json
 {
   "poll_interval": 180,
   "bar_fg": "#00cc66",
   "bar_fg_warn": "#ff6600"
 }
-```
 
-The app searches for this file in these locations (first match wins):
-
-1. **`$CLAUDE_CONFIG_DIR/usage-monitor-settings.json`** (when a custom config directory is set via `--config-dir` or `CLAUDE_CONFIG_DIR`) - so each instance can have its own settings
-2. **Next to the EXE** (or project root when running from source)
-3. **`~/.claude/usage-monitor-settings.json`**
-
-The app never creates or modifies this file. See [Configuration](docs/configuration.md) for all available settings (alert thresholds, polling intervals, colors, language, and more).
-
-> **This fork changes two defaults.** Quota types the API reports but that have never been used - currently `nimbus_quill` - are hidden from the popup, where upstream shows them as empty bars. Set `{"popup_hide_fields": [], "popup_hide_inactive": false}` for the upstream behavior. See [Hidden popup fields](docs/configuration.md#hidden-popup-fields).
-
----
-
-## Building from Source
-
-<details>
-<summary>For developers who want to build the EXE themselves</summary>
-
-### Prerequisites
-
-- Python 3.10+
-- pip
-
-### Setup
-
-```bash
-git clone https://github.com/jens-duttke/usage-monitor-for-claude.git
-cd usage-monitor-for-claude
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### Run
-
-```bash
-python -m usage_monitor_for_claude
-```
-
-### Build EXE
-
-```bash
-python build.py
-```
-
-Produces `dist/UsageMonitorForClaude.exe` (~12.5 MB), a single-file executable that bundles Python and all dependencies.
-
-### Popup UI Development
-
-The popup UI lives in [`usage_monitor_for_claude/popup/`](usage_monitor_for_claude/popup/) as separate HTML, CSS, and JS files. To preview and iterate on the UI without running the full app:
-
-```bash
-start http://localhost:8080/usage_monitor_for_claude/popup/dev.html && python -m http.server 8080
-```
-
-This starts a local server and opens the dev preview in your default browser. Use the buttons to switch between data presets (full, minimal, error, loading) and the language dropdown to preview every locale (so you can spot strings that overflow the popup width). Test CSS/JS changes with instant feedback.
-
-### Create a Release
-
-1. Update dependencies: `pip install --upgrade -r requirements.txt`
-2. Update `__version__` in [`usage_monitor_for_claude/__init__.py`](usage_monitor_for_claude/__init__.py) and the version in [`version_info.py`](version_info.py) (`filevers`, `prodvers`, `FileVersion`, `ProductVersion`)
-3. Update `_FALLBACK_USER_AGENT` in [`usage_monitor_for_claude/api.py`](usage_monitor_for_claude/api.py) to the current Claude Code version
-4. In [`CHANGELOG.md`](CHANGELOG.md), rename `## [Unreleased]` to `## [1.x.x] - YYYY-MM-DD` and add a fresh empty `## [Unreleased]` section above it
-5. Run the test suite: `python -m unittest discover -s tests`
-6. Smoke test: `python -m usage_monitor_for_claude` - verify tray icon, popup, and settings
-7. Build the EXE with `python build.py`
-8. Smoke test: `dist\UsageMonitorForClaude.exe` - verify tray icon, popup, and settings
-9. Stage the changes from steps 2 to 4
-10. Commit, tag, push, and publish:
-
-   ```bash
-   git commit -m "Release v1.x.x"
-   git tag v1.x.x
-   git push origin main v1.x.x
-   gh release create v1.x.x dist/UsageMonitorForClaude.exe --title "v1.x.x" --notes "<release notes from CHANGELOG.md, followed by a [README for this version](https://github.com/jens-duttke/usage-monitor-for-claude/blob/v1.x.x/README.md) link>"
-   ```
-
-</details>
-
----
-
-## Contributing
-
-Contributions are welcome - whether it's bug reports, feature ideas, or pull requests. [Open an issue](https://github.com/jens-duttke/usage-monitor-for-claude/issues) to report bugs or ask questions. For feature ideas, browse and vote on existing proposals or submit your own in [Ideas](https://github.com/jens-duttke/usage-monitor-for-claude/discussions/categories/ideas).
-
-<details>
-<summary>For developers who want to contribute to the project</summary>
-
-This project is developed with [Claude Code](https://docs.anthropic.com/en/docs/claude-code). The [`.claude/CLAUDE.md`](.claude/CLAUDE.md) file contains all project conventions, coding standards, and architectural guidelines - Claude Code applies these automatically during development.
-
-### Workflow
-
-1. Read `.claude/CLAUDE.md` to understand the project conventions
-2. Implement your changes with Claude Code - it will follow the guidelines automatically
-3. Before committing, run the `/review` slash command to perform a systematic quality review of all staged changes (code, tests, documentation)
-4. Stage remaining fixes if any, then run `/commit-message` to generate a properly formatted commit message
-
-### Adding features
-
-New features should follow the existing architecture. Key points from the guidelines:
-
-- Security-critical code (credentials, API calls) stays isolated in [`api.py`](usage_monitor_for_claude/api.py)
-- All user-facing changes need updates in [`CHANGELOG.md`](CHANGELOG.md), [`README.md`](README.md), and [`docs/configuration.md`](docs/configuration.md) where applicable
-- Tests are required - run `python -m unittest discover -s tests` before committing
-- The app must never write files to disk - the only system state it changes is the two documented `HKEY_CURRENT_USER` registry values (notification identity, autostart entry)
-
-</details>
-
----
-
-## License
+## 📄 라이선스
 
 MIT
 
+*이 프로젝트는 커뮤니티에서 독립적으로 만든 오픈소스 앱이며, Anthropic의 공식 지원을 받지 않습니다.*
+
 ---
 
-## Disclaimer
-
-This is an independent, community-built project. It is **not** created, endorsed, or officially supported by [Anthropic](https://www.anthropic.com/). "Claude" and "Anthropic" are trademarks of Anthropic, PBC. Use of these names is solely for descriptive purposes to indicate compatibility.
+[![Feature Ideas](https://img.shields.io/badge/Feature_Ideas-Vote_%26_Discuss-blue?style=for-the-badge&logo=github)](https://github.com/jens-duttke/usage-monitor-for-claude/discussions/categories/ideas)
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-ff69b4?style=for-the-badge&logo=github)](https://github.com/sponsors/jens-duttke)
