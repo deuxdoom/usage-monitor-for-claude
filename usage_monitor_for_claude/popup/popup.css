@@ -221,6 +221,92 @@ dl > div {
     color: var(--fg-dim);
 }
 
+.detail-toggleable {
+    cursor: pointer;
+    outline: none;
+    border-radius: 4px;
+    margin: -4px;
+    padding: 4px;
+    transition: background-color 0.15s ease;
+
+    &:hover, &:focus-visible { background: rgba(255, 255, 255, 0.05); }
+}
+
+.usage-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 2px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--bar-bg);
+    font-size: 12px;
+    color: var(--fg-dim);
+
+    &.error { color: var(--bar-fg-warn); }
+}
+
+.detail-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+}
+
+.detail-estimated {
+    color: var(--fg-dim);
+    opacity: 0.8;
+}
+
+.detail-models-heading {
+    margin-top: 2px;
+    font-weight: 600;
+    color: var(--fg-dim);
+}
+
+.detail-models {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.detail-model-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 80px 40px;
+    align-items: center;
+    gap: 8px;
+}
+
+.detail-model-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.detail-model-bar {
+    position: relative;
+    height: 5px;
+    background: var(--bar-bg);
+    overflow: hidden;
+
+    & .detail-model-bar-fill {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        background: var(--bar-fg);
+    }
+}
+
+.detail-model-pct {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.detail-source {
+    margin-top: 2px;
+    font-size: 11px;
+    opacity: 0.65;
+}
+
 footer {
     font-size: 12px;
     color: var(--fg-dim);

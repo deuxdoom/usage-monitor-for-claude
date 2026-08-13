@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.40.0] - 2026-08-13
+
+### Added
+
+- Click the session (5hr) or weekly (7 day) usage bar for exact token/message counts and a per-model usage breakdown (e.g. Sonnet 96.6% / Opus 3.4%) - read from local Claude Code session logs, since the usage API itself only reports a percentage. The panel names its source, because those logs cover Claude Code alone: a period spent on claude.ai or the desktop app still moves the percentage but leaves no local record
+- Korean UI now uses 클로드 for the app's own labels (popup title, tray menu, tooltip, dialogs) instead of the English "Claude"; "Claude Code" stays as-is, being the literal name of the program to install
+
+### Fixed
+
+- The session (5hr) and weekly (7 day) bars no longer disappear from the popup when the account has not touched that period yet - `popup_hide_inactive` was treating them the same as an unused model-scoped quota
+
+[Show all code changes](https://github.com/deuxdoom/usage-monitor-for-claude/compare/v1.30.0...v1.40.0)
+
 ## [1.30.0] - 2026-08-13
 
 ### Added

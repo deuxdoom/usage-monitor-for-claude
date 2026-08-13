@@ -159,6 +159,10 @@ function buildTranslations(loc) {
         title: loc.popup_title, account: loc.account, email: loc.email, plan: loc.plan,
         usage: loc.usage, extra_usage: loc.extra_usage, claude_code: loc.claude_code, changelog: loc.changelog,
         pin_popup: loc.pin_popup, unpin_popup: loc.unpin_popup, refresh: loc.refresh,
+        detail_tokens: loc.detail_tokens, detail_messages: loc.detail_messages,
+        detail_estimated: loc.detail_estimated, detail_models: loc.detail_models,
+        detail_loading: loc.detail_loading, detail_unavailable: loc.detail_unavailable,
+        detail_no_usage: loc.detail_no_usage, detail_source: loc.detail_source,
         name: loc.name, reveal_email: loc.reveal_email, hide_email: loc.hide_email,
         status_updated_s: loc.status_updated_s, status_updated: loc.status_updated,
         status_next_update: loc.status_next_update, status_refreshing: loc.status_refreshing,
@@ -244,6 +248,22 @@ async function applyLanguage(code) {
     win().pywebview = { api: { close() {}, open_url() {},
         // Fake latency so the refresh button's spinner is visible in the preview.
         refresh() { return new Promise((resolve) => setTimeout(() => resolve(true), 900)); },
+        // Fake session-log detail so the click-to-expand behavior is previewable
+        // without a real Claude Code install. 'five_hour' gets a full example
+        // with models; 'seven_day' comes back empty to preview the no-usage state.
+        session_detail(field) {
+            return new Promise((resolve) => setTimeout(() => resolve(
+                field === 'seven_day'
+                    ? { unavailable: false, tokens: '0', messages: '0', estimated_total: null, models: [] }
+                    : {
+                        unavailable: false, tokens: '353,830', messages: '1,033', estimated_total: '853,171',
+                        models: [
+                            { model: 'claude-sonnet-4-6', tokens: '341,802', pct: '96.6' },
+                            { model: 'claude-opus-4-8', tokens: '12,028', pct: '3.4' },
+                        ],
+                    },
+            ), 600));
+        },
         set_pinned(pinned) { return Promise.resolve(pinned); },
         begin_drag() { return Promise.resolve(true); },
         drag() { return Promise.resolve(true); },

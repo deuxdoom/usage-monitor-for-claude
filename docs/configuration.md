@@ -153,6 +153,18 @@ Note that setting `popup_hide_fields` yourself **replaces** the default rather t
 }
 ```
 
+## Session detail
+
+Clicking the session (5hr) or weekly (7 day) bar expands a panel with the exact token and message counts for that period, and a per-model breakdown. The usage API itself only reports a percentage - it does not disclose token counts or which models were used - so this reads the numbers straight out of Claude Code's own session transcripts (`<config dir>/projects/**/*.jsonl`), the same files Claude Code itself writes as you work. Nothing beyond the existing `/api/oauth/usage` call leaves the machine; the transcripts never do.
+
+**These transcripts cover Claude Code only.** The quota percentage on the bar is account-wide - claude.ai in the browser, the desktop app, and Claude Code all draw from it - but only Claude Code writes a local record. A period you spent on claude.ai therefore shows a high percentage with no local tokens to report, and the panel says so rather than claiming zero usage. The panel repeats this caveat as a footnote every time it opens.
+
+The window scanned matches the bar's own period: for a bar with a reset time, `[reset time − period, reset time)`; for one that has not reset yet in this account (see [Hidden popup fields](#hidden-popup-fields) above), the last *period* ending now. Retried or resumed turns that appear twice in a transcript are only counted once.
+
+An **estimated total** is shown alongside the token count once the bar's utilization is at least 1% - calculated as `tokens ÷ (utilization ÷ 100)`. This is an extrapolation from the API's own reported percentage, not a guess at Anthropic's actual limit; the two can disagree slightly, since the transcripts and the API's internal accounting may not measure tokens identically. Below 1% the division amplifies noise into a meaningless number, so no estimate is shown.
+
+There is no setting to turn this off - it reads local files only when the panel is clicked, so it costs nothing until asked for. Only `five_hour` and `seven_day` support it; a model-scoped or unlabeled quota (`seven_day_opus`, `nimbus_quill`, ...) has no local-log equivalent, and its bar is not clickable.
+
 ## Popup position
 
 The popup is anchored to the corner nearest the tray, staying clear of both the monitor work area edge and the taskbar window's own rectangle - whichever is stricter. The second bound covers an auto-hiding taskbar, which Windows does not subtract from the work area at all. A third-party bar drawn as its own window is still not accounted for; `popup_margin` widens the gap for that case.

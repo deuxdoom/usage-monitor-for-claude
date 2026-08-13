@@ -19,8 +19,8 @@ from .settings import (
 
 __all__ = [
     'divider_positions', 'elapsed_pct', 'expand_popup_fields', 'field_hidden', 'field_inactive',
-    'field_period', 'format_credits', 'format_tooltip', 'parse_field_name', 'popup_label',
-    'time_until', 'tooltip_label',
+    'field_period', 'format_count', 'format_credits', 'format_tooltip', 'parse_field_name',
+    'popup_label', 'time_until', 'tooltip_label',
 ]
 
 PERIOD_5H = 5 * 3600
@@ -194,7 +194,27 @@ def field_hidden(field: str, patterns: list[str] | None = None) -> bool:
     return any(_slug(pattern) in candidates for pattern in patterns if pattern)
 
 
-def field_inactive(entry: dict[str, Any] | None) -> bool:
+# The two account-wide quotas.  Every other field (a model-scoped limit such
+# as seven_day_opus, or an unlabeled one like nimbus_quill) is a bonus quota
+# that popup_hide_inactive is meant to filter; these two are the ones people
+# open the popup to check and must never disappear just because the current
+# period has not been touched yet.
+_ALWAYS_SHOWN_FIELDS = frozenset({'five_hour', 'seven_day'})
+
+
+def format_count(n: int) -> str:
+    """Format an integer count with thousands separators.
+
+    Uses a plain comma rather than the system locale's grouping - unlike
+    :func:`format_credits`, which must render a legible amount of money,
+    this covers supplementary counts (tokens, messages) where a comma is
+    a widely understood grouping mark and matching every locale's exact
+    convention is not worth threading ``LC_NUMERIC`` through for.
+    """
+    return f'{n:,}'
+
+
+def field_inactive(entry: dict[str, Any] | None, field: str | None = None) -> bool:
     """Return whether a quota has never been used.
 
     True when the API reports no reset window (the quota has no active
@@ -206,7 +226,14 @@ def field_inactive(entry: dict[str, Any] | None) -> bool:
     ----------
     entry : dict or None
         A single quota object from the usage API response.
+    field : str or None
+        The field's API name.  ``five_hour`` and ``seven_day`` are exempt:
+        a fresh account or one that has not touched a period yet reports
+        them the same way as a scoped quota nobody has ever used, but they
+        are core limits and must stay visible regardless.
     """
+    if field in _ALWAYS_SHOWN_FIELDS:
+        return False
     if not isinstance(entry, dict):
         return False
 
@@ -261,7 +288,7 @@ def expand_popup_fields(popup_fields: list[str], usage_data: dict[str, Any]) -> 
             remaining = sorted(
                 (
                     f for f in available
-                    if f not in seen and not (POPUP_HIDE_INACTIVE and field_inactive(usage_data.get(f)))
+                    if f not in seen and not (POPUP_HIDE_INACTIVE and field_inactive(usage_data.get(f), f))
                 ),
                 key=_field_sort_key,
             )

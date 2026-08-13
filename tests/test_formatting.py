@@ -15,8 +15,8 @@ from unittest.mock import MagicMock, patch
 from usage_monitor_for_claude.formatting import (
     PERIOD_5H, PERIOD_7D,
     divider_positions, elapsed_pct, expand_popup_fields, field_hidden, field_inactive,
-    field_period, format_credits, format_tooltip, parse_field_name, popup_label, time_until,
-    tooltip_label,
+    field_period, format_count, format_credits, format_tooltip, parse_field_name, popup_label,
+    time_until, tooltip_label,
 )
 from usage_monitor_for_claude.i18n import LOCALE_DIR
 
@@ -229,6 +229,26 @@ class TestFieldHidden(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# format_count
+# ---------------------------------------------------------------------------
+
+class TestFormatCount(unittest.TestCase):
+    """Tests for format_count()."""
+
+    def test_below_one_thousand_no_separator(self):
+        self.assertEqual(format_count(742), '742')
+
+    def test_thousands_separator(self):
+        self.assertEqual(format_count(353830), '353,830')
+
+    def test_millions_separator(self):
+        self.assertEqual(format_count(1234567), '1,234,567')
+
+    def test_zero(self):
+        self.assertEqual(format_count(0), '0')
+
+
+# ---------------------------------------------------------------------------
 # field_inactive
 # ---------------------------------------------------------------------------
 
@@ -254,6 +274,17 @@ class TestFieldInactive(unittest.TestCase):
 
     def test_non_dict_is_not_inactive(self):
         self.assertFalse(field_inactive(None))
+
+    def test_five_hour_never_inactive_even_untouched(self):
+        """Core account limits stay visible before their first use in a period."""
+        self.assertFalse(field_inactive({'utilization': 0, 'resets_at': None}, 'five_hour'))
+
+    def test_seven_day_never_inactive_even_untouched(self):
+        self.assertFalse(field_inactive({'utilization': 0, 'resets_at': None}, 'seven_day'))
+
+    def test_scoped_seven_day_field_still_inactive(self):
+        """Only the two base fields are exempt - a model-scoped variant is not."""
+        self.assertTrue(field_inactive({'utilization': 0, 'resets_at': None}, 'seven_day_opus'))
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +329,16 @@ class TestExpandPopupFields(unittest.TestCase):
         usage = self._usage(five_hour=10, nimbus_quill=1)
         result = expand_popup_fields(['*'], usage)
         self.assertEqual(result, ['five_hour', 'nimbus_quill'])
+
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', [])
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', True)
+    def test_untouched_five_hour_stays_in_wildcard(self):
+        """A session limit nobody has touched yet must not vanish from the popup."""
+        usage = {
+            'five_hour': {'utilization': 0, 'resets_at': None},
+            'seven_day': {'utilization': 22, 'resets_at': '2026-08-17T18:00:00+00:00'},
+        }
+        self.assertEqual(expand_popup_fields(['*'], usage), ['five_hour', 'seven_day'])
 
     @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', [])
     @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', True)

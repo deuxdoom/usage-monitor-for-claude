@@ -26,12 +26,14 @@ class StubElement {
     constructor(tag) {
         this.tagName = tag;
         this.className = '';
-        this.textContent = '';
+        this._text = '';
         this.title = '';
         this.style = {};
         this.dataset = {};
+        this.attributes = {};
         this.children = [];
         this.parentNode = null;
+        this._listeners = {};
         const element = this;
         this.classList = {
             toggle(name, force) {
@@ -46,10 +48,33 @@ class StubElement {
             contains(name) { return element._classSet().has(name); },
         };
     }
+    // Mirrors real DOM: reading textContent recurses into children, and
+    // writing it clears them and stores a single flat string - so a
+    // container built entirely from appendChild() calls (e.g. the session
+    // detail panel) reports its full text the same way a leaf element with
+    // a directly assigned string does.
+    get textContent() {
+        return this.children.length === 0 ? this._text : this.children.map((c) => c.textContent).join('');
+    }
+    set textContent(value) {
+        this._text = value;
+        this.children = [];
+    }
     _classSet() { return new Set(this.className.split(/\s+/).filter(Boolean)); }
     appendChild(node) { node.parentNode = this; this.children.push(node); return node; }
     append(...nodes) { for (const node of nodes) this.appendChild(node); }
     replaceChildren(...nodes) { this.children = []; this.append(...nodes); }
+    insertBefore(node, refNode) {
+        node.parentNode = this;
+        if (refNode == null) { this.children.push(node); return node; }
+        const index = this.children.indexOf(refNode);
+        this.children.splice(index === -1 ? this.children.length : index, 0, node);
+        return node;
+    }
+    setAttribute(name, value) { this.attributes[name] = String(value); }
+    getAttribute(name) { return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null; }
+    addEventListener(type, handler) { (this._listeners[type] ??= []).push(handler); }
+    dispatchEvent(type, eventObj) { for (const handler of this._listeners[type] || []) handler(eventObj || {}); }
     remove() {
         if (this.parentNode) {
             const index = this.parentNode.children.indexOf(this);
@@ -80,6 +105,7 @@ globalThis.document = {
     createElement: (tag) => new StubElement(tag),
     body: new StubElement('body'),
 };
+globalThis.window = globalThis;
 globalThis.ResizeObserver = class { constructor() {} observe() {} };
 globalThis.requestAnimationFrame = (callback) => callback();
 '''
@@ -282,6 +308,297 @@ console.log(JSON.stringify({
 }));
 ''')
         self.assertEqual(result, {'sameElement': True, 'pct': '50%', 'fillWidth': '50%'})
+
+
+@unittest.skipUnless(_NODE, 'Node.js not available')
+class TestUsageDetailToggle(unittest.TestCase):
+    """Tests for the click-to-expand session_detail panel on five_hour/seven_day bars."""
+
+    _TRANSLATIONS = r"""
+translations = {
+    detail_tokens: 'Tokens', detail_messages: 'Messages',
+    detail_estimated: '(~{total} total, est.)', detail_models: 'Model usage',
+    detail_loading: 'Loading...', detail_unavailable: 'Unavailable',
+    detail_no_usage: 'No Claude Code activity', detail_source: 'From local logs',
+};
+"""
+
+    def _scenario(self, body: str) -> dict:
+        return _run_scenario(self._TRANSLATIONS + body)
+
+    def test_detail_field_is_clickable(self):
+        result = self._scenario('''
+const bar = createBarElement(makeEntry({ key: 'five_hour' }));
+console.log(JSON.stringify({
+    className: bar.className,
+    role: bar.getAttribute('role'),
+    tabindex: bar.getAttribute('tabindex'),
+    ariaExpanded: bar.getAttribute('aria-expanded'),
+}));
+''')
+        self.assertIn('detail-toggleable', result['className'])
+        self.assertEqual(result['role'], 'button')
+        self.assertEqual(result['tabindex'], '0')
+        self.assertEqual(result['ariaExpanded'], 'false')
+
+    def test_non_detail_field_is_not_clickable(self):
+        """A model-scoped or unlabeled quota has no local-log equivalent to show."""
+        result = self._scenario('''
+const bar = createBarElement(makeEntry({ key: 'seven_day_opus' }));
+console.log(JSON.stringify({
+    className: bar.className,
+    role: bar.getAttribute('role'),
+}));
+''')
+        self.assertNotIn('detail-toggleable', result['className'])
+        self.assertIsNone(result['role'])
+
+    def test_click_shows_loading_state_immediately(self):
+        result = self._scenario('''
+window.pywebview = { api: { session_detail: () => new Promise(() => {}) } };
+const bar = createBarElement(makeEntry({ key: 'five_hour' }));
+bar.dispatchEvent('click');
+console.log(JSON.stringify({
+    text: bar.querySelector('.usage-detail').textContent,
+    expanded: bar.classList.contains('expanded'),
+    ariaExpanded: bar.getAttribute('aria-expanded'),
+}));
+''')
+        self.assertEqual(result['text'], 'Loading...')
+        self.assertTrue(result['expanded'])
+        self.assertEqual(result['ariaExpanded'], 'true')
+
+    def test_click_renders_tokens_and_messages(self):
+        result = self._scenario('''
+window.pywebview = { api: { session_detail: () => Promise.resolve({
+    unavailable: false, tokens: '353,830', messages: '1,033', estimated_total: null, models: [],
+}) } };
+const bar = createBarElement(makeEntry({ key: 'five_hour' }));
+bar.dispatchEvent('click');
+Promise.resolve().then(() => {
+    const panel = bar.querySelector('.usage-detail');
+    const counts = panel.querySelector('.detail-counts');
+    console.log(JSON.stringify({
+        tokenLine: counts.children[0].textContent,
+        estimated: counts.children[0].querySelector('.detail-estimated'),
+        messageLine: counts.children[1].textContent,
+    }));
+});
+''')
+        self.assertEqual(result['tokenLine'], 'Tokens 353,830')
+        self.assertIsNone(result['estimated'])
+        self.assertEqual(result['messageLine'], 'Messages 1,033')
+
+    def test_estimated_total_appended_when_present(self):
+        result = self._scenario('''
+window.pywebview = { api: { session_detail: () => Promise.resolve({
+    unavailable: false, tokens: '353,830', messages: '1,033', estimated_total: '853,171', models: [],
+}) } };
+const bar = createBarElement(makeEntry({ key: 'five_hour' }));
+bar.dispatchEvent('click');
+Promise.resolve().then(() => {
+    const est = bar.querySelector('.detail-estimated');
+    console.log(JSON.stringify({ text: est ? est.textContent : null }));
+});
+''')
+        self.assertEqual(result['text'], ' (~853,171 total, est.)')
+
+    def test_click_renders_model_breakdown(self):
+        result = self._scenario('''
+window.pywebview = { api: { session_detail: () => Promise.resolve({
+    unavailable: false, tokens: '353,830', messages: '1,033', estimated_total: null,
+    models: [
+        { model: 'claude-sonnet-4-6', tokens: '341,802', pct: '96.6' },
+        { model: 'claude-opus-4-8', tokens: '12,028', pct: '3.4' },
+    ],
+}) } };
+const bar = createBarElement(makeEntry({ key: 'seven_day' }));
+bar.dispatchEvent('click');
+Promise.resolve().then(() => {
+    const rows = bar.querySelectorAll('.detail-model-row');
+    console.log(JSON.stringify({
+        heading: bar.querySelector('.detail-models-heading').textContent,
+        rows: rows.map((row) => ({
+            name: row.querySelector('.detail-model-name').textContent,
+            width: row.querySelector('.detail-model-bar-fill').style.width,
+            pct: row.querySelector('.detail-model-pct').textContent,
+        })),
+    }));
+});
+''')
+        self.assertEqual(result['heading'], 'Model usage')
+        self.assertEqual(result['rows'], [
+            {'name': 'claude-sonnet-4-6', 'width': '96.6%', 'pct': '96.6%'},
+            {'name': 'claude-opus-4-8', 'width': '3.4%', 'pct': '3.4%'},
+        ])
+
+    def test_source_note_always_shown_with_data(self):
+        """The panel must name its source: local logs miss web/app usage entirely."""
+        result = self._scenario('''
+window.pywebview = { api: { session_detail: () => Promise.resolve({
+    unavailable: false, tokens: '100', messages: '1', estimated_total: null, models: [],
+}) } };
+const bar = createBarElement(makeEntry({ key: 'five_hour' }));
+bar.dispatchEvent('click');
+Promise.resolve().then(() => {
+    console.log(JSON.stringify({ note: bar.querySelector('.detail-source').textContent }));
+});
+''')
+        self.assertEqual(result['note'], 'From local logs')
+
+    def test_source_note_shown_for_empty_period_too(self):
+        """An empty period is exactly when the source caveat matters most."""
+        result = self._scenario('''
+window.pywebview = { api: { session_detail: () => Promise.resolve({
+    unavailable: false, tokens: '0', messages: '0', estimated_total: null, models: [],
+}) } };
+const bar = createBarElement(makeEntry({ key: 'five_hour' }));
+bar.dispatchEvent('click');
+Promise.resolve().then(() => {
+    console.log(JSON.stringify({ note: bar.querySelector('.detail-source').textContent }));
+});
+''')
+        self.assertEqual(result['note'], 'From local logs')
+
+    def test_zero_usage_shows_no_usage_message(self):
+        result = self._scenario('''
+window.pywebview = { api: { session_detail: () => Promise.resolve({
+    unavailable: false, tokens: '0', messages: '0', estimated_total: null, models: [],
+}) } };
+const bar = createBarElement(makeEntry({ key: 'five_hour' }));
+bar.dispatchEvent('click');
+Promise.resolve().then(() => {
+    console.log(JSON.stringify({ text: bar.querySelector('.usage-detail').textContent }));
+});
+''')
+        self.assertEqual(result['text'], 'No Claude Code activityFrom local logs')
+
+    def test_unavailable_result_shows_error_state(self):
+        result = self._scenario('''
+window.pywebview = { api: { session_detail: () => Promise.resolve({
+    unavailable: true, tokens: null, messages: null, estimated_total: null, models: [],
+}) } };
+const bar = createBarElement(makeEntry({ key: 'five_hour' }));
+bar.dispatchEvent('click');
+Promise.resolve().then(() => {
+    const panel = bar.querySelector('.usage-detail');
+    console.log(JSON.stringify({ text: panel.textContent, className: panel.className }));
+});
+''')
+        self.assertEqual(result['text'], 'Unavailable')
+        self.assertIn('error', result['className'])
+
+    def test_rejected_promise_shows_error_state(self):
+        result = self._scenario('''
+window.pywebview = { api: { session_detail: () => Promise.reject(new Error('bridge error')) } };
+const bar = createBarElement(makeEntry({ key: 'five_hour' }));
+bar.dispatchEvent('click');
+Promise.resolve().then(() => Promise.resolve()).then(() => {
+    const panel = bar.querySelector('.usage-detail');
+    console.log(JSON.stringify({ text: panel.textContent, className: panel.className }));
+});
+''')
+        self.assertEqual(result['text'], 'Unavailable')
+        self.assertIn('error', result['className'])
+
+    def test_missing_bridge_shows_unavailable_without_calling_anything(self):
+        """dev-preview or a pywebview build without the API must not throw."""
+        result = self._scenario('''
+const bar = createBarElement(makeEntry({ key: 'five_hour' }));
+bar.dispatchEvent('click');
+console.log(JSON.stringify({ text: bar.querySelector('.usage-detail').textContent }));
+''')
+        self.assertEqual(result['text'], 'Unavailable')
+
+    def test_second_click_collapses_and_removes_panel(self):
+        result = self._scenario('''
+window.pywebview = { api: { session_detail: () => Promise.resolve({
+    unavailable: false, tokens: '100', messages: '1', estimated_total: null, models: [],
+}) } };
+const bar = createBarElement(makeEntry({ key: 'five_hour' }));
+bar.dispatchEvent('click');
+Promise.resolve().then(() => {
+    bar.dispatchEvent('click');
+    console.log(JSON.stringify({
+        panel: bar.querySelector('.usage-detail'),
+        expanded: bar.classList.contains('expanded'),
+        ariaExpanded: bar.getAttribute('aria-expanded'),
+    }));
+});
+''')
+        self.assertIsNone(result['panel'])
+        self.assertFalse(result['expanded'])
+        self.assertEqual(result['ariaExpanded'], 'false')
+
+    def test_enter_key_toggles_like_click(self):
+        result = self._scenario('''
+window.pywebview = { api: { session_detail: () => new Promise(() => {}) } };
+const bar = createBarElement(makeEntry({ key: 'five_hour' }));
+let defaultPrevented = false;
+bar.dispatchEvent('keydown', { key: 'Enter', preventDefault: () => { defaultPrevented = true; } });
+console.log(JSON.stringify({ expanded: bar.classList.contains('expanded'), defaultPrevented }));
+''')
+        self.assertTrue(result['expanded'])
+        self.assertTrue(result['defaultPrevented'])
+
+    def test_space_key_toggles_like_click(self):
+        result = self._scenario('''
+window.pywebview = { api: { session_detail: () => new Promise(() => {}) } };
+const bar = createBarElement(makeEntry({ key: 'five_hour' }));
+bar.dispatchEvent('keydown', { key: ' ', preventDefault: () => {} });
+console.log(JSON.stringify({ expanded: bar.classList.contains('expanded') }));
+''')
+        self.assertTrue(result['expanded'])
+
+    def test_other_key_does_not_toggle(self):
+        result = self._scenario('''
+const bar = createBarElement(makeEntry({ key: 'five_hour' }));
+bar.dispatchEvent('keydown', { key: 'Tab', preventDefault: () => {} });
+console.log(JSON.stringify({ expanded: bar.classList.contains('expanded') }));
+''')
+        self.assertFalse(result['expanded'])
+
+    def test_expanded_panel_survives_full_bar_rebuild(self):
+        """updateUsageBars rebuilds bars wholesale when the field set changes;
+        an open panel must re-open on the new element rather than vanishing."""
+        result = self._scenario('''
+window.pywebview = { api: { session_detail: () => Promise.resolve({
+    unavailable: false, tokens: '100', messages: '1', estimated_total: null, models: [],
+}) } };
+updateUsageBars([makeEntry({ key: 'five_hour' })]);
+els.usageBars.children[0].dispatchEvent('click');
+Promise.resolve().then(() => {
+    // Field-set change forces the rebuild path in updateUsageBars.
+    updateUsageBars([makeEntry({ key: 'five_hour' }), makeEntry({ key: 'seven_day' })]);
+    Promise.resolve().then(() => {
+        const bar = els.usageBars.children[0];
+        console.log(JSON.stringify({
+            expanded: bar.classList.contains('expanded'),
+            text: bar.querySelector('.usage-detail')?.textContent ?? null,
+        }));
+    });
+});
+''')
+        self.assertTrue(result['expanded'])
+        self.assertEqual(result['text'], 'Tokens 100Messages 1From local logs')
+
+    def test_reset_text_created_after_panel_stays_below_it(self):
+        """A reset-text that appears while the panel is already open (e.g. a
+        just-touched five_hour bar gets its first reset time) must not be
+        inserted below the detail panel."""
+        result = self._scenario('''
+window.pywebview = { api: { session_detail: () => Promise.resolve({
+    unavailable: false, tokens: '100', messages: '1', estimated_total: null, models: [],
+}) } };
+updateUsageBars([makeEntry({ key: 'five_hour', reset_text: '' })]);
+els.usageBars.children[0].dispatchEvent('click');
+Promise.resolve().then(() => {
+    updateUsageBars([makeEntry({ key: 'five_hour', reset_text: 'Resets in 5h' })]);
+    const bar = els.usageBars.children[0];
+    console.log(JSON.stringify(bar.children.map((c) => c.className)));
+});
+''')
+        self.assertEqual(result, ['bar-header', 'bar-container', 'reset-text', 'usage-detail'])
 
 
 if __name__ == '__main__':

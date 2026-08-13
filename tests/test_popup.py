@@ -11,6 +11,7 @@ import ctypes
 import threading
 import time
 import unittest
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 from usage_monitor_for_claude.cache import CacheSnapshot
@@ -18,6 +19,7 @@ from usage_monitor_for_claude.popup import (
     UsagePopup, _BASELINE_DPI, _MONITORINFO, _SWP_NOACTIVATE, _SWP_NOSIZE, _SWP_NOZORDER,
     _init_config, _snapshot_to_dict, _usage_entries,
 )
+from usage_monitor_for_claude.session_logs import ModelUsage, WindowStats
 
 
 def _snap(
@@ -620,6 +622,154 @@ class TestInitConfig(unittest.TestCase):
         config = _init_config(snap)
         self.assertEqual(config['data']['profile']['email'], 'a@b.com')
         self.assertEqual(set(config['data'].keys()), {'profile', 'usage', 'extra', 'installations', 'status'})
+
+
+# ---------------------------------------------------------------------------
+# _PopupApi.session_detail / UsagePopup._session_detail
+# ---------------------------------------------------------------------------
+
+class TestSessionDetail(unittest.TestCase):
+    """Tests for UsagePopup._session_detail() - the local-log detail behind a bar click.
+
+    _session_detail only touches self.app.cache.snapshot and the
+    session_logs module, so it is tested directly against a bare instance
+    rather than through the full pywebview-backed UsagePopup.__init__.
+    """
+
+    def _popup(self, usage):
+        popup = object.__new__(UsagePopup)
+        popup.app = MagicMock()
+        popup.app.cache.snapshot = _snap(usage=usage)
+        return popup
+
+    def test_unsupported_field_is_unavailable(self):
+        popup = self._popup({'nimbus_quill': {'utilization': 0, 'resets_at': None}})
+        result = popup._session_detail('nimbus_quill')
+        self.assertEqual(result, {'unavailable': True, 'tokens': None, 'messages': None,
+                                   'estimated_total': None, 'models': []})
+
+    def test_field_missing_from_snapshot_is_unavailable(self):
+        popup = self._popup({})
+        self.assertTrue(popup._session_detail('five_hour')['unavailable'])
+
+    def test_field_null_in_snapshot_is_unavailable(self):
+        popup = self._popup({'five_hour': None})
+        self.assertTrue(popup._session_detail('five_hour')['unavailable'])
+
+    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    def test_scan_failure_is_unavailable_not_raised(self, mock_scan):
+        mock_scan.side_effect = RuntimeError('boom')
+        popup = self._popup({'five_hour': {'utilization': 40, 'resets_at': '2026-08-13T18:00:00Z'}})
+        result = popup._session_detail('five_hour')
+        self.assertEqual(result['unavailable'], True)
+
+    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    def test_window_derived_from_resets_at_and_period(self, mock_scan):
+        """The scanned window must be [resets_at - period, resets_at)."""
+        mock_scan.return_value = WindowStats(total_tokens=0, message_count=0, models=[])
+        popup = self._popup({'five_hour': {'utilization': 40, 'resets_at': '2026-08-13T18:00:00+00:00'}})
+
+        popup._session_detail('five_hour')
+
+        (_root, start, end) = mock_scan.call_args.args
+        expected_end = datetime(2026, 8, 13, 18, 0, 0, tzinfo=timezone.utc).timestamp()
+        self.assertAlmostEqual(end, expected_end)
+        self.assertAlmostEqual(start, expected_end - 5 * 3600)
+
+    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    def test_z_suffix_resets_at_parsed(self, mock_scan):
+        mock_scan.return_value = WindowStats(total_tokens=0, message_count=0, models=[])
+        popup = self._popup({'seven_day': {'utilization': 20, 'resets_at': '2026-08-17T18:00:00Z'}})
+
+        popup._session_detail('seven_day')
+
+        (_root, _start, end) = mock_scan.call_args.args
+        expected_end = datetime(2026, 8, 17, 18, 0, 0, tzinfo=timezone.utc).timestamp()
+        self.assertAlmostEqual(end, expected_end)
+
+    @patch('usage_monitor_for_claude.popup.time.time', return_value=1_800_000_000.0)
+    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    def test_null_resets_at_falls_back_to_rolling_window_ending_now(self, mock_scan, _mock_time):
+        """An untouched period (see field_inactive) has no resets_at to anchor on."""
+        mock_scan.return_value = WindowStats(total_tokens=0, message_count=0, models=[])
+        popup = self._popup({'five_hour': {'utilization': 0, 'resets_at': None}})
+
+        popup._session_detail('five_hour')
+
+        (_root, start, end) = mock_scan.call_args.args
+        self.assertEqual(end, 1_800_000_000.0)
+        self.assertEqual(start, 1_800_000_000.0 - 5 * 3600)
+
+    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    def test_tokens_and_messages_formatted_with_grouping(self, mock_scan):
+        mock_scan.return_value = WindowStats(total_tokens=353830, message_count=1033, models=[])
+        popup = self._popup({'five_hour': {'utilization': 40, 'resets_at': '2026-08-13T18:00:00Z'}})
+
+        result = popup._session_detail('five_hour')
+
+        self.assertFalse(result['unavailable'])
+        self.assertEqual(result['tokens'], '353,830')
+        self.assertEqual(result['messages'], '1,033')
+
+    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    def test_estimated_total_derived_from_utilization(self, mock_scan):
+        mock_scan.return_value = WindowStats(total_tokens=400, message_count=1, models=[])
+        popup = self._popup({'five_hour': {'utilization': 40, 'resets_at': '2026-08-13T18:00:00Z'}})
+
+        result = popup._session_detail('five_hour')
+
+        # 400 tokens at 40% utilization implies a full period of ~1,000.
+        self.assertEqual(result['estimated_total'], '1,000')
+
+    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    def test_estimated_total_omitted_below_minimum_utilization(self, mock_scan):
+        """Dividing by a near-zero percentage would amplify noise into a huge, meaningless number."""
+        mock_scan.return_value = WindowStats(total_tokens=400, message_count=1, models=[])
+        popup = self._popup({'five_hour': {'utilization': 0.5, 'resets_at': '2026-08-13T18:00:00Z'}})
+
+        result = popup._session_detail('five_hour')
+
+        self.assertIsNone(result['estimated_total'])
+
+    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    def test_estimated_total_omitted_with_no_local_tokens(self, mock_scan):
+        """Nothing to divide when the local scan itself found no tokens for the window."""
+        mock_scan.return_value = WindowStats(total_tokens=0, message_count=0, models=[])
+        popup = self._popup({'five_hour': {'utilization': 40, 'resets_at': '2026-08-13T18:00:00Z'}})
+
+        result = popup._session_detail('five_hour')
+
+        self.assertIsNone(result['estimated_total'])
+
+    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    def test_models_formatted_and_ordered(self, mock_scan):
+        mock_scan.return_value = WindowStats(
+            total_tokens=400, message_count=2,
+            models=[
+                ModelUsage(model='claude-opus-4-8', tokens=300, fraction=0.75),
+                ModelUsage(model='claude-sonnet-4-6', tokens=100, fraction=0.25),
+            ],
+        )
+        popup = self._popup({'five_hour': {'utilization': 40, 'resets_at': '2026-08-13T18:00:00Z'}})
+
+        result = popup._session_detail('five_hour')
+
+        self.assertEqual(result['models'], [
+            {'model': 'claude-opus-4-8', 'tokens': '300', 'pct': '75.0'},
+            {'model': 'claude-sonnet-4-6', 'tokens': '100', 'pct': '25.0'},
+        ])
+
+    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    def test_zero_usage_window_still_available_not_unavailable(self, mock_scan):
+        """A genuinely empty window is a real result, distinct from a failed lookup."""
+        mock_scan.return_value = WindowStats(total_tokens=0, message_count=0, models=[])
+        popup = self._popup({'five_hour': {'utilization': 0, 'resets_at': '2026-08-13T18:00:00Z'}})
+
+        result = popup._session_detail('five_hour')
+
+        self.assertFalse(result['unavailable'])
+        self.assertEqual(result['tokens'], '0')
+        self.assertEqual(result['messages'], '0')
 
 
 # ---------------------------------------------------------------------------

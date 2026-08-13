@@ -11,19 +11,31 @@ from __future__ import annotations
 import ctypes
 import ctypes.wintypes
 import json
+import logging
 import threading
 import time
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import webview  # type: ignore[import-untyped]  # no type stubs available
 
 from . import __version__
+from . import session_logs
+from .api import CLAUDE_CONFIG_DIR
 from .claude_cli import CHANGELOG_URL, find_installations
-from .formatting import divider_positions, elapsed_pct, expand_popup_fields, field_period, format_credits, popup_label, time_until
+from .formatting import divider_positions, elapsed_pct, expand_popup_fields, field_period, format_count, format_credits, popup_label, time_until
 from .i18n import T
 from .settings import BAR_BG, BAR_DIVIDER, BAR_FG, BAR_FG_WARN, BAR_MARKER, BG, COMPACT_HIDE, FG, FG_DIM, FG_HEADING, FG_LINK, POPUP_FIELDS, POPUP_MARGIN
+
+logger = logging.getLogger(__name__)
+
+# A field's estimated total (tokens_used / utilization) is only shown once
+# the percentage is high enough that dividing by it is not just amplifying
+# noise - at 0.3%, for instance, a handful of tokens either way swings the
+# estimate by tens of thousands.
+_MIN_UTILIZATION_FOR_ESTIMATE = 1.0
 
 _POPUP_DIR = Path(__file__).parent / 'popup'
 _BASELINE_DPI = 96
@@ -255,6 +267,10 @@ def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None) -> di
             'reveal_email': T['reveal_email'], 'hide_email': T['hide_email'],
             'claude_code': T['claude_code'], 'changelog': T['changelog'],
             'pin_popup': T['pin_popup'], 'unpin_popup': T['unpin_popup'], 'refresh': T['refresh'],
+            'detail_tokens': T['detail_tokens'], 'detail_messages': T['detail_messages'],
+            'detail_estimated': T['detail_estimated'], 'detail_models': T['detail_models'],
+            'detail_loading': T['detail_loading'], 'detail_unavailable': T['detail_unavailable'],
+            'detail_no_usage': T['detail_no_usage'], 'detail_source': T['detail_source'],
             'status_updated_s': T['status_updated_s'], 'status_updated': T['status_updated'],
             'status_next_update': T['status_next_update'], 'status_refreshing': T['status_refreshing'],
             'duration_hm': T['duration_hm'], 'duration_m': T['duration_m'], 'duration_s': T['duration_s'],
@@ -283,6 +299,9 @@ class _PopupApi:
 
     def refresh(self) -> bool:
         return self._popup._manual_refresh()
+
+    def session_detail(self, field: str) -> dict[str, Any]:
+        return self._popup._session_detail(field)
 
     def set_pinned(self, pinned: bool) -> bool:
         return self._popup._set_pinned(pinned)
@@ -637,6 +656,99 @@ class UsagePopup:
         data = _snapshot_to_dict(snap, installations=self._cached_installations, next_poll_time=next_poll_time)
         self._window.evaluate_js(f'updateData({json.dumps(data)})')
         self._last_version = snap.version
+
+    def _session_detail(self, field: str) -> dict[str, Any]:
+        """Local-transcript detail for a clicked usage bar: tokens, messages, models.
+
+        Reads ``<config dir>/projects/*.jsonl`` for the same window the
+        bar's percentage covers, so the numbers returned are exact sums of
+        what Claude Code actually recorded - not a re-derivation of the
+        official percentage.  Runs on a pywebview bridge thread; any
+        failure (unreadable transcripts, a field this fork does not track
+        detail for) yields the empty shape below rather than raising, so a
+        broken detail fetch cannot take down the popup.
+
+        Parameters
+        ----------
+        field : str
+            'five_hour' or 'seven_day'.  Anything else returns the empty
+            shape - there is no local-log equivalent for a model-scoped or
+            unlabeled quota.
+
+        Returns
+        -------
+        dict
+            ``{unavailable, tokens, messages, estimated_total, models}``.
+            ``unavailable`` is True when there is nothing meaningful to
+            show (unsupported field, unreadable transcripts) - the popup
+            renders a fallback message rather than a zeroed report, which
+            would misleadingly claim "confirmed zero usage". When False,
+            ``tokens``/``messages``/``estimated_total`` are comma-grouped
+            strings ready to display (``estimated_total`` may still be
+            ``None`` - see below), and ``models`` is a list of
+            ``{model, tokens, pct}`` with ``tokens`` comma-grouped and
+            ``pct`` a string like ``'96.6'``.
+
+            ``estimated_total`` is ``tokens / (utilization / 100)``,
+            included only once the utilization is high enough for that
+            division to be meaningful. It is an extrapolation from the
+            API's own reported percentage, not a guess at Anthropic's
+            actual limit - the two can disagree since the transcripts and
+            the API may not account for tokens identically.
+        """
+        unavailable: dict[str, Any] = {
+            'unavailable': True, 'tokens': None, 'messages': None, 'estimated_total': None, 'models': [],
+        }
+
+        period = field_period(field)
+        if period is None or field not in ('five_hour', 'seven_day'):
+            return unavailable
+
+        try:
+            snap = self.app.cache.snapshot
+            entry = (snap.usage or {}).get(field) if snap else None
+        except Exception:
+            entry = None
+        if not isinstance(entry, dict):
+            return unavailable
+
+        resets_at_raw = entry.get('resets_at')
+        utilization = entry.get('utilization')
+
+        now = time.time()
+        end = now
+        if resets_at_raw:
+            try:
+                text = resets_at_raw[:-1] + '+00:00' if resets_at_raw.endswith('Z') else resets_at_raw
+                end = datetime.fromisoformat(text).timestamp()
+            except ValueError:
+                end = now
+        start = end - period
+
+        try:
+            stats = session_logs.usage_in_window(CLAUDE_CONFIG_DIR / 'projects', start, end)
+        except Exception:
+            logger.debug('session_detail: local log scan failed', exc_info=True)
+            return unavailable
+
+        estimated_total = None
+        if (
+            isinstance(utilization, (int, float))
+            and utilization >= _MIN_UTILIZATION_FOR_ESTIMATE
+            and stats.total_tokens > 0
+        ):
+            estimated_total = format_count(round(stats.total_tokens / (utilization / 100)))
+
+        return {
+            'unavailable': False,
+            'tokens': format_count(stats.total_tokens),
+            'messages': format_count(stats.message_count),
+            'estimated_total': estimated_total,
+            'models': [
+                {'model': m.model, 'tokens': format_count(m.tokens), 'pct': f'{m.fraction * 100:.1f}'}
+                for m in stats.models
+            ],
+        }
 
     def _manual_refresh(self) -> bool:
         """Fetch usage data now, on user request from the popup's refresh button.

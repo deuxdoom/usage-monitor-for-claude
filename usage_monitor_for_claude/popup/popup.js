@@ -6,6 +6,11 @@ let popupPinned = false;
 let compactHide = [];
 let lastData = null;
 let emailRevealed = false;
+// Bar keys with their detail panel currently open. Only 'five_hour' and
+// 'seven_day' ever go in here - session_detail() has no local-log
+// equivalent for a model-scoped or unlabeled quota, so those bars are
+// never made clickable in the first place.
+let expandedDetail = new Set();
 
 /**
  * Set CSS custom properties for theme colors and inject translation strings.
@@ -426,6 +431,11 @@ function formatCountdown(totalSeconds) {
     return translations.duration_m.replace('{m}', totalMin);
 }
 
+// Bar keys that offer local-log detail on click. Kept in one place so the
+// click handler, the render functions, and the tests all agree on which
+// two fields this applies to.
+const DETAIL_FIELDS = new Set(['five_hour', 'seven_day']);
+
 function updateUsageBars(entries) {
     // Rebuild whenever the field set changes, not only the count - after an
     // account switch the same number of bars can carry different quotas, and
@@ -494,6 +504,26 @@ function createBarElement(entry) {
         div.appendChild(reset);
     }
 
+    if (DETAIL_FIELDS.has(entry.key)) {
+        div.classList.add('detail-toggleable');
+        div.setAttribute('role', 'button');
+        div.setAttribute('tabindex', '0');
+        div.setAttribute('aria-expanded', 'false');
+        div.addEventListener('click', () => toggleDetail(entry.key, div));
+        div.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                toggleDetail(entry.key, div);
+            }
+        });
+        // Bars are torn down and rebuilt whenever the field set changes
+        // (see updateUsageBars); re-open and re-fetch so an expanded panel
+        // survives that rebuild instead of silently vanishing.
+        if (expandedDetail.has(entry.key)) {
+            openDetail(entry.key, div);
+        }
+    }
+
     return div;
 }
 
@@ -530,12 +560,174 @@ function updateBarElement(div, entry) {
         if (!resetEl) {
             resetEl = document.createElement('div');
             resetEl.className = 'reset-text';
-            div.appendChild(resetEl);
+            // Insert ahead of an already-open detail panel rather than
+            // appending, so a reset-text that appears after the panel was
+            // opened (e.g. a fresh five_hour bar gets its first reset time)
+            // does not land below it.
+            div.insertBefore(resetEl, div.querySelector('.usage-detail'));
         }
         resetEl.textContent = entry.reset_text;
     } else if (resetEl) {
         resetEl.remove();
     }
+}
+
+/**
+ * Toggle the local-log detail panel under a five_hour/seven_day bar.
+ *
+ * @param {string} key - 'five_hour' or 'seven_day'.
+ * @param {HTMLElement} div - the bar's .usage-entry element.
+ */
+function toggleDetail(key, div) {
+    if (expandedDetail.has(key)) {
+        expandedDetail.delete(key);
+        div.classList.remove('expanded');
+        div.setAttribute('aria-expanded', 'false');
+        div.querySelector('.usage-detail')?.remove();
+        return;
+    }
+    openDetail(key, div);
+}
+
+function openDetail(key, div) {
+    expandedDetail.add(key);
+    div.classList.add('expanded');
+    div.setAttribute('aria-expanded', 'true');
+    renderDetailLoading(div);
+
+    if (!window.pywebview?.api?.session_detail) {
+        renderDetailUnavailable(div);
+        return;
+    }
+
+    pywebview.api.session_detail(key).then((result) => {
+        // The panel may have been collapsed while this call was in flight.
+        // (A full bar rebuild - see updateUsageBars - re-triggers openDetail
+        // on the fresh element instead, so this stale call simply has
+        // nothing left to update.)
+        if (!expandedDetail.has(key)) return;
+        renderDetail(div, result);
+    }).catch(() => {
+        if (!expandedDetail.has(key)) return;
+        renderDetailUnavailable(div);
+    });
+}
+
+/** Get (creating if needed) the .usage-detail panel, placed after reset-text. */
+function detailPanel(div) {
+    let panel = div.querySelector('.usage-detail');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.className = 'usage-detail';
+        div.appendChild(panel);
+    }
+    return panel;
+}
+
+function renderDetailLoading(div) {
+    const panel = detailPanel(div);
+    panel.classList.remove('error');
+    panel.textContent = translations.detail_loading;
+}
+
+function renderDetailUnavailable(div) {
+    const panel = detailPanel(div);
+    panel.classList.add('error');
+    panel.textContent = translations.detail_unavailable;
+}
+
+/**
+ * Render a session_detail() result into the bar's detail panel.
+ *
+ * @param {HTMLElement} div - the bar's .usage-entry element.
+ * @param {object} result - { unavailable, tokens, messages, estimated_total, models }
+ */
+function renderDetail(div, result) {
+    const panel = detailPanel(div);
+    panel.classList.remove('error');
+    panel.replaceChildren();
+
+    if (result.unavailable) {
+        panel.classList.add('error');
+        panel.textContent = translations.detail_unavailable;
+        return;
+    }
+
+    if (result.tokens === '0' && result.messages === '0') {
+        // Not "you used nothing" - the local logs only cover Claude Code, so
+        // a period spent on claude.ai or the desktop app reads as empty here.
+        // The source note below spells that out.
+        const empty = document.createElement('div');
+        empty.textContent = translations.detail_no_usage;
+        panel.appendChild(empty);
+        panel.appendChild(createSourceNote());
+        return;
+    }
+
+    const counts = document.createElement('div');
+    counts.className = 'detail-counts';
+
+    const tokenLine = document.createElement('span');
+    tokenLine.textContent = `${translations.detail_tokens} ${result.tokens}`;
+    if (result.estimated_total) {
+        const est = document.createElement('span');
+        est.className = 'detail-estimated';
+        est.textContent = ' ' + translations.detail_estimated.replace('{total}', result.estimated_total);
+        tokenLine.appendChild(est);
+    }
+
+    const messageLine = document.createElement('span');
+    messageLine.textContent = `${translations.detail_messages} ${result.messages}`;
+
+    counts.append(tokenLine, messageLine);
+    panel.appendChild(counts);
+
+    if (result.models.length) {
+        const heading = document.createElement('div');
+        heading.className = 'detail-models-heading';
+        heading.textContent = translations.detail_models;
+        panel.appendChild(heading);
+
+        const list = document.createElement('div');
+        list.className = 'detail-models';
+        for (const model of result.models) {
+            list.appendChild(createModelRow(model));
+        }
+        panel.appendChild(list);
+    }
+
+    panel.appendChild(createSourceNote());
+}
+
+/** Footnote naming where these numbers come from, and what they exclude. */
+function createSourceNote() {
+    const note = document.createElement('div');
+    note.className = 'detail-source';
+    note.textContent = translations.detail_source;
+    return note;
+}
+
+function createModelRow(model) {
+    const row = document.createElement('div');
+    row.className = 'detail-model-row';
+
+    const name = document.createElement('span');
+    name.className = 'detail-model-name';
+    name.textContent = model.model;
+
+    const track = document.createElement('div');
+    track.className = 'detail-model-bar';
+    const fill = document.createElement('div');
+    fill.className = 'detail-model-bar-fill';
+    fill.style.width = `${model.pct}%`;
+    track.appendChild(fill);
+
+    const pct = document.createElement('span');
+    pct.className = 'detail-model-pct';
+    pct.textContent = `${model.pct}%`;
+
+    row.append(name, track, pct);
+    return row;
 }
 
 // Report content height changes to the host (pywebview or dev.html iframe parent).
