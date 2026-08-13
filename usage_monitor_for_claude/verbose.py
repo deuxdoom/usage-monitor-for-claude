@@ -232,6 +232,12 @@ def print_startup_diagnostics() -> None:
     for pkg in ('pywebview', 'pythonnet', 'clr-loader', 'pystray', 'Pillow', 'requests'):
         _row(pkg, _package_version(pkg))
 
+    # Settings
+    _section('Settings')
+    from .settings import POPUP_MARGIN, SETTINGS_PATH
+    _row('Settings file', _redact_home(str(SETTINGS_PATH)) if SETTINGS_PATH else '(none found - defaults in use)')
+    _row('popup_margin', str(POPUP_MARGIN))
+
     # Credentials
     _section('Credentials')
     _row('File', _credentials_status())

@@ -3,7 +3,7 @@ Formatting Tests
 =================
 
 Unit tests for parse_field_name(), tooltip_label(), elapsed_pct(),
-time_until(), format_tooltip(), and format_credits().
+time_until(), format_tooltip(), format_credits(), and field_hidden().
 """
 from __future__ import annotations
 
@@ -14,8 +14,9 @@ from unittest.mock import MagicMock, patch
 
 from usage_monitor_for_claude.formatting import (
     PERIOD_5H, PERIOD_7D,
-    divider_positions, elapsed_pct, expand_popup_fields, field_period, format_credits,
-    format_tooltip, parse_field_name, popup_label, time_until, tooltip_label,
+    divider_positions, elapsed_pct, expand_popup_fields, field_hidden, field_inactive,
+    field_period, format_credits, format_tooltip, parse_field_name, popup_label, time_until,
+    tooltip_label,
 )
 from usage_monitor_for_claude.i18n import LOCALE_DIR
 
@@ -189,6 +190,73 @@ class TestFieldPeriod(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# field_hidden
+# ---------------------------------------------------------------------------
+
+@patch('usage_monitor_for_claude.formatting.T', EN)
+class TestFieldHidden(unittest.TestCase):
+    """Tests for field_hidden()."""
+
+    def test_empty_pattern_list_hides_nothing(self):
+        self.assertFalse(field_hidden('seven_day_opus', []))
+
+    def test_exact_field_name(self):
+        self.assertTrue(field_hidden('nimbus_quill', ['nimbus_quill']))
+
+    def test_variant_suffix_of_scoped_field(self):
+        """A bare model name also matches the period-prefixed scoped field."""
+        self.assertTrue(field_hidden('seven_day_nimbus_quill', ['nimbus_quill']))
+
+    def test_visible_label_matches(self):
+        """The label shown in the popup can be pasted straight into the setting."""
+        self.assertTrue(field_hidden('nimbus_quill', ['Nimbus Quill']))
+
+    def test_separator_and_case_insensitive(self):
+        self.assertTrue(field_hidden('nimbus_quill', ['NIMBUS-QUILL']))
+
+    def test_unrelated_field_not_hidden(self):
+        self.assertFalse(field_hidden('seven_day_opus', ['nimbus_quill']))
+
+    def test_partial_name_does_not_match(self):
+        """Matching is whole-token, so a prefix must not hide a longer name."""
+        self.assertFalse(field_hidden('seven_day_nimbus_quill', ['nimbus']))
+
+    def test_base_field_not_hidden_by_variant_pattern(self):
+        self.assertFalse(field_hidden('seven_day', ['nimbus_quill']))
+
+    def test_empty_string_pattern_ignored(self):
+        self.assertFalse(field_hidden('seven_day', ['']))
+
+
+# ---------------------------------------------------------------------------
+# field_inactive
+# ---------------------------------------------------------------------------
+
+class TestFieldInactive(unittest.TestCase):
+    """Tests for field_inactive()."""
+
+    def test_no_reset_and_zero_usage_is_inactive(self):
+        self.assertTrue(field_inactive({'utilization': 0, 'resets_at': None}))
+
+    def test_empty_reset_string_is_inactive(self):
+        self.assertTrue(field_inactive({'utilization': 0, 'resets_at': ''}))
+
+    def test_reset_window_present_is_active(self):
+        """A quota just after its reset is at 0% but still active."""
+        self.assertFalse(field_inactive({'utilization': 0, 'resets_at': '2026-08-17T18:00:00+00:00'}))
+
+    def test_usage_without_reset_is_active(self):
+        self.assertFalse(field_inactive({'utilization': 5, 'resets_at': None}))
+
+    def test_null_utilization_is_not_inactive(self):
+        """None utilization is handled by the null-field filter, not here."""
+        self.assertFalse(field_inactive({'utilization': None, 'resets_at': None}))
+
+    def test_non_dict_is_not_inactive(self):
+        self.assertFalse(field_inactive(None))
+
+
+# ---------------------------------------------------------------------------
 # expand_popup_fields
 # ---------------------------------------------------------------------------
 
@@ -204,6 +272,68 @@ class TestExpandPopupFields(unittest.TestCase):
         usage = self._usage(seven_day=20, five_hour=10, seven_day_sonnet=30)
         result = expand_popup_fields(['*'], usage)
         self.assertEqual(result, ['five_hour', 'seven_day', 'seven_day_sonnet'])
+
+    @patch('usage_monitor_for_claude.formatting.T', EN)
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', False)
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', ['nimbus_quill'])
+    def test_hidden_field_removed_from_wildcard(self):
+        """popup_hide_fields drops a field the wildcard would otherwise pick up."""
+        usage = self._usage(five_hour=10, seven_day=20, nimbus_quill=1)
+        result = expand_popup_fields(['*'], usage)
+        self.assertEqual(result, ['five_hour', 'seven_day'])
+
+    @patch('usage_monitor_for_claude.formatting.T', EN)
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', False)
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', ['nimbus_quill'])
+    def test_hidden_field_removed_when_listed_explicitly(self):
+        """popup_hide_fields wins over an explicit popup_fields entry."""
+        usage = self._usage(five_hour=10, nimbus_quill=1)
+        result = expand_popup_fields(['nimbus_quill', 'five_hour'], usage)
+        self.assertEqual(result, ['five_hour'])
+
+    @patch('usage_monitor_for_claude.formatting.T', EN)
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', False)
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', [])
+    def test_no_hide_list_keeps_every_field(self):
+        usage = self._usage(five_hour=10, nimbus_quill=1)
+        result = expand_popup_fields(['*'], usage)
+        self.assertEqual(result, ['five_hour', 'nimbus_quill'])
+
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', [])
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', True)
+    def test_inactive_field_dropped_from_wildcard(self):
+        """A never-used quota is not picked up by the wildcard."""
+        usage = {
+            'five_hour': {'utilization': 45, 'resets_at': '2026-08-13T08:00:00+00:00'},
+            'seven_day_opus': {'utilization': 0, 'resets_at': None},
+        }
+        self.assertEqual(expand_popup_fields(['*'], usage), ['five_hour'])
+
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', [])
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', True)
+    def test_inactive_field_kept_when_listed_explicitly(self):
+        """Naming an unused quota explicitly overrides the inactive filter."""
+        usage = {
+            'five_hour': {'utilization': 45, 'resets_at': '2026-08-13T08:00:00+00:00'},
+            'seven_day_opus': {'utilization': 0, 'resets_at': None},
+        }
+        self.assertEqual(expand_popup_fields(['seven_day_opus', '*'], usage), ['seven_day_opus', 'five_hour'])
+
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', [])
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', True)
+    def test_active_field_at_zero_percent_kept(self):
+        """A quota that has reset to 0% still has a reset window, so it stays."""
+        usage = {'seven_day': {'utilization': 0, 'resets_at': '2026-08-17T18:00:00+00:00'}}
+        self.assertEqual(expand_popup_fields(['*'], usage), ['seven_day'])
+
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', [])
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', False)
+    def test_inactive_field_kept_when_setting_disabled(self):
+        usage = {
+            'five_hour': {'utilization': 45, 'resets_at': '2026-08-13T08:00:00+00:00'},
+            'seven_day_opus': {'utilization': 0, 'resets_at': None},
+        }
+        self.assertEqual(expand_popup_fields(['*'], usage), ['five_hour', 'seven_day_opus'])
 
     def test_explicit_fields(self):
         """Explicit field names shown in listed order."""
@@ -310,6 +440,7 @@ class TestExpandPopupFields(unittest.TestCase):
         result = expand_popup_fields(['*'], {})
         self.assertEqual(result, [])
 
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', False)
     def test_utilization_zero_included(self):
         """Fields with utilization 0 are included (0 is a valid value, not null)."""
         usage = {'five_hour': {'utilization': 0, 'resets_at': ''}}

@@ -86,6 +86,10 @@ class TestLockBehavior(unittest.TestCase):
 # Cooldown behavior
 # ---------------------------------------------------------------------------
 
+# Pinned to the upstream cadence so the fixed timestamps below keep their
+# meaning; this fork ships 60 / 60 as its default.
+@patch('usage_monitor_for_claude.cache.POLL_INTERVAL', 180)
+@patch('usage_monitor_for_claude.cache.POLL_FAST', 120)
 class TestCooldownBehavior(unittest.TestCase):
     """Tests for POLL_FAST cooldown between updates."""
 
@@ -389,6 +393,10 @@ class TestFailedTokenGuard(unittest.TestCase):
 # Rate limit guard
 # ---------------------------------------------------------------------------
 
+# Pinned to the upstream cadence so the backoff arithmetic below stays as
+# written; this fork ships 60 / 60 as its default.
+@patch('usage_monitor_for_claude.cache.POLL_INTERVAL', 180)
+@patch('usage_monitor_for_claude.cache.POLL_FAST', 120)
 class TestRateLimitGuard(unittest.TestCase):
     """Tests for _rate_limit_until preventing calls during 429 backoff."""
 

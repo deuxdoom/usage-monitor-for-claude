@@ -65,7 +65,7 @@ _EXTENSION_DIRS: list[tuple[str, Path]] = [
 _EXTENSION_PREFIX = 'anthropic.claude-code-'
 
 CHANGELOG_URL = 'https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md'
-PROJECT_URL = 'https://github.com/jens-duttke/usage-monitor-for-claude'
+PROJECT_URL = 'https://github.com/deuxdoom/usage-monitor-for-claude'
 
 __all__ = ['CLAUDE_CLI_PATH', 'CHANGELOG_URL', 'PROJECT_URL', 'ClaudeInstallation', 'RefreshResult', 'cli_version', 'find_installations', 'refresh_token']
 

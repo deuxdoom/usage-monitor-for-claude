@@ -8,6 +8,7 @@
 <header>
     <span id="title"></span>
     <div class="window-controls">
+        <button type="button" id="refreshBtn"><svg viewBox="0 0 16 16"><path fill="currentColor" d="M8 3a5 5 0 1 0 4.9 6h-1.55A3.5 3.5 0 1 1 8 4.5c.97 0 1.84.39 2.47 1.03L8.5 7.5H13V3l-1.47 1.47A4.98 4.98 0 0 0 8 3z"/></svg></button>
         <button type="button" id="pinBtn" aria-pressed="false"><svg viewBox="0 0 16 16"><path fill="currentColor" d="M5 2h6v2l-1 1v3l3 3v1H9v3H7v-3H3v-1l3-3V5L5 4z"/></svg></button>
         <button type="button" id="closeBtn" aria-label="Close">&times;</button>
     </div>
@@ -18,7 +19,7 @@
     <dl>
         <div id="emailRow">
             <dt id="labelEmail"></dt>
-            <dd id="emailValue"></dd>
+            <dd id="emailValue" role="button" tabindex="0"></dd>
         </div>
         <div id="planRow">
             <dt id="labelPlan"></dt>

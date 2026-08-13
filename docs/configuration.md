@@ -121,6 +121,54 @@ Must be an array of non-empty strings. `"*"` may appear at most once. Duplicates
 }
 ```
 
+## Hidden popup fields
+
+The usage API can expose quota types you have no interest in - for example a limit scoped to a model you never use, which the `"*"` wildcard picks up automatically and shows as a permanently empty bar. `popup_hide_fields` removes those bars without giving up the wildcard.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `popup_hide_fields` | `["nimbus_quill"]` | Usage fields never shown in the popup, matched by field name or by the label the popup displays |
+| `popup_hide_inactive` | `true` | Drop quotas that have never been used - no reset window and 0% consumed - from the `"*"` wildcard |
+
+Must be an array of non-empty strings. Each entry is matched case-insensitively against the field name (`nimbus_quill`), against its variant suffix so a bare model name also matches the period-prefixed form (`nimbus_quill` matches `seven_day_nimbus_quill`), and against the label shown in the popup (`Nimbus Quill`). Spaces, hyphens and underscores are interchangeable, so you can copy the text straight out of the popup. Matching is whole-token: `nimbus` does **not** match `nimbus_quill`.
+
+This takes precedence over [`popup_fields`](#popup-fields) - a hidden field stays hidden even when listed there explicitly. It affects the popup only; the tray icon bars ([`icon_fields`](#tray-icon-bars)) and the tooltip ([`tooltip_fields`](#tooltip-fields)) are unaffected.
+
+`popup_hide_inactive` works the other way round: it is an automatic tidy-up of the wildcard, so naming such a field in `popup_fields` still shows it. A quota that has just reset is at 0% but still has a reset window, so it is never treated as inactive.
+
+**Both defaults differ from upstream.** Upstream shows every quota the API reports, including ones with no reset window, so a limit is visible before it is first used. This fork hides them, because the API currently reports `nimbus_quill` as a permanently empty bar. To get the upstream behavior back:
+
+```json
+{
+    "popup_hide_fields": [],
+    "popup_hide_inactive": false
+}
+```
+
+Note that setting `popup_hide_fields` yourself **replaces** the default rather than adding to it - list `"nimbus_quill"` alongside your own entries if you want it to stay hidden.
+
+```json
+{
+    "popup_hide_fields": ["nimbus_quill", "Some Other Quota"]
+}
+```
+
+## Popup position
+
+The popup is anchored to the corner nearest the tray, staying clear of both the monitor work area edge and the taskbar window's own rectangle - whichever is stricter. The second bound covers an auto-hiding taskbar, which Windows does not subtract from the work area at all. A third-party bar drawn as its own window is still not accounted for; `popup_margin` widens the gap for that case.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `popup_margin` | `12` | Gap in physical pixels between the popup and the work-area edge it is anchored to |
+
+Must be an integer of 0 or more. The value is in physical pixels and is not DPI-scaled, so on a 150% display a margin of `75` is roughly 50 logical pixels.
+
+```json
+{
+    "popup_margin": 75
+}
+```
+
 ## Compact pinned view
 
 The detail popup can be pinned open (pin button in the header) so it stays visible and can be dragged anywhere. Use `compact_hide` to strip the pinned popup down to just the usage bars you care about - the entries listed here are hidden **only while the popup is pinned**, and reappear when you unpin it.
@@ -208,10 +256,12 @@ Run a shell command when a usage event occurs. See [Event Commands](event-comman
 
 ## Polling intervals
 
+**This fork polls once a minute** (upstream: `180` / `120`). Raise both values if you would rather trade freshness for fewer API calls.
+
 | Key | Default | Description |
 |-----|---------|-------------|
-| `poll_interval` | `180` | Seconds between API updates |
-| `poll_fast` | `120` | Seconds when usage is actively increasing |
+| `poll_interval` | `60` | Seconds between API updates |
+| `poll_fast` | `60` | Seconds when usage is actively increasing. Doubles as the cache cooldown, so a value below `poll_interval` does not make regular polls more frequent |
 | `poll_fast_extra` | `2` | Extra fast polls after usage stops increasing |
 | `poll_error` | `30` | Seconds after a transient error (5xx, network). Rate-limit errors (429) use exponential backoff instead |
 | `max_backoff` | `900` | Maximum backoff in seconds for rate-limit errors (15 min) |

@@ -109,6 +109,119 @@ def _run_scenario(scenario: str) -> dict:
 
 
 @unittest.skipUnless(_NODE, 'Node.js not available')
+class TestAccountRow(unittest.TestCase):
+    """Tests for renderAccountRow in popup.js - the name/email toggle."""
+
+    _PRELUDE = r"""
+const labelEl = document.createElement('dt');
+labelEl.id = 'labelEmail';
+document.getElementById = (id) => (id === 'labelEmail' ? labelEl : null);
+els = { emailValue: document.createElement('dd'), emailRow: document.createElement('div') };
+els.emailRow.style = {};
+translations = { email: 'Email', name: 'Name', reveal_email: 'show', hide_email: 'hide' };
+"""
+
+    _EPILOGUE = """
+console.log(JSON.stringify({
+    label: labelEl.textContent,
+    value: els.emailValue.textContent,
+    className: els.emailValue.className,
+    title: els.emailValue.title,
+    display: els.emailRow.style.display,
+}));
+"""
+
+    def _render(self, profile, revealed=False):
+        state = f'emailRevealed = {"true" if revealed else "false"};\nrenderAccountRow({profile});\n'
+        return _run_scenario(self._PRELUDE + state + self._EPILOGUE)
+
+    def test_name_shown_by_default(self):
+        """With a name available the email is not on screen until asked for."""
+        out = self._render("{ email: 'max@clau.de', name: 'Max Clau' }")
+        self.assertEqual(out['value'], 'Max Clau')
+        self.assertEqual(out['label'], 'Name')
+        self.assertNotIn('masked', out['className'])
+        self.assertEqual(out['title'], 'show')
+
+    def test_email_shown_when_revealed(self):
+        out = self._render("{ email: 'max@clau.de', name: 'Max Clau' }", revealed=True)
+        self.assertEqual(out['value'], 'max@clau.de')
+        self.assertEqual(out['label'], 'Email')
+        self.assertEqual(out['title'], 'hide')
+
+    def test_email_blurred_without_a_name(self):
+        """No name to show instead, so the address itself is rendered blurred."""
+        out = self._render("{ email: 'max@clau.de', name: '' }")
+        self.assertEqual(out['value'], 'max@clau.de')
+        self.assertEqual(out['label'], 'Email')
+        self.assertIn('masked', out['className'])
+
+    def test_blur_cleared_when_revealed(self):
+        out = self._render("{ email: 'max@clau.de', name: '' }", revealed=True)
+        self.assertNotIn('masked', out['className'])
+        self.assertIn('toggleable', out['className'])
+
+    def test_name_without_email_is_not_toggleable(self):
+        """Nothing is hidden, so the row must not offer a pointless click."""
+        out = self._render("{ email: '', name: 'Max Clau' }")
+        self.assertNotIn('toggleable', out['className'])
+        self.assertEqual(out['title'], '')
+
+    def test_row_hidden_when_profile_has_neither(self):
+        out = self._render("{ email: '', name: '' }")
+        self.assertEqual(out['display'], 'none')
+
+
+@unittest.skipUnless(_NODE, 'Node.js not available')
+class TestStatusText(unittest.TestCase):
+    """Tests for tickStatusText in popup.js."""
+
+    _PRELUDE = r"""
+els = {
+    statusText: document.createElement('span'),
+    usageSection: document.createElement('div'),
+    extraSection: document.createElement('div'),
+};
+translations = {
+    status_updated_s: 'updated {s}s ago',
+    status_updated: 'updated {duration} ago',
+    status_next_update: 'next in {duration}',
+    status_refreshing: 'refreshing',
+    duration_hm: '{h}h {m}m',
+    duration_m: '{m}m',
+    duration_s: '{s}s',
+};
+const NOW = Date.now() / 1000;
+"""
+
+    _EPILOGUE = "\ntickStatusText();\nconsole.log(JSON.stringify({ text: els.statusText.textContent }));\n"
+
+    def _status(self, state):
+        return _run_scenario(self._PRELUDE + state + self._EPILOGUE)['text']
+
+    def test_countdown_shown_within_the_first_minute(self):
+        """The next-update countdown does not wait for the elapsed half to reach 60s."""
+        state = "statusState = { lastSuccessTime: NOW - 5, nextPollTime: NOW + 115 };"
+        self.assertEqual(self._status(state), "updated 5s ago \u00b7 next in 2m")
+
+    def test_countdown_shown_after_a_minute(self):
+        state = "statusState = { lastSuccessTime: NOW - 90, nextPollTime: NOW + 90 };"
+        self.assertEqual(self._status(state), "updated 1m ago \u00b7 next in 2m")
+
+    def test_countdown_under_a_minute_shown_in_seconds(self):
+        state = "statusState = { lastSuccessTime: NOW - 10, nextPollTime: NOW + 30 };"
+        self.assertEqual(self._status(state), "updated 10s ago \u00b7 next in 30s")
+
+    def test_refreshing_replaces_the_countdown(self):
+        state = "statusState = { lastSuccessTime: NOW - 10, nextPollTime: NOW + 30, refreshing: true };"
+        self.assertEqual(self._status(state), "updated 10s ago \u00b7 refreshing")
+
+    def test_no_countdown_without_a_scheduled_poll(self):
+        state = "statusState = { lastSuccessTime: NOW - 10 };"
+        self.assertEqual(self._status(state), "updated 10s ago")
+
+
+@unittest.skipUnless(_NODE, 'Node.js not available')
 class TestUsageBarUpdates(unittest.TestCase):
     """Tests for updateUsageBars/updateBarElement in popup.js."""
 

@@ -56,6 +56,24 @@ header {
 
             &.pinned { color: var(--fg-heading); }
         }
+
+        &#refreshBtn {
+            & svg {
+                width: 16px;
+                height: 16px;
+            }
+
+            /* Keep the icon visible but inert while a fetch is in flight. */
+            &:disabled {
+                cursor: default;
+                color: var(--fg-dim);
+            }
+
+            &.spinning svg {
+                animation: refresh-spin 0.9s linear infinite;
+                transform-origin: 50% 50%;
+            }
+        }
     }
 
     /* When pinned, the header acts as the drag handle. */
@@ -124,6 +142,22 @@ dl > div {
 
     & > dt { color: var(--fg-dim); }
     & > dd { margin: 0; }
+}
+
+/* The account row hides the email until clicked. */
+#emailValue {
+    &.toggleable {
+        cursor: pointer;
+        outline: none;
+    }
+
+    /* Used when the account has no name to show instead - the address stays
+       in place but unreadable, so the row keeps its width and the click
+       target does not move when it is revealed. */
+    &.masked {
+        filter: blur(5px);
+        user-select: none;
+    }
 }
 
 #usageBars {
@@ -205,4 +239,14 @@ footer {
     & > #appVersion { flex-shrink: 0; }
 
     &.error > #statusText { color: var(--bar-fg-warn); }
+}
+
+@keyframes refresh-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Respect the OS "reduce motion" setting: no spin, just the dimmed state. */
+@media (prefers-reduced-motion: reduce) {
+    header button#refreshBtn.spinning svg { animation: none; }
 }

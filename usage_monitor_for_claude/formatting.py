@@ -12,11 +12,15 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .i18n import T
-from .settings import CURRENCY_SYMBOL, TIME_FORMAT, TOOLTIP_FIELDS, _SYSTEM_CURRENCY_SYMBOL
+from .settings import (
+    CURRENCY_SYMBOL, POPUP_HIDE_FIELDS, POPUP_HIDE_INACTIVE, TIME_FORMAT, TOOLTIP_FIELDS,
+    _SYSTEM_CURRENCY_SYMBOL,
+)
 
 __all__ = [
-    'divider_positions', 'elapsed_pct', 'expand_popup_fields', 'field_period', 'format_credits',
-    'format_tooltip', 'parse_field_name', 'popup_label', 'time_until', 'tooltip_label',
+    'divider_positions', 'elapsed_pct', 'expand_popup_fields', 'field_hidden', 'field_inactive',
+    'field_period', 'format_credits', 'format_tooltip', 'parse_field_name', 'popup_label',
+    'time_until', 'tooltip_label',
 ]
 
 PERIOD_5H = 5 * 3600
@@ -143,6 +147,73 @@ def field_period(field: str) -> int | None:
     return None
 
 
+def _slug(text: str) -> str:
+    """Normalize a field name or label to a comparable slug.
+
+    Lowercases and reduces every run of non-alphanumeric characters to a
+    single underscore, so ``'Nimbus Quill'``, ``'nimbus-quill'`` and
+    ``'nimbus_quill'`` all compare equal.
+    """
+    cleaned = ''.join(char if char.isalnum() else ' ' for char in text.lower())
+    return '_'.join(cleaned.split())
+
+
+def field_hidden(field: str, patterns: list[str] | None = None) -> bool:
+    """Return whether a usage field is suppressed by ``popup_hide_fields``.
+
+    A pattern matches when it equals the field name, the field's variant
+    suffix, or the field's rendered popup label - so the same entry works
+    whether the API exposes a quota as a top-level field (``nimbus_quill``)
+    or as a model-scoped one (``seven_day_nimbus_quill``), and whether the
+    user copies the raw name or the text shown in the popup.  Matching is
+    case-insensitive and ignores spaces, hyphens and underscores.
+
+    Parameters
+    ----------
+    field : str
+        API field name, e.g. ``'seven_day_opus'``.
+    patterns : list[str] or None
+        Patterns to match against; defaults to the ``popup_hide_fields``
+        setting.
+
+    Returns
+    -------
+    bool
+        True if the field must not be displayed.
+    """
+    if patterns is None:
+        patterns = POPUP_HIDE_FIELDS
+    if not patterns:
+        return False
+
+    parsed = parse_field_name(field)
+    candidates = {_slug(field), _slug(popup_label(field))}
+    if parsed is not None and parsed[2]:
+        candidates.add(_slug(parsed[2]))
+
+    return any(_slug(pattern) in candidates for pattern in patterns if pattern)
+
+
+def field_inactive(entry: dict[str, Any] | None) -> bool:
+    """Return whether a quota has never been used.
+
+    True when the API reports no reset window (the quota has no active
+    period) and nothing consumed.  Such a quota renders as a permanently
+    empty bar with no countdown, which is only useful as an advance notice
+    that the limit exists - hence the ``popup_hide_inactive`` setting.
+
+    Parameters
+    ----------
+    entry : dict or None
+        A single quota object from the usage API response.
+    """
+    if not isinstance(entry, dict):
+        return False
+
+    utilization = entry.get('utilization')
+    return not entry.get('resets_at') and utilization is not None and utilization <= 0
+
+
 def _field_sort_key(field: str) -> tuple[int, int, int, str]:
     """Sort key for default field ordering: shorter periods first, base before variants."""
     parsed = parse_field_name(field)
@@ -168,12 +239,16 @@ def expand_popup_fields(popup_fields: list[str], usage_data: dict[str, Any]) -> 
     Returns
     -------
     list[str]
-        Ordered list of field names to display, with null/missing fields removed.
+        Ordered list of field names to display, with null/missing fields
+        and fields suppressed by ``popup_hide_fields`` removed.  When
+        ``popup_hide_inactive`` is set, never-used quotas are also dropped
+        from the wildcard expansion.
     """
     available = {
         key for key, value in usage_data.items()
         if isinstance(value, dict) and 'utilization' in value and 'resets_at' in value
         and value.get('utilization') is not None
+        and not field_hidden(key)
     }
 
     result: list[str] = []
@@ -181,7 +256,15 @@ def expand_popup_fields(popup_fields: list[str], usage_data: dict[str, Any]) -> 
 
     for field in popup_fields:
         if field == '*':
-            remaining = sorted((f for f in available if f not in seen), key=_field_sort_key)
+            # Unused quotas are dropped from the wildcard only - listing one
+            # explicitly is taken as "show it anyway".
+            remaining = sorted(
+                (
+                    f for f in available
+                    if f not in seen and not (POPUP_HIDE_INACTIVE and field_inactive(usage_data.get(f)))
+                ),
+                key=_field_sort_key,
+            )
             for f in remaining:
                 seen.add(f)
                 result.append(f)

@@ -85,7 +85,7 @@ const LANGS = [
 // locale so every text case can be inspected in any language.
 const PRESETS = {
     full: {
-        profile: { email: 'user@example.com', plan: 'Max (Team)' },
+        profile: { email: 'user@example.com', name: 'Max Clau', plan: 'Max (Team)' },
         usage: [
             { unit: 'hour', suffix: '5hr', pct: 42, warn: false,
               reset: { kind: 'in', duration: '2h 30m', clock: '14:30' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.35 },
@@ -116,7 +116,7 @@ const PRESETS = {
         status: () => ({ last_success_time: now() - 90, next_poll_time: now() + 90, refreshing: false, error: null }),
     },
     error: {
-        profile: { email: 'user@example.com', plan: 'Max' },
+        profile: { email: 'user@example.com', name: '', plan: 'Max' },
         usage: [
             { unit: 'hour', suffix: '5hr', pct: 95, warn: true,
               reset: { kind: 'in', duration: '12m', clock: '12:12' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.96 },
@@ -128,7 +128,7 @@ const PRESETS = {
         status: () => ({ last_success_time: now() - 300, next_poll_time: now() + 30, refreshing: false, error: 'Could not connect to Anthropic API.' }),
     },
     refreshing: {
-        profile: { email: 'user@example.com', plan: 'Max (Team)' },
+        profile: { email: 'user@example.com', name: 'Max Clau', plan: 'Max (Team)' },
         usage: [
             { unit: 'hour', suffix: '5hr', pct: 42, warn: false,
               reset: { kind: 'in', duration: '2h 30m', clock: '14:30' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.35 },
@@ -158,6 +158,8 @@ function buildTranslations(loc) {
     return {
         title: loc.popup_title, account: loc.account, email: loc.email, plan: loc.plan,
         usage: loc.usage, extra_usage: loc.extra_usage, claude_code: loc.claude_code, changelog: loc.changelog,
+        pin_popup: loc.pin_popup, unpin_popup: loc.unpin_popup, refresh: loc.refresh,
+        name: loc.name, reveal_email: loc.reveal_email, hide_email: loc.hide_email,
         status_updated_s: loc.status_updated_s, status_updated: loc.status_updated,
         status_next_update: loc.status_next_update, status_refreshing: loc.status_refreshing,
         duration_hm: loc.duration_hm, duration_m: loc.duration_m, duration_s: loc.duration_s,
@@ -240,6 +242,8 @@ async function applyLanguage(code) {
     currentLocale = await loadLocale(code);
     await reloadFrame();
     win().pywebview = { api: { close() {}, open_url() {},
+        // Fake latency so the refresh button's spinner is visible in the preview.
+        refresh() { return new Promise((resolve) => setTimeout(() => resolve(true), 900)); },
         set_pinned(pinned) { return Promise.resolve(pinned); },
         begin_drag() { return Promise.resolve(true); },
         drag() { return Promise.resolve(true); },

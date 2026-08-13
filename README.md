@@ -21,7 +21,7 @@ A native Windows tray app that shows your Claude usage at a glance - lightweight
 - **Portable** - single EXE (~12.5 MB), no installation, no Electron, no runtime required. Download, place anywhere, run. To uninstall, delete the file
 - **Zero configuration** - authenticates through your existing Claude Code login, no API key or manual token entry needed
 - **Live tray icon** with two [configurable](docs/configuration.md#tray-icon-bars) progress bars (session + weekly by default) or, via the `icon_style` setting, both values as stacked percentages, plus [configurable tooltip](docs/configuration.md#tooltip-fields), percentage display, and theme-aware colors for light and dark taskbars
-- **Detail popup** (left-click) showing account info, dynamically detected usage bars for all active quota types (Session, Weekly, Sonnet, Opus, Fable, Cowork, and any new quotas Anthropic adds) with [configurable field selection](docs/configuration.md#popup-fields), extra usage, reset countdowns, and a stale-data indicator when values may be outdated; pin it open and move it while pinned to keep usage details visible during long sessions, and [configure a compact pinned view](docs/configuration.md#compact-pinned-view) that hides the sections and bars you do not need. Reset times follow your Windows 24-hour or 12-hour clock format automatically
+- **Detail popup** (left-click) showing account info, dynamically detected usage bars for all active quota types (Session, Weekly, Sonnet, Opus, Fable, Cowork, and any new quotas Anthropic adds) with [configurable field selection](docs/configuration.md#popup-fields) and a [hide list](docs/configuration.md#hidden-popup-fields) for quota types you do not care about, extra usage, reset countdowns, a manual refresh button, and a stale-data indicator when values may be outdated; pin it open and move it while pinned to keep usage details visible during long sessions, and [configure a compact pinned view](docs/configuration.md#compact-pinned-view) that hides the sections and bars you do not need. Reset times follow your Windows 24-hour or 12-hour clock format automatically
 - **Claude Code versions** - the popup shows which version is installed in each environment (native CLI, VS Code, Cursor, Windsurf), making it easy to spot when your IDE extension is ahead of or behind the CLI. Run Claude Code somewhere the app cannot see it, such as WSL? Add it with the [`cli_command`](docs/configuration.md#claude-cli-command) setting and its version is listed alongside the rest
 - **Smart alerts** - configurable threshold notifications per quota type, with time-aware mode that only alerts when usage outpaces elapsed time. Reset notifications when a nearly exhausted quota refills. Extra usage can also alert on absolute spending amounts (e.g. $50 / $100 / $150 spent), the only alert available when it has no monthly limit
 - **[Event commands](docs/event-commands.md)** - run a custom shell command when a quota resets, a usage threshold is crossed, the app starts up, or you double-click the tray icon. Send push notifications to your phone, resume an AI agent, start a fresh 5-hour session automatically, play an alert sound, launch a companion tool like [Agent Monitor for Claude](https://github.com/jens-duttke/agent-monitor-for-claude) on double-click, or trigger any custom workflow
@@ -71,7 +71,9 @@ This tool handles your Claude Code OAuth token, so you should be able to verify 
 | **Hover** over the tray icon | Tooltip shows 5h and 7d usage percentages with reset times |
 | **Left-click** the tray icon | Opens the detail popup with account info and all usage bars |
 | **Double-click** the tray icon | Runs the [`on_double_click_command`](docs/event-commands.md) if configured (e.g. launch [Agent Monitor for Claude](https://github.com/jens-duttke/agent-monitor-for-claude)); otherwise does nothing |
-| **Right-click** the tray icon | Context menu: open popup, autostart toggle, test event commands, restart, GitHub link, or quit |
+| **Right-click** the tray icon | Context menu: open popup, autostart toggle, restart, GitHub link, or quit (plus a test submenu when event commands are configured) |
+| **Refresh button** in the popup | Fetches usage data immediately, instead of waiting for the next scheduled poll |
+| **Click the account row** | Reveals the email address (hidden behind your name, or blurred, by default); click again to hide it |
 | **Escape** or click outside | Closes the detail popup |
 
 ### Tray icon not visible?
@@ -112,6 +114,8 @@ The app searches for this file in these locations (first match wins):
 3. **`~/.claude/usage-monitor-settings.json`**
 
 The app never creates or modifies this file. See [Configuration](docs/configuration.md) for all available settings (alert thresholds, polling intervals, colors, language, and more).
+
+> **This fork changes two defaults.** Quota types the API reports but that have never been used - currently `nimbus_quill` - are hidden from the popup, where upstream shows them as empty bars. Set `{"popup_hide_fields": [], "popup_hide_inactive": false}` for the upstream behavior. See [Hidden popup fields](docs/configuration.md#hidden-popup-fields).
 
 ---
 

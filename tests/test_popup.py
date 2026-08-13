@@ -176,6 +176,23 @@ class TestSnapshotToDict(unittest.TestCase):
         self.assertEqual(result['profile']['email'], 'test@example.com')
         self.assertEqual(result['profile']['plan'], 'Pro Team')
 
+    def test_profile_name_prefers_full_name(self):
+        """full_name is what the account row shows before the email is revealed."""
+        profile = {'account': {'email': 'test@example.com', 'full_name': 'Max Clau', 'display_name': 'Max'}}
+        result = _snapshot_to_dict(_snap(profile=profile), installations=[])
+        self.assertEqual(result['profile']['name'], 'Max Clau')
+
+    def test_profile_name_falls_back_to_display_name(self):
+        profile = {'account': {'email': 'test@example.com', 'display_name': 'Max'}}
+        result = _snapshot_to_dict(_snap(profile=profile), installations=[])
+        self.assertEqual(result['profile']['name'], 'Max')
+
+    def test_profile_name_empty_when_account_has_neither(self):
+        """No name at all leaves the popup to fall back to a blurred email."""
+        profile = {'account': {'email': 'test@example.com'}}
+        result = _snapshot_to_dict(_snap(profile=profile), installations=[])
+        self.assertEqual(result['profile']['name'], '')
+
     def test_empty_profile_hidden(self):
         """Empty profile dict from API is treated as absent (no broken UI)."""
         result = _snapshot_to_dict(_snap(profile={}), installations=[])
@@ -185,6 +202,7 @@ class TestSnapshotToDict(unittest.TestCase):
         """Present but incomplete profile defaults missing fields to empty strings."""
         result = _snapshot_to_dict(_snap(profile={'account': {}}), installations=[])
         self.assertEqual(result['profile']['email'], '')
+        self.assertEqual(result['profile']['name'], '')
         self.assertEqual(result['profile']['plan'], '')
 
     def test_profile_with_null_account_and_organization(self):
@@ -229,8 +247,13 @@ class TestSnapshotToDict(unittest.TestCase):
         self.assertEqual(bar['reset_text'], '5h 0m')
         self.assertEqual(bar['dividers'], [])
 
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', False)
     def test_field_with_null_resets_at(self):
-        """An inactive scoped limit (resets_at None) renders a 0% bar with no reset text."""
+        """An inactive scoped limit (resets_at None) renders a 0% bar with no reset text.
+
+        Covers the rendering of such a bar, so the popup_hide_inactive filter
+        that normally suppresses it is turned off here.
+        """
         usage = {'seven_day_fable': {'utilization': 0.0, 'resets_at': None}}
         result = _snapshot_to_dict(_snap(usage=usage), installations=[])
 
@@ -243,6 +266,17 @@ class TestSnapshotToDict(unittest.TestCase):
         self.assertEqual(bar['dividers'], [])
         self.assertIsNone(bar['marker_rel'])
         self.assertFalse(bar['warn'])
+
+    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', True)
+    def test_inactive_field_omitted_from_popup(self):
+        """With popup_hide_inactive on, a never-used quota produces no bar at all."""
+        usage = {
+            'five_hour': {'utilization': 20.0, 'resets_at': '2026-01-01T05:00:00Z'},
+            'seven_day_fable': {'utilization': 0.0, 'resets_at': None},
+        }
+        result = _snapshot_to_dict(_snap(usage=usage), installations=[])
+
+        self.assertEqual([bar['key'] for bar in result['usage']], ['five_hour'])
 
     @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=30.0)
     @patch('usage_monitor_for_claude.popup.time_until', return_value='3h 30m')
@@ -1000,10 +1034,17 @@ class TestTrayPosition(unittest.TestCase):
     """
 
     def _call(self, work_left, work_top, work_right, work_bottom, dpi, physical_width, physical_height,
-              mon_left=0, mon_top=0):
-        """Call _tray_position without constructing a full UsagePopup."""
+              mon_left=0, mon_top=0, bar_rect=None):
+        """Call _tray_position without constructing a full UsagePopup.
+
+        *bar_rect* is the taskbar window rectangle as ``(l, t, r, b)``.  The
+        default mirrors a normal taskbar that Windows already subtracted from
+        the work area, so it changes nothing.
+        """
         popup = object.__new__(UsagePopup)
         popup._popup_hwnd = 12345
+        if bar_rect is None:
+            bar_rect = (work_left, work_bottom, work_right, work_bottom)
 
         def fill_mon_info(_hmon, ptr):
             info = ctypes.cast(ptr, ctypes.POINTER(_MONITORINFO)).contents
@@ -1017,9 +1058,15 @@ class TestTrayPosition(unittest.TestCase):
             info.rcWork.right = work_right
             info.rcWork.bottom = work_bottom
 
+        def fill_bar_rect(_hwnd, ptr):
+            rect = ctypes.cast(ptr, ctypes.POINTER(ctypes.wintypes.RECT)).contents
+            rect.left, rect.top, rect.right, rect.bottom = bar_rect
+            return 1
+
         with patch('ctypes.windll.user32.FindWindowW', return_value=99999), \
              patch('ctypes.windll.user32.MonitorFromWindow', return_value=11111), \
              patch('ctypes.windll.user32.GetMonitorInfoW', side_effect=fill_mon_info), \
+             patch('ctypes.windll.user32.GetWindowRect', side_effect=fill_bar_rect), \
              patch('ctypes.windll.user32.GetDpiForWindow', return_value=dpi):
             return popup._tray_position(physical_width, physical_height)
 
@@ -1062,6 +1109,74 @@ class TestTrayPosition(unittest.TestCase):
         x, y = self._call(0, 40, 1920, 1080, _BASELINE_DPI, 340, 400)
         self.assertEqual(x, 1920 - 340 - 12)
         self.assertEqual(y, 40 + 12)
+
+    @patch('usage_monitor_for_claude.popup.POPUP_MARGIN', 75)
+    def test_custom_margin_applied_at_bottom_right(self):
+        """popup_margin replaces the default gap to the work-area edge."""
+        x, y = self._call(0, 0, 1920, 1040, _BASELINE_DPI, 340, 400)
+        self.assertEqual(x, 1920 - 340 - 75)
+        self.assertEqual(y, 1040 - 400 - 75)
+
+    @patch('usage_monitor_for_claude.popup.POPUP_MARGIN', 75)
+    def test_custom_margin_applied_on_left_and_top_edges(self):
+        """The same margin anchors the popup when the taskbar is on the left or top."""
+        x, _ = self._call(60, 0, 1920, 1080, _BASELINE_DPI, 340, 400)
+        self.assertEqual(x, 60 + 75)
+        _, y = self._call(0, 40, 1920, 1080, _BASELINE_DPI, 340, 400)
+        self.assertEqual(y, 40 + 75)
+
+    def test_autohidden_bottom_taskbar_is_avoided(self):
+        """An auto-hiding taskbar leaves the work area full-height; avoid it anyway."""
+        # Work area spans the whole monitor, but the bar occupies the last 48px.
+        x, y = self._call(0, 0, 1920, 1080, _BASELINE_DPI, 340, 400,
+                          bar_rect=(0, 1032, 1920, 1080))
+        self.assertEqual(x, 1920 - 340 - 12)
+        self.assertEqual(y, 1032 - 400 - 12)
+
+    def test_autohidden_top_taskbar_is_avoided(self):
+        x, y = self._call(0, 0, 1920, 1080, _BASELINE_DPI, 340, 400,
+                          bar_rect=(0, 0, 1920, 48))
+        self.assertEqual(y, 1080 - 400 - 12)
+        self.assertEqual(x, 1920 - 340 - 12)
+
+    def test_autohidden_left_taskbar_is_avoided(self):
+        x, _ = self._call(0, 0, 1920, 1080, _BASELINE_DPI, 340, 400,
+                          bar_rect=(0, 0, 60, 1080))
+        self.assertEqual(x, 1920 - 340 - 12)
+
+    def test_work_area_wins_when_stricter_than_taskbar_rect(self):
+        """A normal taskbar is already excluded from the work area; nothing changes."""
+        x, y = self._call(0, 0, 1920, 1032, _BASELINE_DPI, 340, 400,
+                          bar_rect=(0, 1032, 1920, 1080))
+        self.assertEqual(x, 1920 - 340 - 12)
+        self.assertEqual(y, 1032 - 400 - 12)
+
+    def test_fullscreen_taskbar_rect_ignored(self):
+        """A bar rectangle covering the monitor says nothing; fall back to the work area."""
+        x, y = self._call(0, 0, 1920, 1032, _BASELINE_DPI, 340, 400,
+                          bar_rect=(0, 0, 1920, 1080))
+        self.assertEqual(x, 1920 - 340 - 12)
+        self.assertEqual(y, 1032 - 400 - 12)
+
+    def test_missing_taskbar_window_falls_back_to_work_area(self):
+        popup = object.__new__(UsagePopup)
+        popup._popup_hwnd = 12345
+
+        def fill_mon_info(_hmon, ptr):
+            info = ctypes.cast(ptr, ctypes.POINTER(_MONITORINFO)).contents
+            info.rcMonitor.left = info.rcMonitor.top = 0
+            info.rcMonitor.right, info.rcMonitor.bottom = 1920, 1080
+            info.rcWork.left = info.rcWork.top = 0
+            info.rcWork.right, info.rcWork.bottom = 1920, 1032
+
+        with patch('ctypes.windll.user32.FindWindowW', return_value=0), \
+             patch('ctypes.windll.user32.MonitorFromWindow', return_value=11111), \
+             patch('ctypes.windll.user32.GetMonitorInfoW', side_effect=fill_mon_info), \
+             patch('ctypes.windll.user32.GetDpiForWindow', return_value=_BASELINE_DPI):
+            x, y = popup._tray_position(340, 400)
+
+        self.assertEqual(x, 1920 - 340 - 12)
+        self.assertEqual(y, 1032 - 400 - 12)
 
     def test_popup_fits_within_work_area_at_125_percent(self):
         """The popup's physical extent must not exceed the work area at 125% scaling."""

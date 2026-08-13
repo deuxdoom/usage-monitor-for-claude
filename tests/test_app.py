@@ -1298,6 +1298,10 @@ class TestOnThemeChanged(unittest.TestCase):
 # _calculate_poll_interval
 # ---------------------------------------------------------------------------
 
+# Pinned to the upstream cadence (180 / 120) so the interval math these tests
+# describe stays readable; this fork ships 60 / 60 as the shipped default.
+@patch('usage_monitor_for_claude.app.POLL_INTERVAL', 180)
+@patch('usage_monitor_for_claude.app.POLL_FAST', 120)
 class TestCalculatePollInterval(unittest.TestCase):
     """Tests for _calculate_poll_interval() adaptive interval logic."""
 
@@ -1430,6 +1434,10 @@ class TestSecondsUntilNextReset(unittest.TestCase):
 # Poll interval reset alignment
 # ---------------------------------------------------------------------------
 
+# Pinned to the upstream cadence (180 / 120) so the interval math these tests
+# describe stays readable; this fork ships 60 / 60 as the shipped default.
+@patch('usage_monitor_for_claude.app.POLL_INTERVAL', 180)
+@patch('usage_monitor_for_claude.app.POLL_FAST', 120)
 class TestResetAlignment(unittest.TestCase):
     """Tests for poll interval alignment with imminent reset."""
 
@@ -1472,11 +1480,20 @@ class TestResetAlignment(unittest.TestCase):
 # _align_to_reset
 # ---------------------------------------------------------------------------
 
+_UPSTREAM_POLL_FAST = 120
+
+
+# Pinned to the upstream cadence (180 / 120) so the interval math these tests
+# describe stays readable; this fork ships 60 / 60 as the shipped default.
+@patch('usage_monitor_for_claude.app.POLL_INTERVAL', 180)
+@patch('usage_monitor_for_claude.app.POLL_FAST', 120)
 class TestAlignToReset(unittest.TestCase):
     """Tests for the pure _align_to_reset() poll-phase math.
 
-    RESET_BUFFER = 5, POLL_FAST = 120, so the "danger" window (where a poll
-    can no longer be exact) is the last 115 seconds before a reset.
+    RESET_BUFFER = 5 and the pinned POLL_FAST of 120 put the "danger" window
+    (where a poll can no longer be exact) in the last 115 seconds before a
+    reset.  The constant is spelled out locally so it stays in step with the
+    class-level patch rather than with the fork's shipped default.
     """
 
     def test_no_reset(self):
@@ -1501,7 +1518,7 @@ class TestAlignToReset(unittest.TestCase):
 
     def test_cap_pulls_last_poll_forward(self):
         """Just past the commit threshold, the next poll is pulled to the danger boundary."""
-        # 280 - danger(115) = 165 >= POLL_FAST, so cap to 165 -> next poll lands at T_pre.
+        # 280 - danger(115) = 165 >= _UPSTREAM_POLL_FAST, so cap to 165 -> next poll lands at T_pre.
         self.assertEqual(_align_to_reset(180, 280.0), (165, True))
 
     def test_cap_high_edge(self):
@@ -1513,16 +1530,16 @@ class TestAlignToReset(unittest.TestCase):
         self.assertEqual(_align_to_reset(180, 295.0), (180, False))
 
     def test_danger_zone_falls_back_to_poll_fast(self):
-        """Inside the last POLL_FAST window the confirming poll can only be POLL_FAST later."""
-        self.assertEqual(_align_to_reset(180, 100.0), (POLL_FAST, True))
+        """Inside the last _UPSTREAM_POLL_FAST window the confirming poll can only be _UPSTREAM_POLL_FAST later."""
+        self.assertEqual(_align_to_reset(180, 100.0), (_UPSTREAM_POLL_FAST, True))
 
     def test_danger_boundary(self):
-        """Exactly at the danger boundary uses POLL_FAST (lands at reset + buffer)."""
-        self.assertEqual(_align_to_reset(180, 115.0), (POLL_FAST, True))
+        """Exactly at the danger boundary uses _UPSTREAM_POLL_FAST (lands at reset + buffer)."""
+        self.assertEqual(_align_to_reset(180, 115.0), (_UPSTREAM_POLL_FAST, True))
 
     def test_fast_base_commits_directly(self):
-        """With a POLL_FAST base, a mid-range reset commits directly (cap would break cooldown)."""
-        # post(205) > 120*1.5=180 and pre(85) < POLL_FAST, so commit at post.
+        """With a _UPSTREAM_POLL_FAST base, a mid-range reset commits directly (cap would break cooldown)."""
+        # post(205) > 120*1.5=180 and pre(85) < _UPSTREAM_POLL_FAST, so commit at post.
         self.assertEqual(_align_to_reset(120, 200.0), (205, True))
 
     def test_two_step_cap_then_commit_lands_after_reset(self):
@@ -1530,17 +1547,17 @@ class TestAlignToReset(unittest.TestCase):
         interval, aligned = _align_to_reset(180, 280.0)
         self.assertEqual((interval, aligned), (165, True))
         # After 165s the next poll sits at the danger boundary (115s before reset);
-        # the fast follow-up base (POLL_FAST) then lands POLL_FAST later = reset + buffer.
-        self.assertEqual(_align_to_reset(POLL_FAST, 115.0), (POLL_FAST, True))
+        # the fast follow-up base (_UPSTREAM_POLL_FAST) then lands _UPSTREAM_POLL_FAST later = reset + buffer.
+        self.assertEqual(_align_to_reset(_UPSTREAM_POLL_FAST, 115.0), (_UPSTREAM_POLL_FAST, True))
 
     def test_never_schedules_below_poll_fast(self):
-        """No aligned interval is ever shorter than POLL_FAST (the cache cooldown)."""
-        for base in (POLL_FAST, 180):
+        """No aligned interval is ever shorter than _UPSTREAM_POLL_FAST (the cache cooldown)."""
+        for base in (_UPSTREAM_POLL_FAST, 180):
             for next_reset in range(1, 601):
                 interval, _ = _align_to_reset(base, float(next_reset))
                 self.assertGreaterEqual(
-                    interval, POLL_FAST,
-                    f'base={base}, next_reset={next_reset} -> {interval} < POLL_FAST',
+                    interval, _UPSTREAM_POLL_FAST,
+                    f'base={base}, next_reset={next_reset} -> {interval} < _UPSTREAM_POLL_FAST',
                 )
 
 

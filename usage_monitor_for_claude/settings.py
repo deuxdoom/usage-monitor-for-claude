@@ -34,11 +34,17 @@ __all__ = [
     'LANGUAGE', 'MAX_BACKOFF', 'NOTIFY_CLAUDE_UPDATE',
     'ON_DOUBLE_CLICK_COMMAND', 'ON_RESET_COMMAND', 'ON_STARTUP_COMMAND', 'ON_THRESHOLD_COMMAND',
     'POLL_ERROR', 'POLL_FAST', 'POLL_FAST_EXTRA', 'POLL_INTERVAL',
-    'POPUP_FIELDS', 'SETTINGS_FILENAME', 'TIME_FORMAT', 'TOOLTIP_FIELDS',
+    'POPUP_FIELDS', 'POPUP_HIDE_FIELDS', 'POPUP_HIDE_INACTIVE', 'POPUP_MARGIN',
+    'SETTINGS_FILENAME', 'SETTINGS_PATH', 'TIME_FORMAT', 'TOOLTIP_FIELDS',
     'get_alert_thresholds',
 ]
 
 SETTINGS_FILENAME = 'usage-monitor-settings.json'
+
+# Absolute path of the settings file that was actually read, or None when no
+# file was found.  Only used for diagnostics - the search order means a file
+# in an earlier location silently shadows the others.
+SETTINGS_PATH: Path | None = None
 
 _NUMERIC_BOUNDS: dict[str, int] = {
     'poll_interval': 1,
@@ -47,6 +53,7 @@ _NUMERIC_BOUNDS: dict[str, int] = {
     'poll_error': 1,
     'max_backoff': 1,
     'idle_pause': 0,
+    'popup_margin': 0,
 }
 _COLOR_KEYS = frozenset({'bg', 'fg', 'fg_dim', 'fg_heading', 'fg_link', 'bar_bg', 'bar_fg', 'bar_fg_warn', 'bar_divider', 'bar_marker'})
 _ICON_KEYS = frozenset({'icon_light', 'icon_dark'})
@@ -56,8 +63,8 @@ _STRING_KEYS = frozenset({'currency_symbol', 'language'})
 _VALID_TIME_FORMATS = frozenset({'24h', '12h'})
 _VALID_ICON_STYLES = frozenset({'number+bars', 'numbers'})
 _COMMAND_KEYS = frozenset({'on_double_click_command', 'on_reset_command', 'on_startup_command', 'on_threshold_command'})
-_BOOL_KEYS = frozenset({'alert_time_aware', 'notify_claude_update'})
-_STRING_LIST_KEYS = frozenset({'tooltip_fields', 'compact_hide'})
+_BOOL_KEYS = frozenset({'alert_time_aware', 'notify_claude_update', 'popup_hide_inactive'})
+_STRING_LIST_KEYS = frozenset({'tooltip_fields', 'compact_hide', 'popup_hide_fields'})
 _WILDCARD_STRING_LIST_KEYS = frozenset({'popup_fields'})
 _VALID_BAR_MODES = frozenset({'utilization', 'overage'})
 
@@ -90,6 +97,8 @@ def _load_settings() -> dict:
                 data = json.loads(text)
                 if not isinstance(data, dict):
                     raise ValueError(f'Expected a JSON object, got {type(data).__name__}')
+                global SETTINGS_PATH  # noqa: PLW0603 - module-level diagnostic value
+                SETTINGS_PATH = path
                 return _validate(data, path)
             except (json.JSONDecodeError, ValueError) as exc:
                 ctypes.windll.user32.MessageBoxW(
@@ -305,8 +314,12 @@ def _icon_colors(key: str, defaults: dict[str, tuple]) -> dict[str, tuple]:
 _S = _load_settings()
 
 # Polling intervals (seconds)
-POLL_INTERVAL = _S.get('poll_interval', 180)
-POLL_FAST = _S.get('poll_fast', 120)
+# Both default to 60s in this fork (upstream: 180 / 120), so the tray and the
+# popup countdown move on a one-minute cycle.  POLL_FAST doubles as the cache
+# cooldown, so the two are kept equal - a lower POLL_FAST alone would not make
+# the regular polls any more frequent.
+POLL_INTERVAL = _S.get('poll_interval', 60)
+POLL_FAST = _S.get('poll_fast', 60)
 POLL_FAST_EXTRA = _S.get('poll_fast_extra', 2)
 POLL_ERROR = _S.get('poll_error', 30)
 MAX_BACKOFF = _S.get('max_backoff', 900)
@@ -350,6 +363,23 @@ TOOLTIP_FIELDS: list[str] = _S.get('tooltip_fields', ['five_hour', 'seven_day'])
 
 # Popup fields
 POPUP_FIELDS: list[str] = _S.get('popup_fields', ['*'])
+
+# Usage bars never shown in the popup, matched by field name or visible label.
+# Filters out quota types the wildcard in popup_fields would otherwise pick up
+# automatically (e.g. a model-scoped limit that is not relevant to this user).
+# The default differs from upstream: 'nimbus_quill' is a quota the API reports
+# but that is not in use, so it would otherwise show as a permanently empty bar.
+POPUP_HIDE_FIELDS: list[str] = _S.get('popup_hide_fields', ['nimbus_quill'])
+
+# Hide quota bars that have never been used - no reset window and 0% used.
+# Only applies to the popup_fields wildcard; naming such a field explicitly
+# still shows it.
+POPUP_HIDE_INACTIVE: bool = _S.get('popup_hide_inactive', True)
+
+# Gap in physical pixels between the popup and the work-area edge it is
+# anchored to.  Raise it when a customized or auto-hiding taskbar overlaps
+# the popup, which Windows' reported work area does not account for.
+POPUP_MARGIN: int = _S.get('popup_margin', 12)
 
 # Sections and usage bars hidden while the popup is pinned (compact view)
 COMPACT_HIDE: list[str] = _S.get('compact_hide', [])

@@ -23,7 +23,7 @@ from . import __version__
 from .claude_cli import CHANGELOG_URL, find_installations
 from .formatting import divider_positions, elapsed_pct, expand_popup_fields, field_period, format_credits, popup_label, time_until
 from .i18n import T
-from .settings import BAR_BG, BAR_DIVIDER, BAR_FG, BAR_FG_WARN, BAR_MARKER, BG, COMPACT_HIDE, FG, FG_DIM, FG_HEADING, FG_LINK, POPUP_FIELDS
+from .settings import BAR_BG, BAR_DIVIDER, BAR_FG, BAR_FG_WARN, BAR_MARKER, BG, COMPACT_HIDE, FG, FG_DIM, FG_HEADING, FG_LINK, POPUP_FIELDS, POPUP_MARGIN
 
 _POPUP_DIR = Path(__file__).parent / 'popup'
 _BASELINE_DPI = 96
@@ -68,6 +68,67 @@ def _usage_entries(usage: dict[str, Any]) -> list[tuple[str, dict[str, Any] | No
     return [(popup_label(key), usage.get(key), field_period(key), key) for key in fields]
 
 
+def _available_bounds(
+    tray_hwnd: int, mon: ctypes.wintypes.RECT, work: ctypes.wintypes.RECT,
+) -> tuple[int, int, int, int]:
+    """Return the ``(left, top, right, bottom)`` the popup may occupy.
+
+    Starts from the monitor work area and shrinks it by the taskbar
+    window's own rectangle where the two disagree.  They disagree when the
+    taskbar is set to auto-hide: Windows then reports the full monitor as
+    work area, even though the bar reappears over that space on hover.
+
+    Only the edge the taskbar actually sits on is trimmed, decided by
+    comparing the bar's rectangle against the monitor: a bar wider than it
+    is tall is horizontal, and its position within the monitor says whether
+    it is at the top or the bottom.  A taskbar rectangle that covers the
+    whole monitor, or that cannot be read, is ignored rather than trusted.
+
+    Parameters
+    ----------
+    tray_hwnd : int
+        Handle of the ``Shell_TrayWnd`` window, or 0 if not found.
+    mon : RECT
+        Monitor bounds in physical pixels.
+    work : RECT
+        Monitor work area in physical pixels.
+
+    Returns
+    -------
+    tuple[int, int, int, int]
+        Bounds in physical pixels.
+    """
+    left, top, right, bottom = work.left, work.top, work.right, work.bottom
+    if not tray_hwnd:
+        return left, top, right, bottom
+
+    bar = ctypes.wintypes.RECT()
+    if not ctypes.windll.user32.GetWindowRect(tray_hwnd, ctypes.byref(bar)):
+        return left, top, right, bottom
+
+    bar_width = bar.right - bar.left
+    bar_height = bar.bottom - bar.top
+    if bar_width <= 0 or bar_height <= 0:
+        return left, top, right, bottom
+
+    # A bar spanning the entire monitor tells us nothing about which edge to
+    # avoid; trimming by it would push the popup off-screen.
+    if bar_width >= mon.right - mon.left and bar_height >= mon.bottom - mon.top:
+        return left, top, right, bottom
+
+    if bar_width >= bar_height:  # horizontal taskbar
+        if bar.top - mon.top <= mon.bottom - bar.bottom:
+            top = max(top, bar.bottom)
+        else:
+            bottom = min(bottom, bar.top)
+    elif bar.left - mon.left <= mon.right - bar.right:
+        left = max(left, bar.right)
+    else:
+        right = min(right, bar.left)
+
+    return left, top, right, bottom
+
+
 def _snapshot_to_dict(
     snap: CacheSnapshot, installations: list[dict[str, str]] | None = None, next_poll_time: float | None = None,
 ) -> dict[str, Any]:
@@ -88,8 +149,13 @@ def _snapshot_to_dict(
     if snap.profile:
         account = snap.profile.get('account') or {}
         org = snap.profile.get('organization') or {}
+        # The account row shows the name by default and only reveals the email
+        # when clicked; the email is the piece worth not leaving on screen
+        # during a screen share.  Accounts without a name fall back to a
+        # blurred email, handled in the popup JS.
         profile = {
             'email': account.get('email', ''),
+            'name': account.get('full_name') or account.get('display_name') or '',
             'plan': org.get('organization_type', '').replace('_', ' ').title(),
         }
 
@@ -185,9 +251,10 @@ def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None) -> di
         },
         't': {
             'title': T['popup_title'], 'account': T['account'], 'email': T['email'], 'plan': T['plan'],
-            'usage': T['usage'], 'extra_usage': T['extra_usage'],
+            'usage': T['usage'], 'extra_usage': T['extra_usage'], 'name': T['name'],
+            'reveal_email': T['reveal_email'], 'hide_email': T['hide_email'],
             'claude_code': T['claude_code'], 'changelog': T['changelog'],
-            'pin_popup': T['pin_popup'], 'unpin_popup': T['unpin_popup'],
+            'pin_popup': T['pin_popup'], 'unpin_popup': T['unpin_popup'], 'refresh': T['refresh'],
             'status_updated_s': T['status_updated_s'], 'status_updated': T['status_updated'],
             'status_next_update': T['status_next_update'], 'status_refreshing': T['status_refreshing'],
             'duration_hm': T['duration_hm'], 'duration_m': T['duration_m'], 'duration_s': T['duration_s'],
@@ -213,6 +280,9 @@ class _PopupApi:
 
     def open_url(self) -> None:
         webbrowser.open(CHANGELOG_URL)
+
+    def refresh(self) -> bool:
+        return self._popup._manual_refresh()
 
     def set_pinned(self, pinned: bool) -> bool:
         return self._popup._set_pinned(pinned)
@@ -256,6 +326,7 @@ class UsagePopup:
 
     WIDTH = 340
     _CHECK_MS = 2000
+    _REFRESH_MIN_INTERVAL = 5.0
 
     def __init__(self, app: UsageMonitorForClaude) -> None:
         """Create and display a popup window with usage details.
@@ -281,6 +352,11 @@ class UsagePopup:
         # Serializes the resize/show geometry path across pywebview's
         # per-call bridge threads.
         self._geometry_lock = threading.Lock()
+        # Serializes manual refreshes against each other and carries the
+        # timestamp used to rate-limit repeated button presses.
+        self._refresh_lock = threading.Lock()
+        self._last_manual_refresh = 0.0
+        self._cached_installations: list[dict[str, str]] | None = None
         initial_height = 400
         # 0 means "no height reported yet": the first ResizeObserver report
         # must always count as a change so the window gets resized,
@@ -547,9 +623,72 @@ class UsagePopup:
             with self._geometry_lock:
                 self._window.resize(self.WIDTH, self._last_height)
 
+    def _push_snapshot(self, snap: CacheSnapshot, next_poll_time: float | None, rescan_installations: bool) -> None:
+        """Render *snap* into the open popup.
+
+        Raises whatever ``evaluate_js`` raises; callers decide how to
+        recover.  ``_last_version`` is committed only after a successful
+        push so a failed one is retried instead of being swallowed by the
+        dedup check.
+        """
+        if rescan_installations or self._cached_installations is None:
+            self._cached_installations = [{'name': i.name, 'version': i.version} for i in find_installations()]
+
+        data = _snapshot_to_dict(snap, installations=self._cached_installations, next_poll_time=next_poll_time)
+        self._window.evaluate_js(f'updateData({json.dumps(data)})')
+        self._last_version = snap.version
+
+    def _manual_refresh(self) -> bool:
+        """Fetch usage data now, on user request from the popup's refresh button.
+
+        Runs on a pywebview bridge thread, so the JS promise resolves once
+        the fetch is done and the popup has been re-rendered.  ``force``
+        bypasses the cache cooldown and the 429 backoff, which is what the
+        user asked for by clicking - but repeated presses are throttled to
+        one fetch per ``_REFRESH_MIN_INTERVAL`` seconds so the button cannot
+        be used to hammer the API.  A refresh already in flight is not
+        joined; the caller simply gets ``False``.
+
+        Returns
+        -------
+        bool
+            True if a fetch was actually performed.
+        """
+        if not self._running:
+            return False
+
+        if not self._refresh_lock.acquire(blocking=False):
+            return False
+
+        try:
+            now = time.time()
+            if now - self._last_manual_refresh < self._REFRESH_MIN_INTERVAL:
+                return False
+            self._last_manual_refresh = now
+
+            if not self.app.cache.profile:
+                self.app.cache.ensure_profile()
+            self.app.update(force=True)
+        except Exception:
+            # A failed fetch is already reflected in the snapshot's error
+            # state; never let it propagate into the JS bridge.
+            return False
+        finally:
+            self._refresh_lock.release()
+
+        if not self._running:
+            return False
+
+        try:
+            self._push_snapshot(self.app.cache.snapshot, self.app._next_poll_time, rescan_installations=True)
+        except Exception:
+            # The periodic update loop pushes the same data within _CHECK_MS.
+            return True
+
+        return True
+
     def _update_loop(self) -> None:
         """Poll for data changes and push updates to the popup."""
-        cached_installations = [{'name': i.name, 'version': i.version} for i in find_installations()]
         last_next_poll_time = self.app._next_poll_time
         while self._running:
             time.sleep(self._CHECK_MS / 1000)
@@ -560,14 +699,7 @@ class UsagePopup:
                 next_poll_time = self.app._next_poll_time
                 if snap.version == self._last_version and next_poll_time == last_next_poll_time:
                     continue
-                if snap.version != self._last_version:
-                    cached_installations = [{'name': i.name, 'version': i.version} for i in find_installations()]
-                data = _snapshot_to_dict(snap, installations=cached_installations, next_poll_time=next_poll_time)
-                self._window.evaluate_js(f'updateData({json.dumps(data)})')
-                # Commit the markers only after a successful push, so a failed
-                # update is retried on the next tick instead of being skipped
-                # by the dedup check until the next data change.
-                self._last_version = snap.version
+                self._push_snapshot(snap, next_poll_time, rescan_installations=snap.version != self._last_version)
                 last_next_poll_time = next_poll_time
             except Exception:
                 # A transient failure (snapshot conversion, filesystem scan,
@@ -585,6 +717,14 @@ class UsagePopup:
             Actual window width in physical pixels.
         physical_height : int
             Actual window height in physical pixels.
+
+        The popup is kept clear of the taskbar by two independent bounds:
+        the monitor work area Windows reports, and the taskbar window's own
+        rectangle.  The stricter of the two wins.  The second bound matters
+        because an auto-hiding taskbar is not subtracted from the work area
+        at all, so the work area alone would place the popup underneath it.
+        The ``popup_margin`` setting is the gap left beyond that bound, in
+        physical pixels.
 
         Returns
         -------
@@ -604,17 +744,18 @@ class UsagePopup:
         dpi = ctypes.windll.user32.GetDpiForWindow(self._popup_hwnd) or ctypes.windll.user32.GetDpiForSystem()
         scale = dpi / _BASELINE_DPI
 
-        margin = 12
+        margin = POPUP_MARGIN
+        left, top, right, bottom = _available_bounds(tray_hwnd, mon, work)
 
         if work.left > mon.left:    # left-side taskbar
-            x = work.left + margin
+            x = left + margin
         else:
-            x = work.right - physical_width - margin
+            x = right - physical_width - margin
 
         if work.top > mon.top:      # top taskbar
-            y = work.top + margin
+            y = top + margin
         else:
-            y = work.bottom - physical_height - margin
+            y = bottom - physical_height - margin
 
         return int(x / scale), int(y / scale)
 

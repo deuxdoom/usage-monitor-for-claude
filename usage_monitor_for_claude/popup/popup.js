@@ -5,6 +5,7 @@ let textTimerId = null;
 let popupPinned = false;
 let compactHide = [];
 let lastData = null;
+let emailRevealed = false;
 
 /**
  * Set CSS custom properties for theme colors and inject translation strings.
@@ -24,7 +25,6 @@ function init(config) {
     compactHide = config.compact_hide || [];
     document.getElementById('title').textContent = translations.title;
     document.getElementById('headingAccount').textContent = translations.account;
-    document.getElementById('labelEmail').textContent = translations.email;
     document.getElementById('labelPlan').textContent = translations.plan;
     document.getElementById('headingUsage').textContent = translations.usage;
     document.getElementById('headingExtraUsage').textContent = translations.extra_usage;
@@ -34,6 +34,8 @@ function init(config) {
     changelogLink.textContent = translations.changelog;
     changelogLink.addEventListener('click', () => pywebview.api.open_url());
     document.getElementById('closeBtn').addEventListener('click', () => pywebview.api.close());
+    setupRefreshButton();
+    setupAccountRow();
     setupPinButton();
     setupPinnedDrag();
 
@@ -62,6 +64,102 @@ function init(config) {
     updateData(config.data);
     requestAnimationFrame(() => document.body.classList.add('open'));
 }
+
+/**
+ * Wire the manual refresh button in the header.
+ *
+ * The automatic poll keeps running as before; this only lets the user
+ * request an immediate fetch.  The button is disabled and its icon spins
+ * for the duration of the call, so a second click cannot queue a second
+ * fetch, and the Python side additionally rate-limits repeated calls.
+ */
+function setupRefreshButton() {
+    const refreshBtn = document.getElementById('refreshBtn');
+    if (!refreshBtn) return;
+
+    refreshBtn.setAttribute('aria-label', translations.refresh);
+    refreshBtn.title = translations.refresh;
+
+    function setBusy(busy) {
+        refreshBtn.disabled = busy;
+        refreshBtn.classList.toggle('spinning', busy);
+    }
+
+    refreshBtn.addEventListener('click', () => {
+        if (refreshBtn.disabled) return;
+        setBusy(true);
+        // Minimum spin time so a cache hit does not flash the icon.
+        const settled = new Promise((resolve) => setTimeout(resolve, 500));
+        Promise.all([
+            Promise.resolve(pywebview.api.refresh()).catch(() => null),
+            settled,
+        ]).then(() => setBusy(false));
+    });
+
+    setBusy(false);
+}
+
+
+/**
+ * Make the account row toggle between the name and the email address.
+ *
+ * The email is the one value here worth keeping off the screen by default -
+ * the popup is often open during a screen share.  Clicking the row (or
+ * pressing Enter/Space on it, since it is focusable) swaps in the address and
+ * clicking again puts the name back.
+ */
+function setupAccountRow() {
+    const value = document.getElementById('emailValue');
+
+    function toggle() {
+        if (!value.classList.contains('toggleable')) return;
+        emailRevealed = !emailRevealed;
+        reapplyData();
+    }
+
+    value.addEventListener('click', toggle);
+    value.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            toggle();
+        }
+    });
+}
+
+/**
+ * Render the account row for the current reveal state.
+ *
+ * With a name available the row shows the name and swaps to the email when
+ * revealed, relabelling itself so the value always matches its label.
+ * Without one there is nothing to show instead, so the email itself is
+ * rendered blurred and the click clears the blur.
+ *
+ * @param {object} profile - { email, name, plan }
+ */
+function renderAccountRow(profile) {
+    const label = document.getElementById('labelEmail');
+    const value = els.emailValue;
+    const hasName = !!profile.name;
+
+    els.emailRow.style.display = (profile.email || profile.name) ? '' : 'none';
+
+    if (hasName) {
+        label.textContent = emailRevealed ? translations.email : translations.name;
+        value.textContent = emailRevealed ? profile.email : profile.name;
+    } else {
+        label.textContent = translations.email;
+        value.textContent = profile.email;
+    }
+
+    // Nothing to toggle when the email is missing: the name is not a secret.
+    const toggleable = !!profile.email;
+    value.classList.toggle('toggleable', toggleable);
+    value.classList.toggle('masked', toggleable && !hasName && !emailRevealed);
+    value.title = toggleable
+        ? (emailRevealed ? translations.hide_email : translations.reveal_email)
+        : '';
+}
+
 
 function setupPinButton() {
     const pinBtn = document.getElementById('pinBtn');
@@ -167,8 +265,7 @@ function updateData(data) {
     const accountVisible = hasProfile && !compactHidden('account');
     els.accountSection.classList.toggle('visible', accountVisible);
     if (hasProfile) {
-        els.emailValue.textContent = data.profile.email;
-        els.emailRow.style.display = data.profile.email ? '' : 'none';
+        renderAccountRow(data.profile);
         els.planValue.textContent = data.profile.plan;
         els.planRow.style.display = data.profile.plan ? '' : 'none';
     }
@@ -256,9 +353,9 @@ function updateStatus(status) {
 /**
  * Build and display the status text from current state.
  *
- * < 60s:  "Updated Xs ago"
- * >= 60s: "Updated Xm ago · Next update in Ym"
- * + refreshing or error appended with · separator
+ * "Updated Xs ago · Next update in Ym" - the elapsed half switches from
+ * seconds to minutes at 60s; the countdown is always shown while a next
+ * poll is scheduled.  Refreshing or error replaces the countdown.
  */
 function tickStatusText() {
     if (!statusState.lastSuccessTime) return;
@@ -275,7 +372,10 @@ function tickStatusText() {
         parts.push(translations.status_refreshing);
     } else if (statusState.error) {
         parts.push(statusState.error);
-    } else if (secondsAgo >= 60 && statusState.nextPollTime) {
+    } else if (statusState.nextPollTime) {
+        // Shown from the first second, not only once the "updated" half has
+        // rolled over to minutes: the countdown is the part that tells you
+        // whether the data you are looking at is about to change.
         const secondsUntil = Math.max(0, Math.floor(statusState.nextPollTime - now));
         if (secondsUntil > 0) {
             parts.push(translations.status_next_update.replace('{duration}', formatCountdown(secondsUntil)));
