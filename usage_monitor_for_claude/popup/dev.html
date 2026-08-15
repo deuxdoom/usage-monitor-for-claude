@@ -87,14 +87,14 @@ const PRESETS = {
     full: {
         profile: { email: 'user@example.com', name: 'Max Clau', plan: 'Max (Team)' },
         usage: [
-            { unit: 'hour', suffix: '5hr', pct: 42, warn: false,
+            { unit: 'hour', period: 5, pct: 42, warn: false,
               reset: { kind: 'in', duration: '2h 30m', clock: '14:30' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.35 },
-            { unit: 'week', suffix: '7 day', pct: 65, warn: true,
-              reset: { kind: 'weekday', day: 'Sat', clock: '12:00' }, dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.55 },
+            { unit: 'week', period: 7, pct: 65, warn: true,
+              reset: { kind: 'weekday', weekday: 5, month: 1, day: 18, clock: '12:00' }, dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.55 },
             { unit: 'week', suffix: 'Sonnet', pct: 30, warn: false,
-              reset: { kind: 'weekday', day: 'Sat', clock: '12:00' }, dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.55 },
+              reset: { kind: 'weekday', weekday: 5, month: 1, day: 18, clock: '12:00' }, dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.55 },
             { unit: 'week', suffix: 'Opus', pct: 12, warn: false,
-              reset: { kind: 'weekday', day: 'Sat', clock: '12:00' }, dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.55 },
+              reset: { kind: 'weekday', weekday: 5, month: 1, day: 18, clock: '12:00' }, dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.55 },
         ],
         extra: { pct: 23, used: '$4.60', limit: '$20.00' },
         installations: [
@@ -107,7 +107,7 @@ const PRESETS = {
     minimal: {
         profile: null,
         usage: [
-            { unit: 'hour', suffix: '5hr', pct: 10, warn: false,
+            { unit: 'hour', period: 5, pct: 10, warn: false,
               reset: { kind: 'in', duration: '4h 50m', clock: '17:00' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.03 },
         ],
         extra: null,
@@ -118,9 +118,9 @@ const PRESETS = {
     error: {
         profile: { email: 'user@example.com', name: '', plan: 'Max' },
         usage: [
-            { unit: 'hour', suffix: '5hr', pct: 95, warn: true,
+            { unit: 'hour', period: 5, pct: 95, warn: true,
               reset: { kind: 'in', duration: '12m', clock: '12:12' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.96 },
-            { unit: 'week', suffix: '7 day', pct: 88, warn: true,
+            { unit: 'week', period: 7, pct: 88, warn: true,
               reset: { kind: 'tomorrow', clock: '08:00' }, dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.80 },
         ],
         extra: null,
@@ -130,7 +130,7 @@ const PRESETS = {
     refreshing: {
         profile: { email: 'user@example.com', name: 'Max Clau', plan: 'Max (Team)' },
         usage: [
-            { unit: 'hour', suffix: '5hr', pct: 42, warn: false,
+            { unit: 'hour', period: 5, pct: 42, warn: false,
               reset: { kind: 'in', duration: '2h 30m', clock: '14:30' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.35 },
         ],
         extra: null,
@@ -172,13 +172,15 @@ function buildTranslations(loc) {
 
 function localizeLabel(loc, entry) {
     const template = entry.unit === 'hour' ? loc.session_label : loc.weekly_label;
-    return template.replace('{suffix}', entry.suffix);
+    const unit = entry.unit === 'hour' ? loc.unit_hours : loc.unit_days;
+    const suffix = entry.suffix || unit.replace('{n}', entry.period);
+    return template.replace('{suffix}', suffix);
 }
 
 // Map a preset usage entry to its API field key (so compact_hide preview works).
 function fieldKey(entry) {
     if (entry.unit === 'hour') return 'five_hour';
-    if (entry.suffix === '7 day') return 'seven_day';
+    if (!entry.suffix) return 'seven_day';
     return 'seven_day_' + entry.suffix.toLowerCase();
 }
 
@@ -186,7 +188,10 @@ function localizeReset(loc, reset) {
     if (!reset) return '';
     if (reset.kind === 'in') return loc.resets_in.replace('{duration}', reset.duration).replace('{clock}', reset.clock);
     if (reset.kind === 'tomorrow') return loc.resets_tomorrow.replace('{clock}', reset.clock);
-    if (reset.kind === 'weekday') return loc.resets_weekday.replace('{day}', reset.day).replace('{clock}', reset.clock);
+    if (reset.kind === 'weekday') {
+        const date = loc.date_month_day.replace('{m}', reset.month).replace('{d}', reset.day);
+        return loc.resets_weekday.replace('{day}', loc.weekdays[reset.weekday]).replace('{date}', date).replace('{clock}', reset.clock);
+    }
     return '';
 }
 

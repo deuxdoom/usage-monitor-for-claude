@@ -118,10 +118,8 @@ def popup_label(field: str) -> str:
     number, unit, variant = parsed
     if variant:
         suffix = _title_case_variant(variant)
-    elif unit == 'hour':
-        suffix = f'{number}hr'
     else:
-        suffix = f'{number} {unit}'
+        suffix = T['unit_hours' if unit == 'hour' else 'unit_days'].format(n=number)
 
     template_key = 'session_label' if unit == 'hour' else 'weekly_label'
     return T[template_key].format(suffix=suffix)
@@ -407,7 +405,7 @@ def time_until(iso_str: str, clock_24h: bool | None = None) -> str:
 
     Same day:  "Resets in 2h 20m (14:30)"
     Tomorrow:  "Resets tomorrow, 12:00"
-    Later:     "Resets Sat., 12:00"
+    Later:     "Resets on Sat 1/18, 12:00"
 
     Parameters
     ----------
@@ -453,8 +451,11 @@ def time_until(iso_str: str, clock_24h: bool | None = None) -> str:
         if reset_date == today + timedelta(days=1):
             return T['resets_tomorrow'].format(clock=time_str)
 
-        wd = T['weekdays'][reset_local.weekday()]
-        return T['resets_weekday'].format(day=wd, clock=time_str)
+        # Beyond tomorrow the weekday alone is ambiguous (it repeats every
+        # week), so the calendar date is shown alongside it.
+        weekday = T['weekdays'][reset_local.weekday()]
+        date_str = T['date_month_day'].format(m=reset_local.month, d=reset_local.day)
+        return T['resets_weekday'].format(day=weekday, date=date_str, clock=time_str)
     except Exception:
         return ''
 

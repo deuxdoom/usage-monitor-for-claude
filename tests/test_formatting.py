@@ -821,13 +821,31 @@ class TestTimeUntil(unittest.TestCase):
         self.assertEqual(time_until('ignored'), 'Resets tomorrow, 10:00')
 
     def test_future_weekday(self, mock_dt):
-        """Reset in a few days shows weekday name."""
+        """Reset in a few days shows weekday name and calendar date."""
         # 2025-01-18 is Saturday (weekday index 5)
         utc_now = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
         local_now = datetime(2025, 1, 15, 12, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
             datetime(2025, 1, 18, 14, 0, 0), timedelta(days=3, hours=2))
-        self.assertEqual(time_until('ignored'), 'Resets on Sat, 14:00')
+        self.assertEqual(time_until('ignored'), 'Resets on Sat 1/18, 14:00')
+
+    def test_future_weekday_date_crosses_month(self, mock_dt):
+        """The date shown is the reset's own month and day, not the current month's."""
+        # 2025-02-03 is Monday (weekday index 0)
+        utc_now = datetime(2025, 1, 31, 12, 0, 0, tzinfo=timezone.utc)
+        local_now = datetime(2025, 1, 31, 12, 0, 0)
+        self._setup(mock_dt, utc_now, local_now,
+            datetime(2025, 2, 3, 9, 0, 0), timedelta(days=2, hours=21))
+        self.assertEqual(time_until('ignored'), 'Resets on Mon 2/3, 09:00')
+
+    def test_future_weekday_next_year(self, mock_dt):
+        """A reset that lands past a year boundary still shows its own date."""
+        # 2026-01-02 is Friday (weekday index 4)
+        utc_now = datetime(2025, 12, 30, 12, 0, 0, tzinfo=timezone.utc)
+        local_now = datetime(2025, 12, 30, 12, 0, 0)
+        self._setup(mock_dt, utc_now, local_now,
+            datetime(2026, 1, 2, 8, 0, 0), timedelta(days=2, hours=20))
+        self.assertEqual(time_until('ignored'), 'Resets on Fri 1/2, 08:00')
 
     def test_seconds_rounded_up(self, mock_dt):
         """Seconds >= 30 round up the displayed minute."""
@@ -1063,15 +1081,22 @@ class TestTooltipMaxLength(unittest.TestCase):
 
     TOOLTIP_MAX = 127
 
+    def _longest_date(self, t: dict) -> str:
+        """Return the widest calendar date a locale can render."""
+        dates = [t['date_month_day'].format(m=month, d=28) for month in range(1, 13)]
+
+        return max(dates, key=len)
+
     def _longest_reset(self, t: dict, max_hours: int) -> str:
         """Return the longest possible reset text for a given max-hour value."""
         dur = t['duration_hm'].format(h=max_hours, m=59)
+        date = self._longest_date(t)
         candidates = [
             t['resets_in'].format(duration=dur, clock='23:59'),
             t['resets_tomorrow'].format(clock='23:59'),
         ]
         for wd in t['weekdays']:
-            candidates.append(t['resets_weekday'].format(day=wd, clock='23:59'))
+            candidates.append(t['resets_weekday'].format(day=wd, date=date, clock='23:59'))
 
         return max(candidates, key=len)
 

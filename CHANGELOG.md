@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.50.0] - 2026-08-15
+
+### Changed
+
+- The session and weekly bar labels now use each language's own words for the period - Korean shows "세션 (5시간)" and "주간 (7일)" instead of the untranslated "5hr" and "7 day", and every other language gets its equivalent
+
+### Fixed
+
+- Reset times more than a day away now name the calendar date next to the weekday ("Resets on Sat 1/18, 14:00") - the weekday on its own was ambiguous about which week it meant, and in Korean, Japanese and Chinese it rendered as a lone character with no date at all
+
+[Show all code changes](https://github.com/deuxdoom/usage-monitor-for-claude/compare/v1.40.0...v1.50.0)
+
 ## [1.40.0] - 2026-08-13
 
 ### Added

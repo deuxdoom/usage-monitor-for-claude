@@ -11,4 +11,4 @@ if set, otherwise defaults to ``~/.claude/``.
 """
 from __future__ import annotations
 
-__version__ = '1.40.0'
+__version__ = '1.50.0'

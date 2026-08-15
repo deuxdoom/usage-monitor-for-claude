@@ -20,6 +20,7 @@ dist/
 
 # Claude Code
 .claude/settings.json
+.claude/settings.local.json
 
 # User settings
 usage-monitor-settings.json
