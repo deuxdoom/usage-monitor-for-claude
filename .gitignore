@@ -25,6 +25,9 @@ dist/
 # User settings
 usage-monitor-settings.json
 
+# Release notes staged for the GitHub release page (copy-pasted, not committed)
+RELEASE.md
+
 # OS
 Thumbs.db
 Desktop.ini
