@@ -122,7 +122,6 @@ class UsageMonitorForClaude:
 
         # Adaptive polling state
         self._fast_polls_remaining = 0
-        self._idle_reset_pending = False
         # Guarded by _notify_lock: deferrals arrive from the popup and poll
         # threads while the poll loop flushes.
         self._notify_lock = threading.Lock()
@@ -532,7 +531,6 @@ class UsageMonitorForClaude:
             prev = self._prev_utilization.get(key)
             if prev is not None and pct < prev:
                 self._run_reset_command(key, pct, prev, data=result.data, entry=result.data.get(key, {}))
-                self._idle_reset_pending = False
 
         self._check_threshold_alerts(result.data)
 
@@ -907,32 +905,22 @@ class UsageMonitorForClaude:
         return interval
 
     def _is_user_away(self) -> bool:
-        """Return True if the user is idle or the workstation is locked."""
+        """Return True if the user is idle or the workstation is locked.
+
+        Used only to defer notifications until the user is back - polling
+        itself never pauses.
+        """
         if is_workstation_locked():
             return True
         return IDLE_PAUSE > 0 and get_idle_seconds() >= IDLE_PAUSE
 
-    def _wait_for_activity(self, until: float | None = None) -> None:
-        """Block until user activity resumes or the app is stopping.
-
-        Parameters
-        ----------
-        until : float | None
-            Optional deadline (``time.time()`` epoch).  When set, the
-            wait ends even if the user is still away, allowing a
-            time-critical poll (e.g. quota reset command) to proceed.
-        """
-        while self.running and self._is_user_away():
-            if until is not None and time.time() >= until:
-                break
-            time.sleep(2)
-
     def poll_loop(self) -> None:
         """Poll the API in a loop with adaptive intervals.
 
-        Pauses polling when the user is idle or the workstation is
-        locked.  On resume, polls immediately if the regular interval
-        has elapsed since the last successful fetch.
+        Polling runs continuously - it is never paused by user idle time or
+        a locked workstation, so the displayed usage stays current no matter
+        how long the machine sits untouched.  Idle and lock state only defer
+        notifications (see ``_notify_or_defer``).
         """
         self.cache.ensure_profile()
         force_next = False
@@ -978,8 +966,7 @@ class UsageMonitorForClaude:
 
                 # If another thread (popup) fetched successfully, push the next
                 # poll a full interval past that fetch to avoid a redundant one.
-                # Only react to an actual new fetch (last_success advanced), not
-                # to a target the idle-return path lowered on its own.
+                # Only react to an actual new fetch (last_success advanced).
                 lst = self.cache.last_success_time
                 if lst is not None and (last_success_seen is None or lst > last_success_seen):
                     last_success_seen = lst
@@ -999,62 +986,10 @@ class UsageMonitorForClaude:
                     self._next_poll_time = target
 
                 # Show notifications deferred while the user was away as soon
-                # as they are present, even when the away branch below is
-                # never entered (the user returned in the short gap between a
-                # deferral and this loop's next away check).
+                # as they are present.  Polling itself never pauses, so this
+                # is the only place a deferred notification is released.
                 if self._deferred_notifications and not self._is_user_away():
                     self._flush_deferred_notifications()
-
-                # Pause polling while the user is away.
-                # Regular polling stops entirely during idle/lock.
-                # The only exception: when on_reset_command is configured
-                # and a quota reset is due, the idle pause is interrupted
-                # so the command fires on time.  The flag
-                # _idle_reset_pending keeps polling at POLL_INTERVAL
-                # until the reset is actually confirmed (usage drop) -
-                # this covers server-side delays and transient network
-                # errors.  The flag is cleared when update() detects the
-                # drop, or when the user returns (they'll see it anyway).
-                if self._is_user_away():
-                    reset_deadline = None
-                    if ON_RESET_COMMAND:
-                        next_reset = self._seconds_until_next_reset()
-                        if next_reset is not None:
-                            reset_deadline = time.time() + next_reset + RESET_BUFFER
-                            self._idle_reset_pending = True
-                        elif self._idle_reset_pending:
-                            reset_deadline = time.time() + POLL_INTERVAL
-
-                    self._wait_for_activity(until=reset_deadline)
-
-                    if reset_deadline is not None and self._is_user_away():
-                        # Woke up for a reset while still idle - poll once
-                        break
-
-                    # User returned - show any notifications deferred
-                    # during idle and poll immediately if interval elapsed.
-                    # _idle_reset_pending is intentionally kept: if the
-                    # user locks again before a successful poll confirms
-                    # the reset (e.g. network was down), idle polling
-                    # must resume.  The flag is only cleared by update()
-                    # when a usage drop is actually detected.
-                    self._flush_deferred_notifications()
-                    lst = self.cache.last_success_time
-                    if lst is None:
-                        continue
-
-                    next_reset = self._seconds_until_next_reset()
-                    if next_reset is not None and next_reset < POLL_FAST:
-                        # Returned within the cooldown window before a reset:
-                        # polling now would advance last_success into that window
-                        # and force the confirming poll to overshoot.  Realign the
-                        # wait to just after the reset and keep waiting for it.
-                        target = self._reset_aligned_poll_target(next_reset)
-                        self._next_poll_time = target
-                        continue
-
-                    if time.time() - lst >= interval:
-                        break
 
     # Lifecycle
 

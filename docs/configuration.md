@@ -277,7 +277,7 @@ Run a shell command when a usage event occurs. See [Event Commands](event-comman
 | `poll_fast_extra` | `2` | Extra fast polls after usage stops increasing |
 | `poll_error` | `30` | Seconds after a transient error (5xx, network). Rate-limit errors (429) use exponential backoff instead |
 | `max_backoff` | `900` | Maximum backoff in seconds for rate-limit errors (15 min) |
-| `idle_pause` | `300` | Seconds of inactivity before polling pauses (0 = disable). Polling also pauses when the workstation is locked |
+| `idle_pause` | `300` | Seconds of inactivity after which notifications are held back until the user returns (0 = disable). Notifications are also held while the workstation is locked. Polling is never paused |
 
 ## Language
 

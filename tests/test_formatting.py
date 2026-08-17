@@ -3,7 +3,8 @@ Formatting Tests
 =================
 
 Unit tests for parse_field_name(), tooltip_label(), elapsed_pct(),
-time_until(), format_tooltip(), format_credits(), and field_hidden().
+time_until(), format_tooltip(), format_credits(), field_countdown_only(),
+and field_hidden().
 """
 from __future__ import annotations
 
@@ -14,9 +15,9 @@ from unittest.mock import MagicMock, patch
 
 from usage_monitor_for_claude.formatting import (
     PERIOD_5H, PERIOD_7D,
-    divider_positions, elapsed_pct, expand_popup_fields, field_hidden, field_inactive,
-    field_period, format_count, format_credits, format_tooltip, parse_field_name, popup_label,
-    time_until, tooltip_label,
+    divider_positions, elapsed_pct, expand_popup_fields, field_countdown_only, field_hidden,
+    field_inactive, field_period, format_count, format_credits, format_tooltip, parse_field_name,
+    popup_label, time_until, tooltip_label,
 )
 from usage_monitor_for_claude.i18n import LOCALE_DIR
 
@@ -926,6 +927,82 @@ class TestTimeUntil(unittest.TestCase):
         self._setup(mock_dt, utc_now, local_now,
             datetime(2025, 1, 15, 14, 30, 0), timedelta(hours=4, minutes=30))
         self.assertEqual(time_until('ignored', clock_24h=True), 'Resets in 4h 30m (14:30)')
+
+    def test_countdown_only_tomorrow(self, mock_dt):
+        """A session window ending after midnight still counts down."""
+        utc_now = datetime(2025, 1, 15, 22, 0, 0, tzinfo=timezone.utc)
+        local_now = datetime(2025, 1, 15, 22, 0, 0)
+        self._setup(mock_dt, utc_now, local_now,
+            datetime(2025, 1, 16, 1, 30, 0), timedelta(hours=3, minutes=30))
+        self.assertEqual(time_until('ignored', countdown_only=True), 'Resets in 3h 30m (01:30)')
+
+    def test_countdown_only_under_an_hour_across_midnight(self, mock_dt):
+        """The minutes-only form is used across midnight too."""
+        utc_now = datetime(2025, 1, 15, 23, 30, 0, tzinfo=timezone.utc)
+        local_now = datetime(2025, 1, 15, 23, 30, 0)
+        self._setup(mock_dt, utc_now, local_now,
+            datetime(2025, 1, 16, 0, 10, 0), timedelta(minutes=40))
+        self.assertEqual(time_until('ignored', countdown_only=True), 'Resets in 40m (00:10)')
+
+    def test_countdown_only_beyond_tomorrow(self, mock_dt):
+        """Even a multi-day gap counts down when countdown_only is set."""
+        utc_now = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        local_now = datetime(2025, 1, 15, 12, 0, 0)
+        self._setup(mock_dt, utc_now, local_now,
+            datetime(2025, 1, 18, 14, 0, 0), timedelta(days=3, hours=2))
+        self.assertEqual(time_until('ignored', countdown_only=True), 'Resets in 74h 0m (14:00)')
+
+    def test_countdown_only_same_day_unchanged(self, mock_dt):
+        """Within the same day the output is identical either way."""
+        utc_now = datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
+        local_now = datetime(2025, 1, 15, 10, 0, 0)
+        self._setup(mock_dt, utc_now, local_now,
+            datetime(2025, 1, 15, 14, 30, 0), timedelta(hours=4, minutes=30))
+        self.assertEqual(time_until('ignored', countdown_only=True), 'Resets in 4h 30m (14:30)')
+
+    def test_countdown_only_does_not_override_imminent(self, mock_dt):
+        """The imminent marker still wins inside the last minute."""
+        utc_now = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        local_now = datetime(2025, 1, 15, 12, 0, 0)
+        self._setup(mock_dt, utc_now, local_now,
+            datetime(2025, 1, 15, 12, 0, 30), timedelta(seconds=30))
+        self.assertEqual(time_until('ignored', countdown_only=True), 'Reset imminent')
+
+    def test_countdown_only_does_not_revive_stale_timestamp(self, mock_dt):
+        """A long-past reset still collapses to empty."""
+        utc_now = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        local_now = datetime(2025, 1, 15, 12, 0, 0)
+        self._setup(mock_dt, utc_now, local_now,
+            datetime(2025, 1, 15, 11, 58, 0), timedelta(seconds=-120))
+        self.assertEqual(time_until('ignored', countdown_only=True), '')
+
+
+# ---------------------------------------------------------------------------
+# field_countdown_only
+# ---------------------------------------------------------------------------
+
+class TestFieldCountdownOnly(unittest.TestCase):
+    """Tests for field_countdown_only()."""
+
+    def test_hour_fields_count_down(self):
+        self.assertTrue(field_countdown_only('five_hour'))
+
+    def test_hour_variant_fields_count_down(self):
+        """A model-scoped hourly limit follows its unit, not its variant."""
+        self.assertTrue(field_countdown_only('five_hour_opus'))
+
+    def test_day_fields_keep_the_calendar_form(self):
+        self.assertFalse(field_countdown_only('seven_day'))
+
+    def test_day_variant_fields_keep_the_calendar_form(self):
+        self.assertFalse(field_countdown_only('seven_day_fable'))
+
+    def test_unparseable_field_keeps_the_calendar_form(self):
+        """An unrecognized field falls back to the default rendering."""
+        self.assertFalse(field_countdown_only('extra_usage'))
+
+    def test_empty_field_keeps_the_calendar_form(self):
+        self.assertFalse(field_countdown_only(''))
 
 
 # ---------------------------------------------------------------------------

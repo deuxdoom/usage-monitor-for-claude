@@ -358,38 +358,36 @@ function updateStatus(status) {
 /**
  * Build and display the status text from current state.
  *
- * "Updated Xs ago · Next update in Ym" - the elapsed half switches from
- * seconds to minutes at 60s; the countdown is always shown while a next
- * poll is scheduled.  Refreshing or error replaces the countdown.
+ * "Next update in Ym" - the countdown alone.  It already implies how fresh
+ * the data is, and one moving number reads better in the narrow footer than
+ * two counting in opposite directions.  Refreshing or an error replaces it;
+ * "Updated X ago" is the fallback for when no next poll is scheduled and
+ * there is nothing to count down to.
  */
 function tickStatusText() {
     if (!statusState.lastSuccessTime) return;
 
     const now = Date.now() / 1000;
-    const secondsAgo = Math.max(0, Math.floor(now - statusState.lastSuccessTime));
     const isStale = !!statusState.nextPollTime && (now > statusState.nextPollTime + 30);
     els.usageSection.classList.toggle('stale', isStale);
     els.extraSection.classList.toggle('stale', isStale);
 
-    const parts = [formatDuration(secondsAgo)];
+    const secondsUntil = statusState.nextPollTime ? Math.max(0, Math.floor(statusState.nextPollTime - now)) : 0;
 
+    let text;
     if (statusState.refreshing) {
-        parts.push(translations.status_refreshing);
+        text = translations.status_refreshing;
     } else if (statusState.error) {
-        parts.push(statusState.error);
-    } else if (statusState.nextPollTime) {
-        // Shown from the first second, not only once the "updated" half has
-        // rolled over to minutes: the countdown is the part that tells you
-        // whether the data you are looking at is about to change.
-        const secondsUntil = Math.max(0, Math.floor(statusState.nextPollTime - now));
-        if (secondsUntil > 0) {
-            parts.push(translations.status_next_update.replace('{duration}', formatCountdown(secondsUntil)));
-        }
+        text = statusState.error;
+    } else if (secondsUntil > 0) {
+        text = translations.status_next_update.replace('{duration}', formatCountdown(secondsUntil));
+    } else {
+        text = formatDuration(Math.max(0, Math.floor(now - statusState.lastSuccessTime)));
     }
 
-    els.statusText.textContent = parts.join(' \u00b7 ');
+    els.statusText.textContent = text;
     // Errors are raw API messages that can overflow; reveal the full text on hover.
-    els.statusText.title = statusState.error ? els.statusText.textContent : '';
+    els.statusText.title = statusState.error ? text : '';
 }
 
 /**

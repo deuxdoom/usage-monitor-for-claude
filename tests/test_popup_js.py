@@ -225,26 +225,37 @@ const NOW = Date.now() / 1000;
     def _status(self, state):
         return _run_scenario(self._PRELUDE + state + self._EPILOGUE)['text']
 
-    def test_countdown_shown_within_the_first_minute(self):
-        """The next-update countdown does not wait for the elapsed half to reach 60s."""
+    def test_countdown_is_the_whole_status_line(self):
+        """Only the countdown is shown - the elapsed half is not appended."""
         state = "statusState = { lastSuccessTime: NOW - 5, nextPollTime: NOW + 115 };"
-        self.assertEqual(self._status(state), "updated 5s ago \u00b7 next in 2m")
+        self.assertEqual(self._status(state), "next in 2m")
 
-    def test_countdown_shown_after_a_minute(self):
+    def test_countdown_ignores_how_long_ago_the_fetch_was(self):
+        """A fetch minutes old still shows only the countdown, not its own age."""
         state = "statusState = { lastSuccessTime: NOW - 90, nextPollTime: NOW + 90 };"
-        self.assertEqual(self._status(state), "updated 1m ago \u00b7 next in 2m")
+        self.assertEqual(self._status(state), "next in 2m")
 
     def test_countdown_under_a_minute_shown_in_seconds(self):
         state = "statusState = { lastSuccessTime: NOW - 10, nextPollTime: NOW + 30 };"
-        self.assertEqual(self._status(state), "updated 10s ago \u00b7 next in 30s")
+        self.assertEqual(self._status(state), "next in 30s")
 
     def test_refreshing_replaces_the_countdown(self):
         state = "statusState = { lastSuccessTime: NOW - 10, nextPollTime: NOW + 30, refreshing: true };"
-        self.assertEqual(self._status(state), "updated 10s ago \u00b7 refreshing")
+        self.assertEqual(self._status(state), "refreshing")
 
-    def test_no_countdown_without_a_scheduled_poll(self):
+    def test_error_replaces_the_countdown(self):
+        state = "statusState = { lastSuccessTime: NOW - 10, nextPollTime: NOW + 30, error: 'no network' };"
+        self.assertEqual(self._status(state), "no network")
+
+    def test_elapsed_fallback_without_a_scheduled_poll(self):
+        """With nothing to count down to, the elapsed time takes the line."""
         state = "statusState = { lastSuccessTime: NOW - 10 };"
         self.assertEqual(self._status(state), "updated 10s ago")
+
+    def test_elapsed_fallback_when_the_countdown_has_run_out(self):
+        """A poll target already in the past falls back instead of showing 0s."""
+        state = "statusState = { lastSuccessTime: NOW - 90, nextPollTime: NOW - 30 };"
+        self.assertEqual(self._status(state), "updated 1m ago")
 
 
 @unittest.skipUnless(_NODE, 'Node.js not available')

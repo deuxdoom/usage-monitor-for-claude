@@ -23,7 +23,7 @@ Commands only fire on **state changes** detected while the app is running. On ap
 
 Because a double-click is user-driven, a command that exits with a non-zero (error) code shows its stderr in an error dialog, so a wrong path or a broken command is not swallowed silently. The automatic reset, threshold, and startup commands stay silent - they fire in the background and must not interrupt you with dialogs.
 
-When `on_reset_command` is configured, the app briefly wakes from idle/lock pause to poll at the expected reset time so the command fires promptly - even if the computer is unattended. If the API has not applied the reset yet (server-side delay) or the network is temporarily unavailable, the app retries at regular intervals until the reset is confirmed. `on_threshold_command` does not wake from idle - thresholds are driven by active usage, so they are checked when polling resumes after the user returns. Desktop notifications that occur during idle are deferred and shown when the user returns.
+Polling never pauses, so both `on_reset_command` and `on_threshold_command` fire on schedule even when the computer is idle, locked, or unattended. The poll cadence is aligned to the expected reset time, so a reset command fires promptly; if the API has not applied the reset yet (server-side delay) or the network is temporarily unavailable, the app retries at regular intervals until the reset is confirmed. Desktop notifications that occur while the user is idle or the workstation is locked are deferred and shown when the user returns.
 
 > [!TIP]
 > If you need a visible terminal, prefix your command with `start cmd /c`, e.g.:

@@ -18,9 +18,9 @@ from .settings import (
 )
 
 __all__ = [
-    'divider_positions', 'elapsed_pct', 'expand_popup_fields', 'field_hidden', 'field_inactive',
-    'field_period', 'format_count', 'format_credits', 'format_tooltip', 'parse_field_name',
-    'popup_label', 'time_until', 'tooltip_label',
+    'divider_positions', 'elapsed_pct', 'expand_popup_fields', 'field_countdown_only', 'field_hidden',
+    'field_inactive', 'field_period', 'format_count', 'format_credits', 'format_tooltip',
+    'parse_field_name', 'popup_label', 'time_until', 'tooltip_label',
 ]
 
 PERIOD_5H = 5 * 3600
@@ -143,6 +143,29 @@ def field_period(field: str) -> int | None:
     if unit == 'day':
         return number * 24 * 3600
     return None
+
+
+def field_countdown_only(field: str) -> bool:
+    """Return whether a field's reset line should always show the time remaining.
+
+    Hour-scoped quotas (the rolling session window) are short enough that
+    "how much is left" is the only useful reading.  A window ending after
+    midnight would otherwise render as a bare calendar time ("Resets
+    tomorrow, 01:00"), hiding that the session has, say, 40 minutes left.
+    Day-scoped quotas keep the calendar form, where a weekday and date say
+    more than a three-digit hour count.
+
+    Parameters
+    ----------
+    field : str
+        API field name, e.g. ``'five_hour'``, ``'seven_day_sonnet'``.
+    """
+    parsed = parse_field_name(field)
+    if parsed is None:
+        return False
+
+    _, unit, _ = parsed
+    return unit == 'hour'
 
 
 def _slug(text: str) -> str:
@@ -400,7 +423,7 @@ def _format_clock(when: datetime, clock_24h: bool) -> str:
     return when.strftime('%I:%M %p').lstrip('0')
 
 
-def time_until(iso_str: str, clock_24h: bool | None = None) -> str:
+def time_until(iso_str: str, clock_24h: bool | None = None, countdown_only: bool = False) -> str:
     """Return human-readable reset time.
 
     Same day:  "Resets in 2h 20m (14:30)"
@@ -414,6 +437,10 @@ def time_until(iso_str: str, clock_24h: bool | None = None) -> str:
     clock_24h : bool or None
         Format the clock time in 24-hour (True) or 12-hour (False) style.
         ``None`` falls back to the ``time_format`` setting.
+    countdown_only : bool
+        Always use the "Resets in ..." form, even when the reset falls on a
+        later calendar day.  Set for short rolling windows, where the time
+        remaining is the point (see ``field_countdown_only``).
     """
     if clock_24h is None:
         clock_24h = TIME_FORMAT == '24h'
@@ -441,7 +468,7 @@ def time_until(iso_str: str, clock_24h: bool | None = None) -> str:
         reset_date = reset_local.date()
         time_str = _format_clock(reset_local, clock_24h)
 
-        if reset_date == today:
+        if countdown_only or reset_date == today:
             if total_min >= 60:
                 duration = T['duration_hm'].format(h=total_min // 60, m=total_min % 60)
             else:
@@ -537,7 +564,7 @@ def format_tooltip(data: dict[str, Any]) -> str:
         if isinstance(entry, dict) and entry.get('utilization') is not None:
             short = tooltip_label(key)
             pct = f"{entry['utilization']:.0f}%"
-            reset = time_until(entry.get('resets_at', ''))
+            reset = time_until(entry.get('resets_at', ''), countdown_only=field_countdown_only(key))
             line = f'{short}: {pct}'
             if reset:
                 line += f' ({reset})'

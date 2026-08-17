@@ -208,14 +208,14 @@ Place under `## [Unreleased]` in `CHANGELOG.md`, grouped as **Added / Changed / 
 - One bullet per logical change, one sentence.
 - Hyphens for dashes; never em or en dashes.
 - Never mention `CLAUDE.md` changes (invisible to users).
-- If the change implements a Discussion or resolves an Issue, link it in the entry text, e.g. `- [Feature name](https://github.com/jens-duttke/usage-monitor-for-claude/discussions/12) - description`.
+- If the change implements a Discussion or resolves an Issue, link it in the entry text, e.g. `- [Feature name](https://github.com/deuxdoom/usage-monitor-for-claude/discussions/12) - description`.
 
 ### Contributor credit
 
 If this is a contributor PR (Step 0 captured the GitHub handle) or a contributor-reported bug, append a thanks line:
 
 - Code contribution: `(thanks to [@handle](https://github.com/handle) for the contribution)`
-- Bug report only: `(thanks to [@handle](https://github.com/handle) for reporting [#NN](https://github.com/jens-duttke/usage-monitor-for-claude/issues/NN))`
+- Bug report only: `(thanks to [@handle](https://github.com/handle) for reporting [#NN](https://github.com/deuxdoom/usage-monitor-for-claude/issues/NN))`
 
 Use the handle captured in Step 0 - never guess.
 

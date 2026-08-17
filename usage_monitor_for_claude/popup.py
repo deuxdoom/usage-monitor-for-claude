@@ -25,7 +25,10 @@ from . import __version__
 from . import session_logs
 from .api import CLAUDE_CONFIG_DIR
 from .claude_cli import CHANGELOG_URL, find_installations
-from .formatting import divider_positions, elapsed_pct, expand_popup_fields, field_period, format_count, format_credits, popup_label, time_until
+from .formatting import (
+    divider_positions, elapsed_pct, expand_popup_fields, field_countdown_only, field_period,
+    format_count, format_credits, popup_label, time_until,
+)
 from .i18n import T
 from .settings import BAR_BG, BAR_DIVIDER, BAR_FG, BAR_FG_WARN, BAR_MARKER, BG, COMPACT_HIDE, FG, FG_DIM, FG_HEADING, FG_LINK, POPUP_FIELDS, POPUP_MARGIN
 
@@ -189,7 +192,7 @@ def _snapshot_to_dict(
                 'pct_text': f'{pct:.0f}%',
                 'fill_pct': max(0.0, min(1.0, pct / 100)),
                 'warn': warn,
-                'reset_text': time_until(resets_at) if resets_at else '',
+                'reset_text': time_until(resets_at, countdown_only=field_countdown_only(field)) if resets_at else '',
                 'dividers': divider_positions(resets_at, period) if period else [],
                 'marker_rel': marker_rel,
             })

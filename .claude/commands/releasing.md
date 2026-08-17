@@ -36,7 +36,7 @@ The release publishes a tag, which the git rule forbids this command from doing.
 
 - The notes must use the **exact** content from the new version's `CHANGELOG.md` section (the `### Added` / `### Changed` / `### Fixed` / `### Removed` blocks), followed by:
   - a `[Full changelog](<compare-url>)` link, and
-  - a `[README for this version](https://github.com/jens-duttke/usage-monitor-for-claude/blob/vX.Y.Z/README.md)` link.
+  - a `[README for this version](https://github.com/deuxdoom/usage-monitor-for-claude/blob/vX.Y.Z/README.md)` link.
 - The build artifact `dist/UsageMonitorForClaude.exe` is produced by the user's build step - note it as a prerequisite; do not attempt to build it here.
 
 Present the command in this shape (filled in with the real version and notes):

@@ -8,7 +8,7 @@ Generate a GitHub Discussion reply for a completed feature implementation.
 # Format
 
 ```markdown
-Implemented in [`{short_hash}`](https://github.com/jens-duttke/usage-monitor-for-claude/commit/{full_hash}).
+Implemented in [`{short_hash}`](https://github.com/deuxdoom/usage-monitor-for-claude/commit/{full_hash}).
 
 **{One-line summary of the new feature or change}**
 
@@ -32,4 +32,4 @@ See [{Link text}]({URL to relevant docs section}) for details.
 
 # Input
 
-`$ARGUMENTS` is the discussion number (e.g. `11`). Read the discussion content using `gh api repos/jens-duttke/usage-monitor-for-claude/discussions/$ARGUMENTS --jq '.title, .body'` to understand what was implemented, then compose the reply based on the actual changes in the latest commit.
+`$ARGUMENTS` is the discussion number (e.g. `11`). Read the discussion content using `gh api repos/deuxdoom/usage-monitor-for-claude/discussions/$ARGUMENTS --jq '.title, .body'` to understand what was implemented, then compose the reply based on the actual changes in the latest commit.

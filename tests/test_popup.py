@@ -249,6 +249,20 @@ class TestSnapshotToDict(unittest.TestCase):
         self.assertEqual(bar['reset_text'], '5h 0m')
         self.assertEqual(bar['dividers'], [])
 
+    @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=None)
+    @patch('usage_monitor_for_claude.popup.divider_positions', return_value=[])
+    @patch('usage_monitor_for_claude.popup.time_until', return_value='')
+    def test_reset_rendering_mode_is_per_field(self, mock_time_until, _dividers, _elapsed):
+        """The session bar always counts down; the weekly bar keeps the calendar form."""
+        usage = {
+            'five_hour': {'utilization': 42, 'resets_at': '2026-01-01T05:00:00Z'},
+            'seven_day': {'utilization': 10, 'resets_at': '2026-01-05T05:00:00Z'},
+        }
+        _snapshot_to_dict(_snap(usage=usage), installations=[])
+
+        modes = {call.args[0]: call.kwargs['countdown_only'] for call in mock_time_until.call_args_list}
+        self.assertEqual(modes, {'2026-01-01T05:00:00Z': True, '2026-01-05T05:00:00Z': False})
+
     @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', False)
     def test_field_with_null_resets_at(self):
         """An inactive scoped limit (resets_at None) renders a 0% bar with no reset text.

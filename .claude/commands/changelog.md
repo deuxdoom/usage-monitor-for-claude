@@ -26,7 +26,7 @@ Entries describe changes **relative to the latest release tag**, not intermediat
 - Write from the **user's perspective** - what changed and why it matters, not how the code changed.
 - One bullet per logical change; keep it to a single concise sentence.
 - When a change implements a GitHub Discussion or resolves a GitHub Issue, link it in the entry text, e.g.
-  `- [Feature name](https://github.com/jens-duttke/usage-monitor-for-claude/discussions/12) - description`
+  `- [Feature name](https://github.com/deuxdoom/usage-monitor-for-claude/discussions/12) - description`
 
 ## Step 4: Confirm
 
