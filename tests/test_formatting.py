@@ -80,29 +80,37 @@ class TestParseFieldName(unittest.TestCase):
 # tooltip_label
 # ---------------------------------------------------------------------------
 
+@patch('usage_monitor_for_claude.formatting.T', EN)
 class TestTooltipLabel(unittest.TestCase):
     """Tests for tooltip_label()."""
 
     def test_five_hour(self):
-        self.assertEqual(tooltip_label('five_hour'), '5h')
+        self.assertEqual(tooltip_label('five_hour'), '5hr')
 
     def test_seven_day(self):
-        self.assertEqual(tooltip_label('seven_day'), '7d')
+        self.assertEqual(tooltip_label('seven_day'), '7 day')
+
+    def test_localized_unit(self):
+        """The unit is taken from the active locale, not a hardcoded suffix."""
+        korean = dict(EN, unit_hours='{n}시간', unit_days='{n}일')
+        with patch('usage_monitor_for_claude.formatting.T', korean):
+            self.assertEqual(tooltip_label('five_hour'), '5시간')
+            self.assertEqual(tooltip_label('seven_day'), '7일')
 
     def test_seven_day_sonnet(self):
-        self.assertEqual(tooltip_label('seven_day_sonnet'), '7d Sonnet')
+        self.assertEqual(tooltip_label('seven_day_sonnet'), '7 day Sonnet')
 
     def test_seven_day_opus(self):
-        self.assertEqual(tooltip_label('seven_day_opus'), '7d Opus')
+        self.assertEqual(tooltip_label('seven_day_opus'), '7 day Opus')
 
     def test_three_day_cowork(self):
-        self.assertEqual(tooltip_label('three_day_cowork'), '3d Cowork')
+        self.assertEqual(tooltip_label('three_day_cowork'), '3 day Cowork')
 
     def test_five_hour_something(self):
-        self.assertEqual(tooltip_label('five_hour_something'), '5h Something')
+        self.assertEqual(tooltip_label('five_hour_something'), '5hr Something')
 
     def test_multi_word_variant(self):
-        self.assertEqual(tooltip_label('seven_day_oauth_apps'), '7d OAuth Apps')
+        self.assertEqual(tooltip_label('seven_day_oauth_apps'), '7 day OAuth Apps')
 
     def test_unknown_number_fallback(self):
         """Unrecognized number word falls back to title case."""
@@ -121,11 +129,11 @@ class TestTooltipLabel(unittest.TestCase):
 
     def test_abbreviation_oauth(self):
         """oauth is title-cased as OAuth."""
-        self.assertEqual(tooltip_label('seven_day_oauth'), '7d OAuth')
+        self.assertEqual(tooltip_label('seven_day_oauth'), '7 day OAuth')
 
     def test_abbreviation_api(self):
         """api is title-cased as API."""
-        self.assertEqual(tooltip_label('seven_day_api'), '7d API')
+        self.assertEqual(tooltip_label('seven_day_api'), '7 day API')
 
 
 # ---------------------------------------------------------------------------
@@ -763,7 +771,7 @@ class TestTimeUntil(unittest.TestCase):
         local_now = datetime(2025, 1, 15, 10, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
             datetime(2025, 1, 15, 12, 30, 0), timedelta(hours=2, minutes=30))
-        self.assertEqual(time_until('ignored'), 'Resets in 2h 30m (12:30)')
+        self.assertEqual(time_until('ignored'), 'Resets in 2h 30m')
 
     def test_same_day_minutes_only(self, mock_dt):
         """Reset today with <60 min remaining."""
@@ -771,7 +779,7 @@ class TestTimeUntil(unittest.TestCase):
         local_now = datetime(2025, 1, 15, 12, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
             datetime(2025, 1, 15, 12, 45, 0), timedelta(minutes=45))
-        self.assertEqual(time_until('ignored'), 'Resets in 45m (12:45)')
+        self.assertEqual(time_until('ignored'), 'Resets in 45m')
 
     def test_same_day_exactly_60_minutes(self, mock_dt):
         """Exactly 60 minutes uses hours+minutes format."""
@@ -779,7 +787,7 @@ class TestTimeUntil(unittest.TestCase):
         local_now = datetime(2025, 1, 15, 12, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
             datetime(2025, 1, 15, 13, 0, 0), timedelta(hours=1))
-        self.assertEqual(time_until('ignored'), 'Resets in 1h 0m (13:00)')
+        self.assertEqual(time_until('ignored'), 'Resets in 1h 0m')
 
     def test_same_day_one_minute(self, mock_dt):
         """One minute remaining."""
@@ -787,7 +795,7 @@ class TestTimeUntil(unittest.TestCase):
         local_now = datetime(2025, 1, 15, 12, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
             datetime(2025, 1, 15, 12, 1, 0), timedelta(minutes=1))
-        self.assertEqual(time_until('ignored'), 'Resets in 1m (12:01)')
+        self.assertEqual(time_until('ignored'), 'Resets in 1m')
 
     def test_imminent_last_minute(self, mock_dt):
         """Under a minute before the reset shows the imminent marker, not empty."""
@@ -819,58 +827,55 @@ class TestTimeUntil(unittest.TestCase):
         local_now = datetime(2025, 1, 15, 22, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
             datetime(2025, 1, 16, 10, 0, 0), timedelta(hours=12))
-        self.assertEqual(time_until('ignored'), 'Resets tomorrow, 10:00')
+        self.assertEqual(time_until('ignored'), 'Resets tomorrow (10:00)')
 
-    def test_future_weekday(self, mock_dt):
-        """Reset in a few days shows weekday name and calendar date."""
-        # 2025-01-18 is Saturday (weekday index 5)
+    def test_future_date(self, mock_dt):
+        """Reset in a few days shows the calendar date and clock time."""
         utc_now = datetime(2025, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
         local_now = datetime(2025, 1, 15, 12, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
             datetime(2025, 1, 18, 14, 0, 0), timedelta(days=3, hours=2))
-        self.assertEqual(time_until('ignored'), 'Resets on Sat 1/18, 14:00')
+        self.assertEqual(time_until('ignored'), 'Resets on 1/18 (14:00)')
 
-    def test_future_weekday_date_crosses_month(self, mock_dt):
+    def test_future_date_crosses_month(self, mock_dt):
         """The date shown is the reset's own month and day, not the current month's."""
-        # 2025-02-03 is Monday (weekday index 0)
         utc_now = datetime(2025, 1, 31, 12, 0, 0, tzinfo=timezone.utc)
         local_now = datetime(2025, 1, 31, 12, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
             datetime(2025, 2, 3, 9, 0, 0), timedelta(days=2, hours=21))
-        self.assertEqual(time_until('ignored'), 'Resets on Mon 2/3, 09:00')
+        self.assertEqual(time_until('ignored'), 'Resets on 2/3 (09:00)')
 
-    def test_future_weekday_next_year(self, mock_dt):
+    def test_future_date_next_year(self, mock_dt):
         """A reset that lands past a year boundary still shows its own date."""
-        # 2026-01-02 is Friday (weekday index 4)
         utc_now = datetime(2025, 12, 30, 12, 0, 0, tzinfo=timezone.utc)
         local_now = datetime(2025, 12, 30, 12, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
             datetime(2026, 1, 2, 8, 0, 0), timedelta(days=2, hours=20))
-        self.assertEqual(time_until('ignored'), 'Resets on Fri 1/2, 08:00')
+        self.assertEqual(time_until('ignored'), 'Resets on 1/2 (08:00)')
 
     def test_seconds_rounded_up(self, mock_dt):
         """Seconds >= 30 round up the displayed minute."""
-        utc_now = datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
-        local_now = datetime(2025, 1, 15, 10, 0, 0)
+        utc_now = datetime(2025, 1, 15, 22, 0, 0, tzinfo=timezone.utc)
+        local_now = datetime(2025, 1, 15, 22, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
-            datetime(2025, 1, 15, 12, 30, 45), timedelta(hours=2, minutes=30, seconds=45))
-        self.assertEqual(time_until('ignored'), 'Resets in 2h 30m (12:31)')
+            datetime(2025, 1, 16, 10, 30, 45), timedelta(hours=12, minutes=30, seconds=45))
+        self.assertEqual(time_until('ignored'), 'Resets tomorrow (10:31)')
 
     def test_seconds_rounded_down(self, mock_dt):
         """Seconds < 30 keep the displayed minute unchanged."""
-        utc_now = datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
-        local_now = datetime(2025, 1, 15, 10, 0, 0)
+        utc_now = datetime(2025, 1, 15, 22, 0, 0, tzinfo=timezone.utc)
+        local_now = datetime(2025, 1, 15, 22, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
-            datetime(2025, 1, 15, 12, 30, 15), timedelta(hours=2, minutes=30, seconds=15))
-        self.assertEqual(time_until('ignored'), 'Resets in 2h 30m (12:30)')
+            datetime(2025, 1, 16, 10, 30, 15), timedelta(hours=12, minutes=30, seconds=15))
+        self.assertEqual(time_until('ignored'), 'Resets tomorrow (10:30)')
 
     def test_seconds_exactly_30_rounds_up(self, mock_dt):
         """Exactly 30 seconds rounds up (>= boundary)."""
-        utc_now = datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
-        local_now = datetime(2025, 1, 15, 10, 0, 0)
+        utc_now = datetime(2025, 1, 15, 22, 0, 0, tzinfo=timezone.utc)
+        local_now = datetime(2025, 1, 15, 22, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
-            datetime(2025, 1, 15, 12, 30, 30), timedelta(hours=2, minutes=30, seconds=30))
-        self.assertIn('12:31', time_until('ignored'))
+            datetime(2025, 1, 16, 10, 30, 30), timedelta(hours=12, minutes=30, seconds=30))
+        self.assertIn('10:31', time_until('ignored'))
 
     def test_less_than_60_seconds_shows_imminent(self, mock_dt):
         """Under a minute before the reset shows the imminent marker instead of empty."""
@@ -902,31 +907,31 @@ class TestTimeUntil(unittest.TestCase):
 
     def test_twelve_hour_pm(self, mock_dt):
         """clock_24h=False formats an afternoon reset in 12-hour style."""
-        utc_now = datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
-        local_now = datetime(2025, 1, 15, 10, 0, 0)
+        utc_now = datetime(2025, 1, 15, 22, 0, 0, tzinfo=timezone.utc)
+        local_now = datetime(2025, 1, 15, 22, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
-            datetime(2025, 1, 15, 14, 30, 0), timedelta(hours=4, minutes=30))
+            datetime(2025, 1, 16, 14, 30, 0), timedelta(hours=16, minutes=30))
         result = time_until('ignored', clock_24h=False)
-        self.assertIn('2:30', result)
+        self.assertIn('2:30 PM', result)
         self.assertNotIn('14:30', result)
 
     def test_twelve_hour_strips_leading_zero(self, mock_dt):
         """12-hour morning reset drops the leading zero from the hour."""
-        utc_now = datetime(2025, 1, 15, 5, 0, 0, tzinfo=timezone.utc)
-        local_now = datetime(2025, 1, 15, 5, 0, 0)
+        utc_now = datetime(2025, 1, 15, 22, 0, 0, tzinfo=timezone.utc)
+        local_now = datetime(2025, 1, 15, 22, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
-            datetime(2025, 1, 15, 9, 5, 0), timedelta(hours=4, minutes=5))
+            datetime(2025, 1, 16, 9, 5, 0), timedelta(hours=11, minutes=5))
         result = time_until('ignored', clock_24h=False)
-        self.assertIn('9:05', result)
+        self.assertIn('9:05 AM', result)
         self.assertNotIn('09:05', result)
 
     def test_twenty_four_hour_explicit(self, mock_dt):
         """clock_24h=True keeps the existing 24-hour clock string."""
-        utc_now = datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
-        local_now = datetime(2025, 1, 15, 10, 0, 0)
+        utc_now = datetime(2025, 1, 15, 22, 0, 0, tzinfo=timezone.utc)
+        local_now = datetime(2025, 1, 15, 22, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
-            datetime(2025, 1, 15, 14, 30, 0), timedelta(hours=4, minutes=30))
-        self.assertEqual(time_until('ignored', clock_24h=True), 'Resets in 4h 30m (14:30)')
+            datetime(2025, 1, 16, 14, 30, 0), timedelta(hours=16, minutes=30))
+        self.assertEqual(time_until('ignored', clock_24h=True), 'Resets tomorrow (14:30)')
 
     def test_countdown_only_tomorrow(self, mock_dt):
         """A session window ending after midnight still counts down."""
@@ -934,7 +939,7 @@ class TestTimeUntil(unittest.TestCase):
         local_now = datetime(2025, 1, 15, 22, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
             datetime(2025, 1, 16, 1, 30, 0), timedelta(hours=3, minutes=30))
-        self.assertEqual(time_until('ignored', countdown_only=True), 'Resets in 3h 30m (01:30)')
+        self.assertEqual(time_until('ignored', countdown_only=True), 'Resets in 3h 30m')
 
     def test_countdown_only_under_an_hour_across_midnight(self, mock_dt):
         """The minutes-only form is used across midnight too."""
@@ -942,7 +947,7 @@ class TestTimeUntil(unittest.TestCase):
         local_now = datetime(2025, 1, 15, 23, 30, 0)
         self._setup(mock_dt, utc_now, local_now,
             datetime(2025, 1, 16, 0, 10, 0), timedelta(minutes=40))
-        self.assertEqual(time_until('ignored', countdown_only=True), 'Resets in 40m (00:10)')
+        self.assertEqual(time_until('ignored', countdown_only=True), 'Resets in 40m')
 
     def test_countdown_only_beyond_tomorrow(self, mock_dt):
         """Even a multi-day gap counts down when countdown_only is set."""
@@ -950,7 +955,7 @@ class TestTimeUntil(unittest.TestCase):
         local_now = datetime(2025, 1, 15, 12, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
             datetime(2025, 1, 18, 14, 0, 0), timedelta(days=3, hours=2))
-        self.assertEqual(time_until('ignored', countdown_only=True), 'Resets in 74h 0m (14:00)')
+        self.assertEqual(time_until('ignored', countdown_only=True), 'Resets in 74h 0m')
 
     def test_countdown_only_same_day_unchanged(self, mock_dt):
         """Within the same day the output is identical either way."""
@@ -958,7 +963,7 @@ class TestTimeUntil(unittest.TestCase):
         local_now = datetime(2025, 1, 15, 10, 0, 0)
         self._setup(mock_dt, utc_now, local_now,
             datetime(2025, 1, 15, 14, 30, 0), timedelta(hours=4, minutes=30))
-        self.assertEqual(time_until('ignored', countdown_only=True), 'Resets in 4h 30m (14:30)')
+        self.assertEqual(time_until('ignored', countdown_only=True), 'Resets in 4h 30m')
 
     def test_countdown_only_does_not_override_imminent(self, mock_dt):
         """The imminent marker still wins inside the last minute."""
@@ -967,6 +972,15 @@ class TestTimeUntil(unittest.TestCase):
         self._setup(mock_dt, utc_now, local_now,
             datetime(2025, 1, 15, 12, 0, 30), timedelta(seconds=30))
         self.assertEqual(time_until('ignored', countdown_only=True), 'Reset imminent')
+
+    def test_countdown_carries_no_clock_time(self, mock_dt):
+        """The countdown form states the remaining time only - repeating it as a
+        wall clock time is what made the line read as two competing answers."""
+        utc_now = datetime(2025, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
+        local_now = datetime(2025, 1, 15, 10, 0, 0)
+        self._setup(mock_dt, utc_now, local_now,
+            datetime(2025, 1, 15, 14, 30, 0), timedelta(hours=4, minutes=30))
+        self.assertNotIn('14:30', time_until('ignored', countdown_only=True))
 
     def test_countdown_only_does_not_revive_stale_timestamp(self, mock_dt):
         """A long-past reset still collapses to empty."""
@@ -1043,12 +1057,12 @@ class TestFormatTooltip(unittest.TestCase):
             'five_hour': {'utilization': 42.0, 'resets_at': ''},
             'seven_day': {'utilization': 15.0, 'resets_at': ''},
         }
-        self.assertEqual(format_tooltip(data), 'Claude Usage\n5h: 42%\n7d: 15%')
+        self.assertEqual(format_tooltip(data), 'Claude Usage\n5hr: 42%\n7 day: 15%')
 
-    @patch('usage_monitor_for_claude.formatting.time_until', return_value='Resets in 2h 30m (14:30)')
+    @patch('usage_monitor_for_claude.formatting.time_until', return_value='Resets in 2h 30m')
     def test_with_reset_info(self, _mock_tu):
         data = {'five_hour': {'utilization': 42.0, 'resets_at': '2025-01-15T14:30:00+00:00'}}
-        self.assertEqual(format_tooltip(data), 'Claude Usage\n5h: 42% (Resets in 2h 30m (14:30))')
+        self.assertEqual(format_tooltip(data), 'Claude Usage\n5hr: 42% (Resets in 2h 30m)')
 
     @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
     def test_utilization_none_skipped(self, _mock_tu):
@@ -1056,7 +1070,7 @@ class TestFormatTooltip(unittest.TestCase):
             'five_hour': {'utilization': None, 'resets_at': ''},
             'seven_day': {'utilization': 80.0, 'resets_at': ''},
         }
-        self.assertEqual(format_tooltip(data), 'Claude Usage\n7d: 80%')
+        self.assertEqual(format_tooltip(data), 'Claude Usage\n7 day: 80%')
 
     @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
     def test_empty_data_shows_title_only(self, _mock_tu):
@@ -1065,30 +1079,30 @@ class TestFormatTooltip(unittest.TestCase):
     @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
     def test_zero_percent(self, _mock_tu):
         data = {'five_hour': {'utilization': 0.0, 'resets_at': ''}}
-        self.assertEqual(format_tooltip(data), 'Claude Usage\n5h: 0%')
+        self.assertEqual(format_tooltip(data), 'Claude Usage\n5hr: 0%')
 
     @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
     def test_hundred_percent(self, _mock_tu):
         data = {'five_hour': {'utilization': 100.0, 'resets_at': ''}}
-        self.assertEqual(format_tooltip(data), 'Claude Usage\n5h: 100%')
+        self.assertEqual(format_tooltip(data), 'Claude Usage\n5hr: 100%')
 
     @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
     def test_entry_none_skipped(self, _mock_tu):
         """Entry that is None is skipped by the guard clause."""
         data = {'five_hour': None, 'seven_day': {'utilization': 50.0, 'resets_at': ''}}
-        self.assertEqual(format_tooltip(data), 'Claude Usage\n7d: 50%')
+        self.assertEqual(format_tooltip(data), 'Claude Usage\n7 day: 50%')
 
     @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
     def test_entry_empty_dict_skipped(self, _mock_tu):
         """Entry with no utilization key is skipped."""
         data = {'five_hour': {}, 'seven_day': {'utilization': 50.0, 'resets_at': ''}}
-        self.assertEqual(format_tooltip(data), 'Claude Usage\n7d: 50%')
+        self.assertEqual(format_tooltip(data), 'Claude Usage\n7 day: 50%')
 
     @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
     def test_only_seven_day(self, _mock_tu):
         """Only seven_day present, five_hour absent."""
         data = {'seven_day': {'utilization': 25.0, 'resets_at': ''}}
-        self.assertEqual(format_tooltip(data), 'Claude Usage\n7d: 25%')
+        self.assertEqual(format_tooltip(data), 'Claude Usage\n7 day: 25%')
 
     def test_auth_error_false_shows_normal_error(self):
         """auth_error=False with error shows normal error, not auth message."""
@@ -1103,7 +1117,7 @@ class TestFormatTooltip(unittest.TestCase):
             'five_hour': {'utilization': 26.0, 'resets_at': ''},
             'extra_usage': {'is_enabled': True, 'monthly_limit': 1000, 'used_credits': 420.0},
         }
-        self.assertEqual(format_tooltip(data), 'Claude Usage\n5h: 26%')
+        self.assertEqual(format_tooltip(data), 'Claude Usage\n5hr: 26%')
 
     @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
     @patch('usage_monitor_for_claude.formatting.TOOLTIP_FIELDS', ['seven_day_sonnet', 'five_hour'])
@@ -1114,7 +1128,7 @@ class TestFormatTooltip(unittest.TestCase):
             'seven_day': {'utilization': 20.0, 'resets_at': ''},
             'seven_day_sonnet': {'utilization': 30.0, 'resets_at': ''},
         }
-        self.assertEqual(format_tooltip(data), 'Claude Usage\n7d Sonnet: 30%\n5h: 10%')
+        self.assertEqual(format_tooltip(data), 'Claude Usage\n7 day Sonnet: 30%\n5hr: 10%')
 
     @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
     @patch('usage_monitor_for_claude.formatting.TOOLTIP_FIELDS', ['seven_day_sonnet'])
@@ -1146,7 +1160,7 @@ class TestFormatTooltip(unittest.TestCase):
             'five_hour': {'utilization': 50.0, 'resets_at': ''},
             'limits': [{'percent': 12, 'group': 'weekly'}],
         }
-        self.assertEqual(format_tooltip(data), 'Claude Usage\n5h: 50%')
+        self.assertEqual(format_tooltip(data), 'Claude Usage\n5hr: 50%')
 
 
 # ---------------------------------------------------------------------------
@@ -1168,12 +1182,12 @@ class TestTooltipMaxLength(unittest.TestCase):
         """Return the longest possible reset text for a given max-hour value."""
         dur = t['duration_hm'].format(h=max_hours, m=59)
         date = self._longest_date(t)
+        # '11:59 PM' is the widest clock string - wider than the 24-hour form.
         candidates = [
-            t['resets_in'].format(duration=dur, clock='23:59'),
-            t['resets_tomorrow'].format(clock='23:59'),
+            t['resets_in'].format(duration=dur),
+            t['resets_tomorrow'].format(clock='11:59 PM'),
+            t['resets_date'].format(date=date, clock='11:59 PM'),
         ]
-        for wd in t['weekdays']:
-            candidates.append(t['resets_weekday'].format(day=wd, date=date, clock='23:59'))
 
         return max(candidates, key=len)
 
@@ -1181,12 +1195,15 @@ class TestTooltipMaxLength(unittest.TestCase):
         """Build the longest possible tooltip from a locale dict.
 
         Worst case: both 5h and 7d visible at 100%, each with the longest
-        possible reset text (same-day, tomorrow, or weekday).
+        possible reset text (same-day, tomorrow, or a later date), and each
+        labeled with the locale's own unit template.
         """
         reset_5h = self._longest_reset(t, max_hours=4)
         reset_7d = self._longest_reset(t, max_hours=23)
+        label_5h = t['unit_hours'].format(n=5)
+        label_7d = t['unit_days'].format(n=7)
 
-        return f"{t['tooltip_title']}\n5h: 100% ({reset_5h})\n7d: 100% ({reset_7d})"
+        return f"{t['tooltip_title']}\n{label_5h}: 100% ({reset_5h})\n{label_7d}: 100% ({reset_7d})"
 
     def test_all_locales_fit_tooltip(self):
         """Every locale's worst-case tooltip must fit in 127 characters."""

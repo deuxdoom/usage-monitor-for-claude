@@ -19,13 +19,14 @@ LOCALE_DIR = Path(__file__).parent.parent / 'locale'
 def detect_lang_code(lang: str) -> str:
     """Detect locale file code from system locale string using convention-based lookup.
 
-    Lookup chain: ``{lang}-{REGION}.json`` → ``{lang}.json`` → ``en.json``.
-    No mapping required - the locale directory structure *is* the configuration.
+    Lookup chain: ``{lang}.json`` → ``en.json``.  No mapping table - the
+    locale directory *is* the configuration, so a system language without a
+    shipped file (anything but Japanese and Korean) lands on English.
 
     Parameters
     ----------
     lang : str
-        System locale string, e.g. ``'de_DE'`` or ``'German_Germany'``.
+        System locale string, e.g. ``'ko_KR'`` or ``'Korean_Korea'``.
 
     Returns
     -------
@@ -36,34 +37,11 @@ def detect_lang_code(lang: str) -> str:
     parts = normalized.split('_', 1)
     base = parts[0].lower()
 
-    # On Windows, os.getlocale() returns e.g. 'German_Germany', and locale.normalize() fails to rewrite it to an ISO code,
-    # so base becomes 'german'. Re-split using 'german' to hopefully trigger a match.
+    # On Windows, os.getlocale() returns e.g. 'Korean_Korea', and locale.normalize() fails to rewrite it to an ISO code,
+    # so base becomes 'korean'. Re-split using 'korean' to hopefully trigger a match.
     if len(base) > 3:
         base = locale.normalize(parts[0]).split('.')[0].split('_')[0].lower()
 
-    # Manual overrides for Windows locales that do not normalize cleanly to ISO codes.
-    region_override = ''
-    if base == 'ukrainian':
-        base = 'uk'
-    elif base == 'hindi':
-        base = 'hi'
-    elif base == 'indonesian':
-        base = 'id'
-    elif base.startswith('chinese'):
-        # Windows reports Chinese as e.g. 'Chinese (Simplified)_China' or
-        # 'Chinese (Traditional)_Hong Kong SAR'.  The script variant picks
-        # between the shipped zh files; the English region name from the
-        # original split can never match an ISO region code, so it is only
-        # used to infer the script when the name carries none.
-        original_region = parts[1] if len(parts) > 1 else ''
-        traditional = 'traditional' in base or original_region in ('Taiwan', 'Hong Kong SAR', 'Macao SAR')
-        base = 'zh'
-        region_override = 'TW' if traditional else 'CN'
-
-    region = region_override or (parts[1] if len(parts) > 1 and len(base) <= 3 else '')
-
-    if region and (LOCALE_DIR / f'{base}-{region}.json').exists():
-        return f'{base}-{region}'
     if (LOCALE_DIR / f'{base}.json').exists():
         return base
 

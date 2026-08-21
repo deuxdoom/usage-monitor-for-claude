@@ -277,13 +277,13 @@ Run a shell command when a usage event occurs. See [Event Commands](event-comman
 | `poll_fast_extra` | `2` | Extra fast polls after usage stops increasing |
 | `poll_error` | `30` | Seconds after a transient error (5xx, network). Rate-limit errors (429) use exponential backoff instead |
 | `max_backoff` | `900` | Maximum backoff in seconds for rate-limit errors (15 min) |
-| `idle_pause` | `300` | Seconds of inactivity after which notifications are held back until the user returns (0 = disable). Notifications are also held while the workstation is locked. Polling is never paused |
+| `idle_pause` | `300` | Seconds the popup has to stay closed before polling pauses, and seconds of user inactivity after which notifications are held back until the user returns (0 = disable both). Notifications are also held while the workstation is locked. A paused poll loop resumes when the popup is opened, and is interrupted at a quota reset when `on_reset_command` is configured |
 
 ## Language
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `language` | *(auto-detected)* | Override the UI language with a language code. Available: `de`, `en`, `es`, `fr`, `hi`, `id`, `it`, `ja`, `ko`, `pt-BR`, `uk`, `zh-CN`, `zh-TW` |
+| `language` | *(auto-detected)* | Override the UI language with a language code. Available: `en`, `ja`, `ko` (any other system language falls back to `en`) |
 
 ## Time Format
 

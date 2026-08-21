@@ -9,6 +9,22 @@ This fork builds independently from 1.30.0 onwards. For 1.20.0 and earlier, see 
 [upstream changelog](https://github.com/jens-duttke/usage-monitor-for-claude/blob/main/CHANGELOG.md).
 
 
+## [1.70.0] - 2026-08-21
+
+### Changed
+
+- Polling now follows the popup instead of running around the clock. It refreshes while the popup is open - including a pinned one, for as long as you leave it up - and for five minutes after you close it, then pauses until you open it again. An app sitting in the tray with nothing on screen no longer spends an API call a minute on numbers nobody is looking at
+- Reset lines no longer repeat themselves. A countdown now ends where it makes its point ("Resets in 3h 20m") instead of restating the same moment as a clock time, and a reset further out reads as one phrase with the date and the time together ("Resets on 8/23 (3:00 AM)")
+- Reset dates no longer name the weekday. In Korean and Japanese the weekday character repeated the one already ending the date, so "8월 23일(일)에 재설정, 3:00 AM" read as if it said the same thing twice; the calendar date pins the day on its own
+- The tray tooltip now labels each quota in your own language - Korean shows "5시간" and "7일" instead of the untranslated "5h" and "7d"
+- `idle_pause` now also sets how long the popup has to stay closed before polling pauses, on top of the notification hold it already governed
+
+### Removed
+
+- Ten of the thirteen bundled languages (German, Spanish, French, Hindi, Indonesian, Italian, Portuguese, Ukrainian, Simplified and Traditional Chinese). English, Japanese and Korean remain; any other system language now shows the English UI
+
+[Show all code changes](https://github.com/deuxdoom/usage-monitor-for-claude/compare/v1.60.0...v1.70.0)
+
 ## [1.60.0] - 2026-08-17
 
 ### Changed

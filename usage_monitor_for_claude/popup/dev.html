@@ -88,13 +88,13 @@ const PRESETS = {
         profile: { email: 'user@example.com', name: 'Max Clau', plan: 'Max (Team)' },
         usage: [
             { unit: 'hour', period: 5, pct: 42, warn: false,
-              reset: { kind: 'in', duration: '2h 30m', clock: '14:30' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.35 },
+              reset: { kind: 'in', duration: '2h 30m' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.35 },
             { unit: 'week', period: 7, pct: 65, warn: true,
-              reset: { kind: 'weekday', weekday: 5, month: 1, day: 18, clock: '12:00' }, dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.55 },
+              reset: { kind: 'date', month: 1, day: 18, clock: '12:00' }, dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.55 },
             { unit: 'week', suffix: 'Sonnet', pct: 30, warn: false,
-              reset: { kind: 'weekday', weekday: 5, month: 1, day: 18, clock: '12:00' }, dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.55 },
+              reset: { kind: 'date', month: 1, day: 18, clock: '12:00' }, dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.55 },
             { unit: 'week', suffix: 'Opus', pct: 12, warn: false,
-              reset: { kind: 'weekday', weekday: 5, month: 1, day: 18, clock: '12:00' }, dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.55 },
+              reset: { kind: 'date', month: 1, day: 18, clock: '12:00' }, dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.55 },
         ],
         extra: { pct: 23, used: '$4.60', limit: '$20.00' },
         installations: [
@@ -108,7 +108,7 @@ const PRESETS = {
         profile: null,
         usage: [
             { unit: 'hour', period: 5, pct: 10, warn: false,
-              reset: { kind: 'in', duration: '4h 50m', clock: '17:00' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.03 },
+              reset: { kind: 'in', duration: '4h 50m' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.03 },
         ],
         extra: null,
         installations: [],
@@ -119,7 +119,7 @@ const PRESETS = {
         profile: { email: 'user@example.com', name: '', plan: 'Max' },
         usage: [
             { unit: 'hour', period: 5, pct: 95, warn: true,
-              reset: { kind: 'in', duration: '12m', clock: '12:12' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.96 },
+              reset: { kind: 'in', duration: '12m' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.96 },
             { unit: 'week', period: 7, pct: 88, warn: true,
               reset: { kind: 'tomorrow', clock: '08:00' }, dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.80 },
         ],
@@ -131,7 +131,7 @@ const PRESETS = {
         profile: { email: 'user@example.com', name: 'Max Clau', plan: 'Max (Team)' },
         usage: [
             { unit: 'hour', period: 5, pct: 42, warn: false,
-              reset: { kind: 'in', duration: '2h 30m', clock: '14:30' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.35 },
+              reset: { kind: 'in', duration: '2h 30m' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.35 },
         ],
         extra: null,
         installations: [{ name: 'CLI', version: '2.1.69' }],
@@ -186,11 +186,11 @@ function fieldKey(entry) {
 
 function localizeReset(loc, reset) {
     if (!reset) return '';
-    if (reset.kind === 'in') return loc.resets_in.replace('{duration}', reset.duration).replace('{clock}', reset.clock);
+    if (reset.kind === 'in') return loc.resets_in.replace('{duration}', reset.duration);
     if (reset.kind === 'tomorrow') return loc.resets_tomorrow.replace('{clock}', reset.clock);
-    if (reset.kind === 'weekday') {
+    if (reset.kind === 'date') {
         const date = loc.date_month_day.replace('{m}', reset.month).replace('{d}', reset.day);
-        return loc.resets_weekday.replace('{day}', loc.weekdays[reset.weekday]).replace('{date}', date).replace('{clock}', reset.clock);
+        return loc.resets_date.replace('{date}', date).replace('{clock}', reset.clock);
     }
     return '';
 }

@@ -48,16 +48,18 @@ Prioritize readability and auditability - users handle credentials and must be a
 - Locale files use template keys (`session_label`, `weekly_label`, `notify_threshold_generic`) - never add per-field translation keys
 
 ## Polling & Reset Alignment
-- **Polling never pauses.** `poll_loop()` keeps its cadence no matter how long the machine is idle or locked - a user returning after hours must see current numbers, not a stale reading plus a wait for the cycle to restart. Do not reintroduce an idle/lock pause, a `_wait_for_activity()`-style block, or any "resume polling on activity" path. `_is_user_away()` survives for exactly one job: deciding whether a notification is shown now or deferred (`_notify_or_defer`), so nothing pops up on a lock screen. `IDLE_PAUSE` (`idle_pause`) is therefore a notification-deferral threshold only - `docs/configuration.md` documents it that way and must stay accurate
-- Because nothing pauses, the reset-aligned cadence is the *only* thing that gets an event command to fire on time on an unattended machine. There is no longer an idle-wakeup path to fall back on, so any change to `_calculate_poll_interval` / `_align_to_reset` must keep the post-reset confirming poll intact
-- Tests that drive `poll_loop()` must end the loop through the `time.sleep` side effect (or by flipping `running` inside `update`), never by patching `_is_user_away` - it is now only reached when `_deferred_notifications` is non-empty, so a stop hook hung on it makes the suite hang instead of fail
+- **Polling follows the popup, not the user.** `_polling_paused()` is the only gate: polling runs while `_popup_open` is True (a pinned popup can be up for days) and for `IDLE_PAUSE` seconds after `_popup_closed_at`, then `_wait_for_popup()` blocks until the popup returns. `idle_pause = 0` disables the pause. Deliberately *not* keyed on machine idle or lock state - the question is what the app is showing, not where the user is. `_is_user_away()` (idle/lock) survives for exactly one job: deciding whether a notification is shown now or deferred (`_notify_or_defer`), so nothing pops up on a lock screen. `IDLE_PAUSE` therefore has two jobs and `docs/configuration.md` documents both - keep it accurate
+- `_popup_closed_at` is seeded with the launch time in `__init__`, never `0.0` - a zero would make a freshly started app evaluate as paused before it has ever shown anything
+- The pause branch lives *inside* the inner wait loop, not at the top of `poll_loop()`: the block is held by `_wait_for_popup()`, so an expired `target` cannot leak a poll through. Moving it to the outer loop reintroduces exactly that leak
+- `on_reset_command` is the one thing that interrupts the pause: `_wait_for_popup(until=...)` wakes at the reset, polls once, and drops back. `_idle_reset_pending` keeps that wake-up armed until `update()` sees the actual usage drop, so a failed or server-delayed post-reset fetch still gets a retry. Clear it only there - never on return from the wait
+- Tests that drive `poll_loop()` must end the loop through the `time.sleep` side effect, by flipping `running` inside `update`, or via a `_wait_for_popup` side effect - never by patching `_is_user_away`, which is only reached when `_deferred_notifications` is non-empty, so a stop hook hung on it makes the suite hang instead of fail
 - `cache.update()` enforces a hard `POLL_FAST` cooldown - no successful fetch happens more often than every `POLL_FAST` seconds. All poll scheduling is built around this floor; `_align_to_reset()` never returns an interval below `POLL_FAST` (enforced by a test invariant)
 - The one exception to that floor is `cache.update(force=True)`, used only after a confirmed account switch: the poll loop watches the credentials access token and, when it changes to a token whose account UUID differs (probed via `ensure_profile(bypass_rate_limit=True)`, `_account_switched()`), forces a single immediate fetch that bypasses both the cooldown and the 429 backoff. Safe because the newly selected account has no polling history and cannot be the source of either throttle; the old account's reset alignment is moot once its data is replaced, so the danger-window rule does not apply
 - A switch can also land *while a fetch is in flight*, which pairs the previous account's usage with the new account's profile. Two rules keep that from being mistaken for a completed switch: the poll loop reads its `token_seen` baseline **before** `self.update()` (reading it after would swallow the change and skip the forced refetch entirely), and `update()` discards the identity comparison when `UpdateResult.token` - the token the successful fetch was sent with - no longer matches the credentials file. That guard must return **before** `ensure_profile()`, so the popup keeps showing the old account's name next to its own numbers instead of the new name next to stale ones. Every baseline (`_prev_account_uuid`, `_prev_utilization`, `_notified_thresholds`) stays untouched, so the forced refetch reports the switch together with the new account's data. Never let `_record_success()` infer that token by re-reading the credentials - it must be the one captured before the request
 - On a 401, `_try_token_refresh()` retries with the current credentials token directly (skipping the slow `claude update` subprocess) whenever it already differs from the token that failed - the account-switch / out-of-band-refresh case - and only runs the CLI refresh when the token is unchanged. This keeps an account switch from stalling on a subprocess of up to 60s while the old (already revoked) token returns 401
 - When a 401 leaves the token blocked (`_last_failed_token`) - e.g. the stored access token expired and `claude update` did not renew it - the poll-loop token watcher retries as soon as the credentials token changes, even for the same account (`self._last_response.get('auth_error')` branch, a non-forced update so cooldown/backoff still apply). A token refreshed out of band then recovers both usage and profile promptly instead of only at the next error-cadence poll or after a restart
 - Invariant: no discretionary fetch may land in the "danger window" - the last `POLL_FAST - RESET_BUFFER` seconds before a quota reset. A fetch there consumes the cooldown and forces the reset-confirming poll to overshoot the reset. The reset-aligned cadence poll owns the post-reset confirmation
-- The cadence scheduler (`_align_to_reset`) already never schedules a poll into the danger window. Discretionary fetches must defer to it when a reset is within `POLL_FAST`: the popup skips its background refresh (`_should_refresh_usage()`), and the idle-return path realigns via `_reset_aligned_poll_target()` instead of polling immediately. Cold start (no data yet) is the only allowed exception
+- The cadence scheduler (`_align_to_reset`) already never schedules a poll into the danger window. Discretionary fetches must defer to it when a reset is within `POLL_FAST`: the popup skips its background refresh (`_should_refresh_usage()`), and the pause-return path realigns via `_reset_aligned_poll_target()` instead of polling immediately. Cold start (no data yet) is the only allowed exception
 - The poll-loop push-forward (which avoids a redundant fetch right after a popup fetch) reacts only to an actual new fetch (`last_success_time` advanced) and never moves a poll past a reset-aligned slot
 
 ## Security & Transparency
@@ -119,6 +121,8 @@ Prioritize readability and auditability - users handle credentials and must be a
 - Early returns and guard clauses
 
 ## PyInstaller / Build
+- **Build once, at the end.** When a round of code changes is finished and the suite passes, run `python build.py` so `dist/UsageMonitorForClaude.exe` is ready to run - that is part of finishing, not an extra. What is *not* allowed is building mid-task to check an intermediate step: it proves nothing the test suite has not already proven. A docs- or changelog-only change needs no build
+- The EXE carries the version from `version_info.py`, so bump it (and `__version__`) before the release build - otherwise the shipped file reports the previous version
 - Spec file: `usage_monitor_for_claude.spec` - all build config lives there
 - When adding new data files (translations, configs, assets): add them to the `datas` list in the spec file
 - When adding new imports: check if PyInstaller detects them automatically; if not, add to `hiddenimports`
@@ -127,14 +131,14 @@ Prioritize readability and auditability - users handle credentials and must be a
 
 ## README
 - Keep the feature list and descriptions in `README.md` in sync when adding, changing, or removing user-facing features
-- When adding or removing a `locale/*.json` file, update the language count and the parenthesized list in the "N languages (...)" feature bullet to match the actual locale files - both the number and the names must stay in sync
+- Only `locale/en.json`, `ja.json` and `ko.json` ship. Every other system language falls back to English through `detect_lang_code()` - do not add locale files or per-language special cases back without being asked. When the set does change, update the language bullet in `README.md` and the `language` row in `docs/configuration.md` to match
 - The feature list follows the user's decision journey - place new features in the appropriate tier:
   1. **Getting started** (barrier to entry): Portable, Zero configuration
   2. **Daily visible value** (what the user sees every day): Live tray icon, Detail popup, Claude Code versions
   3. **Proactive protection** (alerts and automation): Smart alerts, Event commands
   4. **Visual quality** (richer understanding of data): Time marker
   5. **Reliability** (it just keeps working): Automatic token refresh, Adaptive polling
-  6. **Reach and preferences** (secondary concerns): 13 languages, Customizable
+  6. **Reach and preferences** (secondary concerns): Languages, Customizable
 - Write feature descriptions from the user's perspective - lead with the problem solved or value gained, not the implementation. Ask: "why would someone choose this tool because of this feature?"
 - Unique features (no competing tool has them) deserve a standalone bullet; convenience improvements that could be described as sub-details of an existing feature belong in that feature's description instead
 
@@ -143,11 +147,14 @@ Prioritize readability and auditability - users handle credentials and must be a
 - Do not add changelog entries for internal refactors, code style changes, or documentation-only changes unless they affect the user
 - Changes to `CLAUDE.md` and the `.claude/commands/` files are invisible to users - never mention them in changelog entries or commit messages
 - Use the `/changelog` command to write the entry - it holds the format, grouping (Added/Changed/Fixed/Removed), user-perspective wording, issue/discussion linking, and the "did the bug ship in the last release?" check
+- Unreleased work is filed under a **numbered pending heading**, not `## [Unreleased]`: bump the minor version past the last released one and mark it pending, e.g. `## [1.70.0] - 배포 예정`. Keep adding to that same heading until it is released; only start a new one after a release has been cut. The heading is the changelog's alone - `__version__` and `version_info.py` stay on the released version until `/releasing` bumps them
 
 ## Releasing
 - Cut releases with the `/releasing` command - it bumps the version (`__version__` in `usage_monitor_for_claude/__init__.py` plus all four fields in `version_info.py`), rolls `CHANGELOG.md`, runs the tests, and prepares the `gh release create` notes. Per the git rule it never tags or publishes - it hands the final command to you to run
 
 ## Testing
+- **Keep verification proportional to the change.** Run the full suite once, at the end, and read the result - that is the check. Do not re-run it to confirm a pass, re-read a file to confirm an edit that already succeeded, or add exploratory scripts that print what a change obviously does. A text or locale edit needs the suite and nothing else; only a behavior change earns a targeted manual check on top, and only when a test cannot express it
+- A pre-existing flake (a real-clock timing test) is not a regression - re-run that one test, not the suite, and say so
 - After completing all changes, run the full test suite (`python -m unittest discover -s tests`) and ensure all tests pass - this applies to any change (code, locale files, config, data files), not just Python modules
 - Fix the code to make tests pass - never weaken or remove tests to avoid failures
 - When adding new functionality or changing existing behavior, update or add corresponding tests

@@ -2353,6 +2353,94 @@ class TestPollLoopWhileAway(unittest.TestCase):
         self.assertEqual(self.app._next_poll_time, 5000.0 + 180)
 
 
+class TestPollingPause(unittest.TestCase):
+    """Tests for the popup-tracked polling pause."""
+
+    def setUp(self):
+        self.app = _make_app()
+        self.app.cache = MagicMock()
+        self.app.cache.ensure_profile = MagicMock()
+        self.app.cache.last_success_time = 0.0
+
+    def tearDown(self):
+        _cleanup(self.app)
+
+    @patch('usage_monitor_for_claude.app.IDLE_PAUSE', 300)
+    @patch('usage_monitor_for_claude.app.time.time', return_value=10000.0)
+    def test_open_popup_never_pauses(self, _mock_time):
+        """A pinned popup can stay up for days - polling must follow it."""
+        self.app._popup_open = True
+        self.app._popup_closed_at = 0.0
+        self.assertFalse(self.app._polling_paused())
+
+    @patch('usage_monitor_for_claude.app.IDLE_PAUSE', 300)
+    @patch('usage_monitor_for_claude.app.time.time', return_value=10000.0)
+    def test_grace_period_after_close(self, _mock_time):
+        """Polling continues for IDLE_PAUSE seconds after the popup closes."""
+        self.app._popup_open = False
+        self.app._popup_closed_at = 10000.0 - 299
+        self.assertFalse(self.app._polling_paused())
+
+    @patch('usage_monitor_for_claude.app.IDLE_PAUSE', 300)
+    @patch('usage_monitor_for_claude.app.time.time', return_value=10000.0)
+    def test_paused_once_grace_period_elapses(self, _mock_time):
+        self.app._popup_open = False
+        self.app._popup_closed_at = 10000.0 - 300
+        self.assertTrue(self.app._polling_paused())
+
+    @patch('usage_monitor_for_claude.app.IDLE_PAUSE', 0)
+    @patch('usage_monitor_for_claude.app.time.time', return_value=10000.0)
+    def test_zero_setting_disables_the_pause(self, _mock_time):
+        """idle_pause = 0 keeps the old always-on cadence."""
+        self.app._popup_open = False
+        self.app._popup_closed_at = 0.0
+        self.assertFalse(self.app._polling_paused())
+
+    @patch('usage_monitor_for_claude.app.IDLE_PAUSE', 300)
+    def test_launch_is_not_treated_as_a_closed_popup(self):
+        """A freshly started app polls instead of starting out paused."""
+        self.assertFalse(self.app._polling_paused())
+
+    @patch('usage_monitor_for_claude.app.ON_RESET_COMMAND', [])
+    @patch('usage_monitor_for_claude.app.time.time', return_value=1000.0)
+    def test_poll_loop_waits_while_paused(self, _mock_time):
+        """With no reset command configured the wait has no deadline."""
+        def stop(**_kwargs):
+            self.app.running = False
+
+        with patch.object(self.app, 'update'),              patch.object(self.app, '_calculate_poll_interval', return_value=180),              patch.object(self.app, '_seconds_until_next_reset', return_value=None),              patch.object(self.app, '_polling_paused', return_value=True),              patch.object(self.app, '_wait_for_popup', side_effect=stop) as mock_wait,              patch('usage_monitor_for_claude.app.time.sleep'):
+            self.app.poll_loop()
+
+        mock_wait.assert_called_once_with(until=None)
+
+    @patch('usage_monitor_for_claude.app.ON_RESET_COMMAND', ['echo reset'])
+    @patch('usage_monitor_for_claude.app.time.time', return_value=1000.0)
+    def test_reset_interrupts_the_pause(self, _mock_time):
+        """A configured reset command still fires on time while paused."""
+        def stop(**_kwargs):
+            self.app.running = False
+
+        with patch.object(self.app, 'update'),              patch.object(self.app, '_calculate_poll_interval', return_value=180),              patch.object(self.app, '_seconds_until_next_reset', return_value=30.0),              patch.object(self.app, '_polling_paused', return_value=True),              patch.object(self.app, '_wait_for_popup', side_effect=stop) as mock_wait,              patch('usage_monitor_for_claude.app.time.sleep'):
+            self.app.poll_loop()
+
+        mock_wait.assert_called_once_with(until=1000.0 + 30.0 + RESET_BUFFER)
+        self.assertTrue(self.app._idle_reset_pending)
+
+    def test_wait_for_popup_returns_when_popup_opens(self):
+        """The wait ends as soon as the popup is back."""
+        state = {'ticks': 0}
+
+        def open_popup(_seconds):
+            state['ticks'] += 1
+            self.app._popup_open = True
+
+        with patch('usage_monitor_for_claude.app.IDLE_PAUSE', 300),              patch('usage_monitor_for_claude.app.time.sleep', side_effect=open_popup):
+            self.app._popup_closed_at = 0.0
+            self.app._wait_for_popup()
+
+        self.assertEqual(state['ticks'], 1)
+
+
 class TestPollLoopAccountSwitch(unittest.TestCase):
     """Tests for the poll loop's reaction to a credentials token change."""
 

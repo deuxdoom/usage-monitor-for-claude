@@ -30,7 +30,7 @@ _NUMBER_WORDS = {
     'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5, 'six': 6,
     'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10, 'eleven': 11, 'twelve': 12,
 }
-_UNIT_SUFFIXES = {'hour': 'h', 'day': 'd'}
+_KNOWN_UNITS = frozenset({'hour', 'day'})
 _TITLE_CASE_EXCEPTIONS = {'oauth': 'OAuth', 'api': 'API', 'ai': 'AI'}
 _CURRENCY_SYMBOLS = {
     'USD': '$', 'EUR': '€', 'GBP': '£', 'JPY': '¥', 'CNY': '¥',
@@ -60,7 +60,7 @@ def parse_field_name(field: str) -> tuple[int, str, str | None] | None:
 
     number = _NUMBER_WORDS.get(parts[0])
     unit = parts[1]
-    if number is None or unit not in _UNIT_SUFFIXES:
+    if number is None or unit not in _KNOWN_UNITS:
         return None
 
     variant = parts[2] if len(parts) > 2 else None
@@ -83,7 +83,9 @@ def tooltip_label(field: str) -> str:
     Returns
     -------
     str
-        Short label like ``'5h'``, ``'7d'``, or ``'7d Sonnet'``.
+        Localized short label - ``'5hr'``, ``'7 day'`` or ``'7 day Sonnet'``
+        in English - built from the same unit templates as the popup label,
+        so the tray tooltip reads in the user's language.
         Falls back to title case of the full field name if unparseable.
     """
     parsed = parse_field_name(field)
@@ -91,7 +93,7 @@ def tooltip_label(field: str) -> str:
         return _title_case_variant(field)
 
     number, unit, variant = parsed
-    label = f'{number}{_UNIT_SUFFIXES[unit]}'
+    label = T['unit_hours' if unit == 'hour' else 'unit_days'].format(n=number)
     if variant:
         label += f' {_title_case_variant(variant)}'
     return label
@@ -151,9 +153,9 @@ def field_countdown_only(field: str) -> bool:
     Hour-scoped quotas (the rolling session window) are short enough that
     "how much is left" is the only useful reading.  A window ending after
     midnight would otherwise render as a bare calendar time ("Resets
-    tomorrow, 01:00"), hiding that the session has, say, 40 minutes left.
-    Day-scoped quotas keep the calendar form, where a weekday and date say
-    more than a three-digit hour count.
+    tomorrow (01:00)"), hiding that the session has, say, 40 minutes left.
+    Day-scoped quotas keep the calendar form, where a date says more than
+    a three-digit hour count.
 
     Parameters
     ----------
@@ -426,9 +428,9 @@ def _format_clock(when: datetime, clock_24h: bool) -> str:
 def time_until(iso_str: str, clock_24h: bool | None = None, countdown_only: bool = False) -> str:
     """Return human-readable reset time.
 
-    Same day:  "Resets in 2h 20m (14:30)"
-    Tomorrow:  "Resets tomorrow, 12:00"
-    Later:     "Resets on Sat 1/18, 12:00"
+    Same day:  "Resets in 2h 20m"
+    Tomorrow:  "Resets tomorrow (12:00)"
+    Later:     "Resets on 1/18 (12:00)"
 
     Parameters
     ----------
@@ -466,23 +468,24 @@ def time_until(iso_str: str, clock_24h: bool | None = None, countdown_only: bool
         else:
             reset_local = reset_local.replace(second=0)
         reset_date = reset_local.date()
-        time_str = _format_clock(reset_local, clock_24h)
 
+        # A countdown answers "how much is left" on its own; appending the wall
+        # clock time only repeats it in a second unit.
         if countdown_only or reset_date == today:
             if total_min >= 60:
                 duration = T['duration_hm'].format(h=total_min // 60, m=total_min % 60)
             else:
                 duration = T['duration_m'].format(m=total_min)
-            return T['resets_in'].format(duration=duration, clock=time_str)
+            return T['resets_in'].format(duration=duration)
 
+        time_str = _format_clock(reset_local, clock_24h)
         if reset_date == today + timedelta(days=1):
             return T['resets_tomorrow'].format(clock=time_str)
 
-        # Beyond tomorrow the weekday alone is ambiguous (it repeats every
-        # week), so the calendar date is shown alongside it.
-        weekday = T['weekdays'][reset_local.weekday()]
+        # Beyond tomorrow the calendar date pins the reset day unambiguously,
+        # with the clock time following it as one phrase.
         date_str = T['date_month_day'].format(m=reset_local.month, d=reset_local.day)
-        return T['resets_weekday'].format(day=weekday, date=date_str, clock=time_str)
+        return T['resets_date'].format(date=date_str, clock=time_str)
     except Exception:
         return ''
 
