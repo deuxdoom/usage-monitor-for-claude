@@ -50,9 +50,9 @@ class TestRedactHome(unittest.TestCase):
 
     def test_prefix_boundary_not_partially_redacted(self):
         """A sibling profile whose name merely starts with the username
-        (C:\\Users\\jens vs C:\\Users\\jensen) must not be partially redacted."""
+        (C:\\Users\\alex vs C:\\Users\\alexa) must not be partially redacted."""
         home = str(__import__('pathlib').Path.home())
-        sibling = f'{home}en\\file.txt'
+        sibling = f'{home}a\\file.txt'
         self.assertEqual(_redact_home(sibling), sibling)
 
     def test_exact_home_path_redacted(self):

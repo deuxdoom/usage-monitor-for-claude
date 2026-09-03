@@ -215,6 +215,7 @@ translations = {
     status_refreshing: 'refreshing',
     duration_hm: '{h}h {m}m',
     duration_m: '{m}m',
+    duration_ms: '{m}m {s}s',
     duration_s: '{s}s',
 };
 const NOW = Date.now() / 1000;
@@ -228,16 +229,30 @@ const NOW = Date.now() / 1000;
     def test_countdown_is_the_whole_status_line(self):
         """Only the countdown is shown - the elapsed half is not appended."""
         state = "statusState = { lastSuccessTime: NOW - 5, nextPollTime: NOW + 115 };"
-        self.assertEqual(self._status(state), "next in 2m")
+        self.assertRegex(self._status(state), r"^next in 1m \d{1,2}s$")
 
     def test_countdown_ignores_how_long_ago_the_fetch_was(self):
         """A fetch minutes old still shows only the countdown, not its own age."""
         state = "statusState = { lastSuccessTime: NOW - 90, nextPollTime: NOW + 90 };"
-        self.assertEqual(self._status(state), "next in 2m")
+        self.assertRegex(self._status(state), r"^next in 1m \d{1,2}s$")
 
     def test_countdown_under_a_minute_shown_in_seconds(self):
         state = "statusState = { lastSuccessTime: NOW - 10, nextPollTime: NOW + 30 };"
-        self.assertEqual(self._status(state), "next in 30s")
+        self.assertRegex(self._status(state), r"^next in [23]\ds$")
+
+    def test_countdown_over_a_minute_keeps_the_seconds(self):
+        """Above a minute the seconds stay on screen so the line keeps moving.
+
+        Naming whole minutes alone left the footer unchanged for a minute at a
+        time, which reads as a stalled app rather than a waiting one.
+        """
+        state = "statusState = { lastSuccessTime: NOW - 5, nextPollTime: NOW + 150 };"
+        self.assertRegex(self._status(state), r"^next in 2m \d{1,2}s$")
+
+    def test_countdown_past_an_hour_drops_the_seconds(self):
+        """Beyond an hour the seconds carry nothing, so hours and minutes suffice."""
+        state = "statusState = { lastSuccessTime: NOW - 5, nextPollTime: NOW + 7200 };"
+        self.assertRegex(self._status(state), r"^next in 2h \dm$")
 
     def test_refreshing_replaces_the_countdown(self):
         state = "statusState = { lastSuccessTime: NOW - 10, nextPollTime: NOW + 30, refreshing: true };"

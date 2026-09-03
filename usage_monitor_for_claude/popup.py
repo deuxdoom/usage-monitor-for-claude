@@ -276,7 +276,7 @@ def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None) -> di
             'detail_no_usage': T['detail_no_usage'], 'detail_source': T['detail_source'],
             'status_updated_s': T['status_updated_s'], 'status_updated': T['status_updated'],
             'status_next_update': T['status_next_update'], 'status_refreshing': T['status_refreshing'],
-            'duration_hm': T['duration_hm'], 'duration_m': T['duration_m'], 'duration_s': T['duration_s'],
+            'duration_hm': T['duration_hm'], 'duration_m': T['duration_m'], 'duration_ms': T['duration_ms'], 'duration_s': T['duration_s'],
         },
         'app_version': __version__,
         'compact_hide': COMPACT_HIDE,
@@ -758,11 +758,16 @@ class UsagePopup:
 
         Runs on a pywebview bridge thread, so the JS promise resolves once
         the fetch is done and the popup has been re-rendered.  ``force``
-        bypasses the cache cooldown and the 429 backoff, which is what the
-        user asked for by clicking - but repeated presses are throttled to
-        one fetch per ``_REFRESH_MIN_INTERVAL`` seconds so the button cannot
-        be used to hammer the API.  A refresh already in flight is not
-        joined; the caller simply gets ``False``.
+        bypasses the cache cooldown, which is what the user asked for by
+        clicking, and repeated presses are throttled to one fetch per
+        ``_REFRESH_MIN_INTERVAL`` seconds so the button cannot be used to
+        hammer the API.  An active 429 backoff is deliberately *not*
+        bypassed: a request inside that window is exactly what the server
+        asked the app to stop sending, and the error message the button sits
+        next to is what invites the user to keep clicking - forcing through
+        it would let those clicks keep the rate limit alive indefinitely.
+        A refresh already in flight is not joined; the caller simply gets
+        ``False``.
 
         Returns
         -------
@@ -803,8 +808,22 @@ class UsagePopup:
         return True
 
     def _update_loop(self) -> None:
-        """Poll for data changes and push updates to the popup."""
+        """Push updates to the popup on new data, a new poll time, or a new minute.
+
+        Part of what the popup shows is read off the wall clock rather than
+        the API response: the reset countdowns, the elapsed-time markers on
+        the bars and the divider positions all move on their own between
+        fetches.  Re-rendering on every minute boundary keeps them advancing
+        without spending an API request, so the polling cadence answers only
+        how fresh the *numbers* need to be - it is no longer what makes the
+        popup's own clock tick.
+
+        A push is retried on the next iteration when it fails, because
+        neither ``last_minute`` nor ``last_next_poll_time`` is committed
+        until it succeeds (``_push_snapshot`` does the same for the version).
+        """
         last_next_poll_time = self.app._next_poll_time
+        last_minute = int(time.time() // 60)
         while self._running:
             time.sleep(self._CHECK_MS / 1000)
             if not self._running:
@@ -812,10 +831,12 @@ class UsagePopup:
             try:
                 snap = self.app.cache.snapshot
                 next_poll_time = self.app._next_poll_time
-                if snap.version == self._last_version and next_poll_time == last_next_poll_time:
+                minute = int(time.time() // 60)
+                if snap.version == self._last_version and next_poll_time == last_next_poll_time and minute == last_minute:
                     continue
                 self._push_snapshot(snap, next_poll_time, rescan_installations=snap.version != self._last_version)
                 last_next_poll_time = next_poll_time
+                last_minute = minute
             except Exception:
                 # A transient failure (snapshot conversion, filesystem scan,
                 # one-off evaluate_js hiccup) must not end the update stream -

@@ -1186,6 +1186,119 @@ class TestUpdateLoopResilience(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# _update_loop clock tick
+# ---------------------------------------------------------------------------
+
+class TestUpdateLoopClockTick(unittest.TestCase):
+    """Tests that the popup re-renders its clock-derived parts every minute.
+
+    Reset countdowns, elapsed markers and bar dividers are computed from the
+    wall clock, not from the API response, so they have to keep moving between
+    fetches.  If only new data could redraw them, the sole way to make the
+    countdown tick would be to poll the API once a minute.
+    """
+
+    def _make_popup(self) -> UsagePopup:
+        popup = object.__new__(UsagePopup)
+        popup._running = True
+        popup._last_version = 1
+        popup._cached_installations = []
+        popup._window = MagicMock()
+
+        snap = MagicMock()
+        snap.version = 1
+        popup.app = MagicMock()
+        popup.app.cache.snapshot = snap
+        popup.app._next_poll_time = 100.0
+
+        return popup
+
+    def _run_loop(self, popup: UsagePopup, sleep_effect) -> MagicMock:
+        with patch('usage_monitor_for_claude.popup.time.sleep', side_effect=sleep_effect),              patch('usage_monitor_for_claude.popup.time.time', side_effect=lambda: self.clock[0]),              patch('usage_monitor_for_claude.popup.find_installations', return_value=[]) as mock_scan,              patch('usage_monitor_for_claude.popup._snapshot_to_dict', return_value={}):
+            popup._update_loop()
+
+        return mock_scan
+
+    def test_minute_boundary_pushes_without_new_data(self):
+        """Each new minute redraws the popup even though the cache never changed."""
+        popup = self._make_popup()
+        self.clock = [1000.0]  # minute 16
+
+        def sleep_effect(_seconds):
+            self.clock[0] += 30
+            if self.clock[0] > 1200:
+                popup._running = False
+
+        self._run_loop(popup, sleep_effect)
+
+        # Checks land at 1030, 1060, 1090, 1120, 1150, 1180 - minutes 17, 17, 18,
+        # 18, 19, 19 - so the three boundary crossings each push exactly once.
+        self.assertEqual(popup._window.evaluate_js.call_count, 3)
+
+    def test_minute_push_does_not_rescan_installations(self):
+        """A clock redraw must not re-probe the CLI installations.
+
+        The scan hits the filesystem and can shell out to a configured CLI, so
+        tying it to a once-a-minute redraw would run it all day; only new data
+        justifies it.
+        """
+        popup = self._make_popup()
+        self.clock = [1000.0]
+
+        def sleep_effect(_seconds):
+            self.clock[0] += 30
+            if self.clock[0] > 1100:
+                popup._running = False
+
+        mock_scan = self._run_loop(popup, sleep_effect)
+
+        self.assertGreater(popup._window.evaluate_js.call_count, 0)
+        mock_scan.assert_not_called()
+
+    def test_no_push_within_the_same_minute(self):
+        """Unchanged data inside one minute still costs nothing."""
+        popup = self._make_popup()
+        self.clock = [1000.0]
+        ticks = [0]
+
+        def sleep_effect(_seconds):
+            ticks[0] += 1
+            self.clock[0] += 2
+            if ticks[0] >= 5:
+                popup._running = False
+
+        self._run_loop(popup, sleep_effect)
+
+        self.assertEqual(popup._window.evaluate_js.call_count, 0)
+
+    def test_failed_minute_push_is_retried(self):
+        """A redraw that failed to reach the window is retried on the next tick."""
+        popup = self._make_popup()
+        self.clock = [1000.0]
+
+        def eval_js(_script):
+            if popup._window.evaluate_js.call_count == 1:
+                raise RuntimeError('transient WebView2 hiccup')
+            popup._running = False
+
+        popup._window.evaluate_js.side_effect = eval_js
+
+        ticks = [0]
+
+        def sleep_effect(_seconds):
+            ticks[0] += 1
+            # Two ticks inside the same minute: without the retry the second one
+            # would be deduplicated away and the popup would stay frozen.
+            self.clock[0] += 30 if ticks[0] == 1 else 1
+            if ticks[0] > 10:
+                popup._running = False
+
+        self._run_loop(popup, sleep_effect)
+
+        self.assertEqual(popup._window.evaluate_js.call_count, 2)
+
+
+# ---------------------------------------------------------------------------
 # _tray_position
 # ---------------------------------------------------------------------------
 

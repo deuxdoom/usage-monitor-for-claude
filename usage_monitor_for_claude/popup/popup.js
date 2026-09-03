@@ -413,20 +413,25 @@ function formatDuration(totalSeconds) {
 
 /**
  * Format a countdown in seconds into a localized duration string.
+ *
+ * Below an hour the seconds are always shown, so the footer keeps moving
+ * every tick.  Naming whole minutes alone left it standing still for a minute
+ * at a time, which reads as a stalled app rather than a waiting one.  Past an
+ * hour the seconds stop carrying information and hours plus minutes are
+ * enough.
  */
 function formatCountdown(totalSeconds) {
     if (totalSeconds < 60) {
         return translations.duration_s.replace('{s}', totalSeconds);
     }
 
-    const totalMin = Math.ceil(totalSeconds / 60);
-    const hours = Math.floor(totalMin / 60);
-    const mins = totalMin % 60;
-
-    if (hours > 0) {
-        return translations.duration_hm.replace('{h}', hours).replace('{m}', mins);
+    if (totalSeconds < 3600) {
+        const mins = Math.floor(totalSeconds / 60);
+        return translations.duration_ms.replace('{m}', mins).replace('{s}', totalSeconds % 60);
     }
-    return translations.duration_m.replace('{m}', totalMin);
+
+    const totalMin = Math.ceil(totalSeconds / 60);
+    return translations.duration_hm.replace('{h}', Math.floor(totalMin / 60)).replace('{m}', totalMin % 60);
 }
 
 // Bar keys that offer local-log detail on click. Kept in one place so the

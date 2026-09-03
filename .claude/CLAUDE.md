@@ -48,6 +48,7 @@ Prioritize readability and auditability - users handle credentials and must be a
 - Locale files use template keys (`session_label`, `weekly_label`, `notify_threshold_generic`) - never add per-field translation keys
 
 ## Polling & Reset Alignment
+- **One minute is this app's product rule, not a tuning default. Never raise `POLL_INTERVAL` / `POLL_FAST` (both `60`) to solve a problem - not a rate limit, not request volume, not anything.** A usage monitor that is minutes behind is not answering the question it exists to answer, and the tray icon, the popup and the footer countdown are all built around a one-minute beat. Too many requests is fixed by backing off correctly *after* a 429 and by not spending calls on what the app can compute locally, never by making every user's numbers staler. The two values are kept equal because `POLL_FAST` doubles as the cache cooldown, so raising `POLL_INTERVAL` alone only slows the app and lowering it alone changes nothing
 - **Polling follows the popup, not the user.** `_polling_paused()` is the only gate: polling runs while `_popup_open` is True (a pinned popup can be up for days) and for `IDLE_PAUSE` seconds after `_popup_closed_at`, then `_wait_for_popup()` blocks until the popup returns. `idle_pause = 0` disables the pause. Deliberately *not* keyed on machine idle or lock state - the question is what the app is showing, not where the user is. `_is_user_away()` (idle/lock) survives for exactly one job: deciding whether a notification is shown now or deferred (`_notify_or_defer`), so nothing pops up on a lock screen. `IDLE_PAUSE` therefore has two jobs and `docs/configuration.md` documents both - keep it accurate
 - `_popup_closed_at` is seeded with the launch time in `__init__`, never `0.0` - a zero would make a freshly started app evaluate as paused before it has ever shown anything
 - The pause branch lives *inside* the inner wait loop, not at the top of `poll_loop()`: the block is held by `_wait_for_popup()`, so an expired `target` cannot leak a poll through. Moving it to the outer loop reintroduces exactly that leak
@@ -66,7 +67,7 @@ Prioritize readability and auditability - users handle credentials and must be a
 - All URLs and API endpoints as top-level constants - no dynamic URL construction
 - Network communication exclusively with `api.anthropic.com` - no other destinations
 - Credentials used only in HTTP Authorization headers - never log, store, or transmit elsewhere
-- No file write operations - the app writes no files. The only system state it changes is two `HKCU` registry values: the notification identity (`notification_identity.py`) and the autostart entry (`autostart.py`). Any new persistent write needs a matching update in `README.md` and `PRIVACY.md` - the "writes no files" claim is part of the audit story and must never become inaccurate
+- No file write operations - the app writes no files. The only system state it changes is two `HKCU` registry values - the notification identity (`notification_identity.py`) and the autostart entry (`autostart.py`) - plus the one-time deletion of the pre-rename identity key (`_remove_legacy_identity()`, droppable once nobody upgrades from before 1.80.0). Any new persistent write or deletion needs a matching update in `README.md` and `PRIVACY.md` - the "writes no files" claim is part of the audit story and must never become inaccurate
 - No `eval()`, `exec()`, `compile()`, or dynamic imports - no dynamic code execution
 - No obfuscation - no base64-encoded strings, no encoded URLs or tokens
 - Modular package architecture in `usage_monitor_for_claude/` - small focused modules are easier to audit than one large file
@@ -122,7 +123,7 @@ Prioritize readability and auditability - users handle credentials and must be a
 
 ## PyInstaller / Build
 - **Build once, at the end.** When a round of code changes is finished and the suite passes, run `python build.py` so `dist/UsageMonitorForClaude.exe` is ready to run - that is part of finishing, not an extra. What is *not* allowed is building mid-task to check an intermediate step: it proves nothing the test suite has not already proven. A docs- or changelog-only change needs no build
-- The EXE carries the version from `version_info.py`, so bump it (and `__version__`) before the release build - otherwise the shipped file reports the previous version
+- The EXE is stamped from `version_info.py`, so a stale value there ships a binary naming the wrong release. `build.py` refuses to run PyInstaller unless `__version__`, all four `version_info.py` fields and the newest `CHANGELOG.md` heading agree - see Versioning. Never work around that guard by editing only the file it names; bring every source into line
 - Spec file: `usage_monitor_for_claude.spec` - all build config lives there
 - When adding new data files (translations, configs, assets): add them to the `datas` list in the spec file
 - When adding new imports: check if PyInstaller detects them automatically; if not, add to `hiddenimports`
@@ -147,10 +148,17 @@ Prioritize readability and auditability - users handle credentials and must be a
 - Do not add changelog entries for internal refactors, code style changes, or documentation-only changes unless they affect the user
 - Changes to `CLAUDE.md` and the `.claude/commands/` files are invisible to users - never mention them in changelog entries or commit messages
 - Use the `/changelog` command to write the entry - it holds the format, grouping (Added/Changed/Fixed/Removed), user-perspective wording, issue/discussion linking, and the "did the bug ship in the last release?" check
-- Unreleased work is filed under a **numbered pending heading**, not `## [Unreleased]`: bump the minor version past the last released one and mark it pending, e.g. `## [1.70.0] - 배포 예정`. Keep adding to that same heading until it is released; only start a new one after a release has been cut. The heading is the changelog's alone - `__version__` and `version_info.py` stay on the released version until `/releasing` bumps them
+- Unreleased work is filed under a **numbered pending heading**, not `## [Unreleased]`: bump the minor version past the last released one and mark it pending, e.g. `## [1.80.0] - 배포 예정`. Keep adding to that same heading until it is released; only start a new one after a release has been cut. Opening that heading is a version bump - see Versioning
 
 ## Releasing
-- Cut releases with the `/releasing` command - it bumps the version (`__version__` in `usage_monitor_for_claude/__init__.py` plus all four fields in `version_info.py`), rolls `CHANGELOG.md`, runs the tests, and prepares the `gh release create` notes. Per the git rule it never tags or publishes - it hands the final command to you to run
+- **When the user says a release is happening, roll the changelog without asking.** Saying it is the instruction, not a request for confirmation: replace the `배포 예정` marker on the pending heading with today's date, and make sure the section ends with `[Show all code changes](https://github.com/deuxdoom/usage-monitor-for-claude/compare/vPREV...vNEW)`. Asking whether to do it wastes a turn on work that was already assigned
+- Cut releases with the `/releasing` command - it rolls `CHANGELOG.md` (pending heading to a dated one, compare links), runs the tests, and prepares the `gh release create` notes. It does **not** bump the version: that already happened when the pending heading was opened, and `/releasing` only verifies the sources still agree. Per the git rule it never tags or publishes - it hands the final command to you to run
+
+## Versioning
+
+- The version is written in three places and they must always state the same release: `__version__` in `usage_monitor_for_claude/__init__.py`, all four fields in `version_info.py` (`filevers`, `prodvers`, `FileVersion`, `ProductVersion` - the resource fields carry a trailing `.0`, e.g. `1.80.0.0`), and the newest `## [x.y.z]` heading in `CHANGELOG.md`
+- **Bump all three the moment a pending changelog heading is opened**, not at release time. The version names the release being *prepared*, so it is correct from the first commit of the cycle. Deferring the bump was the old rule and it silently stamped every mid-cycle build with the previous release - exactly the mistake this section exists to prevent
+- Two independent guards enforce it: `tests/test_version.py` fails the suite, and `check_versions()` in `build.py` refuses to build. Both name every disagreeing source, so the fix is always to bring the others in line - never to relax the check
 
 ## Testing
 - **Keep verification proportional to the change.** Run the full suite once, at the end, and read the result - that is the check. Do not re-run it to confirm a pass, re-read a file to confirm an edit that already succeeded, or add exploratory scripts that print what a change obviously does. A text or locale edit needs the suite and nothing else; only a behavior change earns a targeted manual check on top, and only when a test cannot express it

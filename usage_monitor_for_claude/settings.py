@@ -314,10 +314,13 @@ def _icon_colors(key: str, defaults: dict[str, tuple]) -> dict[str, tuple]:
 _S = _load_settings()
 
 # Polling intervals (seconds)
-# Both default to 60s in this fork (upstream: 180 / 120), so the tray and the
-# popup countdown move on a one-minute cycle.  POLL_FAST doubles as the cache
-# cooldown, so the two are kept equal - a lower POLL_FAST alone would not make
-# the regular polls any more frequent.
+# One minute is this app's rule, not a tuning knob: a usage monitor that is a
+# few minutes behind is not answering the question it exists to answer.  Both
+# values are kept equal because POLL_FAST doubles as the cache cooldown, so a
+# scheduled poll is never sent more often than POLL_FAST regardless of what
+# POLL_INTERVAL says - raising POLL_INTERVAL alone slows the app down, and
+# lowering it alone changes nothing.  Only the two deliberate bypasses skip the
+# cooldown: the popup's refresh button and the refetch after an account switch.
 POLL_INTERVAL = _S.get('poll_interval', 60)
 POLL_FAST = _S.get('poll_fast', 60)
 POLL_FAST_EXTRA = _S.get('poll_fast_extra', 2)

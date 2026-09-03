@@ -31,6 +31,7 @@
     "resets_imminent": "곧 재설정됨",
     "duration_hm": "{h}시간 {m}분",
     "duration_m": "{m}분",
+    "duration_ms": "{m}분 {s}초",
     "duration_s": "{s}초",
     "detail_tokens": "토큰",
     "detail_messages": "메시지",

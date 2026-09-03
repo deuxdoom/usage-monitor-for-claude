@@ -1,30 +1,31 @@
 ---
 allowed-tools: Read, Edit, Bash, Grep, Glob
-description: Cut a new release - bump the version, roll the changelog, and prepare the GitHub release notes
+description: Cut a new release - verify the version, roll the changelog, and prepare the GitHub release notes
 ---
 
 Prepare a release for version **$ARGUMENTS** (a semantic version like `1.21.0`). If no version was given, ask for it before doing anything.
 
 Work through the steps **sequentially**. Respect the project git rule: **never commit, tag, or push** - this command edits files and hands the final publish command back to the user to run.
 
-## Step 1: Bump the version
+## Step 1: Verify the version is already set
 
-Set the new version in **both** places (all fields must match exactly):
+The version is **not** bumped here. It was set when the pending changelog heading was opened, so by now `__version__` in `usage_monitor_for_claude/__init__.py`, all four `version_info.py` fields and the newest `CHANGELOG.md` heading already name **$ARGUMENTS**.
 
-- `usage_monitor_for_claude/__init__.py` - `__version__`
-- `version_info.py` - all four fields: `filevers`, `prodvers`, `FileVersion`, `ProductVersion`
+Confirm that by running `python -c "import build; print(build.check_versions())"`. It prints the agreed version, or names every disagreeing source and exits non-zero.
 
-`filevers`/`prodvers` are tuples (e.g. `(1, 21, 0, 0)`); `FileVersion`/`ProductVersion` are strings (e.g. `'1.21.0.0'`). Read both files first to match their existing shape, then edit.
+- If it prints **$ARGUMENTS**, move on.
+- If it reports a mismatch, fix the sources it names so they all state **$ARGUMENTS**, then re-run it.
+- If it prints a *different* version than the one requested, stop and ask: the release being prepared is not the one the user named, and silently renaming it would misfile the accumulated changelog entries.
 
 ## Step 2: Roll the changelog
 
 In `CHANGELOG.md`:
 
-- Rename `## [Unreleased]` to `## [x.y.z] - YYYY-MM-DD` (today's date).
-- Add a fresh, empty `## [Unreleased]` section **above** it.
-- Update the compare links at the bottom: the `[Unreleased]` link now compares `vX.Y.Z...HEAD`, and add a new `[x.y.z]` link comparing the previous tag to `vX.Y.Z`.
+- Replace the pending marker on `## [x.y.z] - 배포 예정` with today's date: `## [x.y.z] - YYYY-MM-DD`.
+- Do **not** open a new pending heading here - the next one is created by `/changelog` together with its version bump, when the first entry of the next cycle is written.
+- Update the compare link at the bottom of the section to compare the previous tag to `vX.Y.Z`.
 
-Do not invent entries - the section must already hold the changes accumulated during the unreleased period. If it is empty or looks incomplete, stop and tell the user; use `/changelog` to add entries first.
+Do not invent entries - the section must already hold the changes accumulated during the pending period. If it is empty or looks incomplete, stop and tell the user; use `/changelog` to add entries first.
 
 ## Step 3: Run the tests
 
@@ -48,9 +49,9 @@ gh release create vX.Y.Z dist/UsageMonitorForClaude.exe --title "vX.Y.Z" --notes
 ## Summary
 
 Report:
-1. Which files were edited and the old -> new version.
-2. Confirmation that the changelog was rolled and the compare links updated.
+1. The verified version and the sources that agree on it.
+2. Confirmation that the changelog was rolled and the compare link updated.
 3. Test result.
 4. The ready-to-run `gh release create` command.
 
-Do not commit the version bump - suggest running `/commit-message` for it, and remind the user that the `gh release create` command is theirs to run once the EXE is built.
+Do not commit - suggest running `/commit-message`, and remind the user that the `gh release create` command is theirs to run once the EXE is built.

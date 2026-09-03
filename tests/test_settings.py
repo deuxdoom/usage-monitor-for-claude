@@ -727,8 +727,8 @@ class TestSettingsValidation(unittest.TestCase):
 
     def test_on_double_click_command_string_normalized_to_list(self):
         """String value for on_double_click_command is normalized to a single-element list."""
-        result, mock = self._run_validate({'on_double_click_command': 'AgentMonitorForClaude.exe'})
-        self.assertEqual(result['on_double_click_command'], ['AgentMonitorForClaude.exe'])
+        result, mock = self._run_validate({'on_double_click_command': 'MyTool.exe'})
+        self.assertEqual(result['on_double_click_command'], ['MyTool.exe'])
         mock.windll.user32.MessageBoxW.assert_not_called()
 
     def test_on_double_click_command_list_valid(self):

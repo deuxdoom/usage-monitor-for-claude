@@ -4,7 +4,7 @@ All settings work out of the box - no configuration file is needed. To customize
 
 ```json
 {
-  "poll_interval": 180,
+  "poll_interval": 300,
   "bar_fg": "#00cc66",
   "bar_fg_warn": "#ff6600"
 }
@@ -264,19 +264,21 @@ Run a shell command when a usage event occurs. See [Event Commands](event-comman
 | `on_reset_command` | *(none)* | Shell command (or array of commands) to run when a quota resets (usage drops) |
 | `on_startup_command` | *(none)* | Shell command (or array of commands) to run once after the first successful API update following app start |
 | `on_threshold_command` | *(none)* | Shell command (or array of commands) to run when usage crosses a configured alert threshold |
-| `on_double_click_command` | *(none)* | Shell command (or array of commands) to run when you double-click the tray icon (e.g. launch [Agent Monitor for Claude](https://github.com/jens-duttke/agent-monitor-for-claude)); a single click still opens the popup |
+| `on_double_click_command` | *(none)* | Shell command (or array of commands) to run when you double-click the tray icon; a single click still opens the popup |
 
 ## Polling intervals
 
-**This fork polls once a minute** (upstream: `180` / `120`). Raise both values if you would rather trade freshness for fewer API calls.
+**This app refreshes once a minute.** Polling stops while nothing is on screen - see `idle_pause` below - but whenever it is running, that is the cadence. Raise both values together if you would rather trade freshness for fewer API calls.
+
+The countdowns themselves never depend on these values. The popup's reset countdowns, elapsed-time markers and bar dividers are redrawn every minute from your own clock, so they keep moving whatever you set here - lowering these will not make a countdown tick faster, only spend more API calls.
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `poll_interval` | `60` | Seconds between API updates |
-| `poll_fast` | `60` | Seconds when usage is actively increasing. Doubles as the cache cooldown, so a value below `poll_interval` does not make regular polls more frequent |
+| `poll_fast` | `60` | Seconds when usage is actively increasing. Doubles as the cache cooldown, so a scheduled poll is never sent more often than this, whatever `poll_interval` says. Only the popup's refresh button and the refetch after an account switch skip it |
 | `poll_fast_extra` | `2` | Extra fast polls after usage stops increasing |
 | `poll_error` | `30` | Seconds after a transient error (5xx, network). Rate-limit errors (429) use exponential backoff instead |
-| `max_backoff` | `900` | Maximum backoff in seconds for rate-limit errors (15 min) |
+| `max_backoff` | `900` | Maximum backoff in seconds for rate-limit errors (15 min). The backoff starts at twice `poll_interval` and doubles with each further 429, or follows the server's `Retry-After` when it sends one |
 | `idle_pause` | `300` | Seconds the popup has to stay closed before polling pauses, and seconds of user inactivity after which notifications are held back until the user returns (0 = disable both). Notifications are also held while the workstation is locked. A paused poll loop resumes when the popup is opened, and is interrupted at a quota reset when `on_reset_command` is configured |
 
 ## Language

@@ -86,8 +86,8 @@ class TestLockBehavior(unittest.TestCase):
 # Cooldown behavior
 # ---------------------------------------------------------------------------
 
-# Pinned to the upstream cadence so the fixed timestamps below keep their
-# meaning; this fork ships 60 / 60 as its default.
+# Pinned to 180 / 120 so the fixed timestamps below keep their meaning
+# regardless of the shipped cadence (this fork ships 60 / 60).
 @patch('usage_monitor_for_claude.cache.POLL_INTERVAL', 180)
 @patch('usage_monitor_for_claude.cache.POLL_FAST', 120)
 class TestCooldownBehavior(unittest.TestCase):
@@ -393,8 +393,8 @@ class TestFailedTokenGuard(unittest.TestCase):
 # Rate limit guard
 # ---------------------------------------------------------------------------
 
-# Pinned to the upstream cadence so the backoff arithmetic below stays as
-# written; this fork ships 60 / 60 as its default.
+# Pinned to 180 / 120 so the backoff arithmetic below stays as written
+# regardless of the shipped cadence (this fork ships 60 / 60).
 @patch('usage_monitor_for_claude.cache.POLL_INTERVAL', 180)
 @patch('usage_monitor_for_claude.cache.POLL_FAST', 120)
 class TestRateLimitGuard(unittest.TestCase):
@@ -417,20 +417,41 @@ class TestRateLimitGuard(unittest.TestCase):
 
     @patch('usage_monitor_for_claude.cache.fetch_usage')
     @patch('usage_monitor_for_claude.cache.time')
-    def test_force_bypasses_rate_limit_backoff(self, mock_time, mock_fetch):
-        """update(force=True) fetches even while the 429 backoff window is active."""
+    def test_bypass_rate_limit_ignores_backoff(self, mock_time, mock_fetch):
+        """update(bypass_rate_limit=True) fetches even while the 429 backoff window is active."""
         mock_fetch.return_value = {'error': 'HTTP 429', 'rate_limited': True}
         cache = _make_cache()
         mock_time.time.return_value = 1000.0
         cache.update()
         mock_fetch.reset_mock()
 
-        # Still within backoff, but a forced fetch proceeds anyway
+        # Still within backoff, but the account-switch refresh proceeds anyway
         mock_fetch.return_value = _SUCCESS_DATA
         mock_time.time.return_value = 1050.0
-        result = cache.update(force=True)
+        result = cache.update(force=True, bypass_rate_limit=True)
         self.assertIsNotNone(result.data)
         mock_fetch.assert_called_once()
+
+    @patch('usage_monitor_for_claude.cache.fetch_usage')
+    @patch('usage_monitor_for_claude.cache.time')
+    def test_force_alone_does_not_bypass_rate_limit_backoff(self, mock_time, mock_fetch):
+        """A cooldown bypass must not reach through an active 429 backoff.
+
+        The popup's refresh button forces past the cooldown.  Since the button
+        sits next to the very error message a 429 produces, letting it through
+        the backoff too would turn every click into another rejected request
+        and keep the limit alive.
+        """
+        mock_fetch.return_value = {'error': 'HTTP 429', 'rate_limited': True}
+        cache = _make_cache()
+        mock_time.time.return_value = 1000.0
+        cache.update()
+        mock_fetch.reset_mock()
+
+        mock_time.time.return_value = 1050.0
+        result = cache.update(force=True)
+        self.assertIsNone(result.data)
+        mock_fetch.assert_not_called()
 
     @patch('usage_monitor_for_claude.cache.fetch_usage')
     @patch('usage_monitor_for_claude.cache.time')
@@ -442,7 +463,7 @@ class TestRateLimitGuard(unittest.TestCase):
         cache.update()
 
         mock_fetch.return_value = _SUCCESS_DATA
-        mock_time.time.return_value = 1000.0 + 190  # Well past POLL_INTERVAL (180s)
+        mock_time.time.return_value = 1000.0 + 370  # Well past the first backoff (2 * 180s)
         result = cache.update()
         self.assertIsNotNone(result.data)
 
@@ -488,19 +509,25 @@ class TestRateLimitGuard(unittest.TestCase):
         mock_fetch.return_value = {'error': 'HTTP 429', 'rate_limited': True}
         cache = _make_cache()
 
-        # First 429: backoff = POLL_INTERVAL (180s)
+        # First 429: backoff = 2 * POLL_INTERVAL (360s), never the plain cadence
         mock_time.time.return_value = 1000.0
         cache.update()
         self.assertEqual(cache.consecutive_errors, 1)
 
-        # At 190s: past first backoff (180s) - proceed to second 429
-        mock_time.time.return_value = 1190.0
+        mock_fetch.reset_mock()
+        # At 180s: one normal interval later is still inside the first backoff
+        mock_time.time.return_value = 1180.0
+        self.assertIsNone(cache.update().data)
+        mock_fetch.assert_not_called()
+
+        # At 370s: past the first backoff - proceed to the second 429
+        mock_time.time.return_value = 1370.0
         cache.update()
         self.assertEqual(cache.consecutive_errors, 2)
 
         mock_fetch.reset_mock()
-        # At 250s: within second backoff (360s from 1190)
-        mock_time.time.return_value = 1440.0
+        # At 1750: within the second backoff (720s from 1370)
+        mock_time.time.return_value = 1750.0
         result = cache.update()
         self.assertIsNone(result.data)
         mock_fetch.assert_not_called()
@@ -515,13 +542,13 @@ class TestRateLimitGuard(unittest.TestCase):
         cache.update()
 
         # Wait past backoff, then succeed
-        mock_time.time.return_value = 1200.0
+        mock_time.time.return_value = 1400.0
         mock_fetch.return_value = _SUCCESS_DATA
         cache.update()
 
         mock_fetch.reset_mock()
         # Next call after cooldown should proceed (rate limit cleared by success)
-        mock_time.time.return_value = 1200.0 + 121
+        mock_time.time.return_value = 1400.0 + 121
         result = cache.update()
         self.assertIsNotNone(result.data)
 

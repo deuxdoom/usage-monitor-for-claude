@@ -22,7 +22,8 @@ Entries describe changes **relative to the latest release tag**, not intermediat
 
 ## Step 3: Write the entry
 
-- Add it under the `## [Unreleased]` section, grouped by: **Added**, **Changed**, **Fixed**, **Removed** (create the subheading only if it does not exist yet).
+- Add it under the current **pending heading** - `## [x.y.z] - 배포 예정`, never `## [Unreleased]` - grouped by: **Added**, **Changed**, **Fixed**, **Removed** (create the subheading only if it does not exist yet).
+- If no pending heading exists yet (the last release has been cut), open one: bump the minor version past the last released one, e.g. `## [1.80.0] - 배포 예정`. **Opening it is a version bump** - in the same change, set that version in `usage_monitor_for_claude/__init__.py` (`__version__`) and in all four `version_info.py` fields (`filevers`, `prodvers`, `FileVersion`, `ProductVersion` - the last three carry a trailing `.0`, e.g. `1.80.0.0`). Leaving them behind stamps every build of this cycle with the previous release; `tests/test_version.py` and `build.py` both refuse to let that pass.
 - Write from the **user's perspective** - what changed and why it matters, not how the code changed.
 - One bullet per logical change; keep it to a single concise sentence.
 - When a change implements a GitHub Discussion or resolves a GitHub Issue, link it in the entry text, e.g.

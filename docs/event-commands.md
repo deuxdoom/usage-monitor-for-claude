@@ -23,7 +23,11 @@ Commands only fire on **state changes** detected while the app is running. On ap
 
 Because a double-click is user-driven, a command that exits with a non-zero (error) code shows its stderr in an error dialog, so a wrong path or a broken command is not swallowed silently. The automatic reset, threshold, and startup commands stay silent - they fire in the background and must not interrupt you with dialogs.
 
-Polling never pauses, so both `on_reset_command` and `on_threshold_command` fire on schedule even when the computer is idle, locked, or unattended. The poll cadence is aligned to the expected reset time, so a reset command fires promptly; if the API has not applied the reset yet (server-side delay) or the network is temporarily unavailable, the app retries at regular intervals until the reset is confirmed. Desktop notifications that occur while the user is idle or the workstation is locked are deferred and shown when the user returns.
+Polling follows the popup rather than you: it runs while the popup is open - including a pinned one - and for `idle_pause` seconds after you close it, then pauses until you open it again. An idle, locked or unattended computer does not stop it; only an app with nothing on screen does.
+
+`on_reset_command` is the exception that outlives that pause. With it configured, the paused loop still wakes at the expected reset, polls, and fires the command on time, and it keeps retrying until the reset is actually confirmed - so a server-side delay or a brief network outage does not skip it. `on_threshold_command` has no such wake-up: it needs a poll to observe the crossing, so while polling is paused it fires at the first poll after you open the popup again.
+
+The poll cadence is aligned to the expected reset time, so a reset command fires promptly. Desktop notifications that occur while the user is idle or the workstation is locked are deferred and shown when the user returns.
 
 > [!TIP]
 > If you need a visible terminal, prefix your command with `start cmd /c`, e.g.:
@@ -36,28 +40,20 @@ Polling never pauses, so both `on_reset_command` and `on_threshold_command` fire
 
 ## Examples
 
-### Launch Agent Monitor for Claude on double-click
+### Open a tool of your choice on double-click
 
-Usage Monitor for Claude tells you *how much* of your rate limits you have left. Its companion tool, [**Agent Monitor for Claude**](https://github.com/jens-duttke/agent-monitor-for-claude), tells you *what your agents are actually doing* - a live overview of every running Claude Code agent across all your projects: which ones are working, waiting for your input, blocked, finished, or errored, refreshed every few seconds. Agents are grouped by project with the ones that need attention floated to the top, each with its estimated cost, token breakdown, model, and host - and one click brings any agent's window to the foreground. If you run more than one agent at a time, it turns "which window was that again?" into a glance at the tray.
+The tray icon you already watch for your limits can double as a shortcut. A double-click runs `on_double_click_command` while a single click still opens the usage popup, so anything you reach for often - a terminal, a dashboard, a script - is one gesture away.
 
-It is a single portable Windows EXE with zero configuration - it auto-detects your Claude config directory just like this app does. That makes it a natural double-click target, so the icon you already watch for your limits becomes the shortcut to your agents.
-
-**Setup:**
-
-1. Download `AgentMonitorForClaude.exe` from the [latest release](https://github.com/jens-duttke/agent-monitor-for-claude/releases/latest).
-2. Place it in the **same folder** as `UsageMonitorForClaude.exe`. Relative paths in event commands resolve against that folder, so no full path is needed.
-3. Add the setting and restart Usage Monitor for Claude via the tray context menu:
+Relative paths resolve against the folder holding `UsageMonitorForClaude.exe`, so a program kept next to it needs no full path. Add the setting and restart the app via the tray context menu:
 
 ```json
 {
-  "on_double_click_command": "AgentMonitorForClaude.exe"
+  "on_double_click_command": "MyTool.exe"
 }
 ```
 
-Now a single click still opens the usage popup, and a double-click opens Agent Monitor for Claude.
-
 > [!TIP]
-> If you keep the EXE somewhere else, use its full path instead, e.g. `"on_double_click_command": "C:\\Tools\\AgentMonitorForClaude.exe"`.
+> If the program lives somewhere else, use its full path instead, e.g. `"on_double_click_command": "C:\\Tools\\MyTool.exe"`.
 
 ### Resume a Claude Code session when the quota resets
 

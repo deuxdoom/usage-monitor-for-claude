@@ -5,9 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-This fork builds independently from 1.30.0 onwards. For 1.20.0 and earlier, see the
-[upstream changelog](https://github.com/jens-duttke/usage-monitor-for-claude/blob/main/CHANGELOG.md).
+This changelog covers 1.30.0 onwards, the point from which this project builds independently.
 
+
+## [1.80.0] - 2026-09-04
+
+### Changed
+
+- Reset countdowns, elapsed-time markers and bar dividers no longer wait on a fetch to move. They are read off your own clock, so the popup redraws them every minute on its own; previously only a fresh API response could move them, which left them frozen whenever a poll was delayed by a rate limit, an error, or a raised `poll_interval`
+- The countdown to the next update now names the seconds as well as the minutes, so it visibly moves on every tick. It previously showed whole minutes only, leaving the footer unchanged for a minute at a time, which read as a stalled app rather than a waiting one
+- Notifications are registered under this project's own identity (`현재repo작성자.UsageMonitorForClaude`) instead of the one inherited from the project this was forked from. Toasts look and behave exactly as before; if you had adjusted this app's notification settings in Windows, set them once more, since Windows tracks them per identity. The registry entry the old identity left behind is deleted on first start, so nothing of it stays on your machine
+- The executable's file properties now name this project. The company field reads `현재repo작성자` and the version resource is tagged Korean, instead of the values carried over from the project this was forked from
+
+### Fixed
+
+- The refresh button no longer sends a request while the API is rate-limiting the app. It used to force past the wait the server had asked for, so pressing it on the "API request failed (HTTP 429)" message - the one moment it is most tempting to press - kept the limit alive instead of clearing it. The immediate refresh after an account switch is unaffected and still bypasses the wait
+- A first rate-limit error now actually slows the app down. The backoff was exactly one polling interval long, so the retry repeated the same request rate the server had just rejected; it now starts at twice the interval and doubles from there, so a rate limit clears instead of renewing itself
+
+[Show all code changes](https://github.com/deuxdoom/usage-monitor-for-claude/compare/v1.70.0...v1.80.0)
 
 ## [1.70.0] - 2026-08-21
 
@@ -77,12 +92,12 @@ This fork builds independently from 1.30.0 onwards. For 1.20.0 and earlier, see 
 - Verbose diagnostics (`--verbose`) now report which settings file was loaded, or that none was found, plus the effective `popup_margin`
 - New `popup_margin` setting - widens the gap between the popup and the screen edge it is anchored to (default `12` pixels), so the popup stays clear of an auto-hiding or third-party taskbar that Windows' reported work area does not account for
 - New `popup_hide_fields` setting - a list of usage bars the popup never shows, matched by field name or by the label displayed in the popup (e.g. `["Nimbus Quill"]`), so the `"*"` wildcard in `popup_fields` can stay in place while individual auto-detected quota types are suppressed. Defaults to `["nimbus_quill"]`
-- [New `icon_style` setting](https://github.com/jens-duttke/usage-monitor-for-claude/issues/78) - set it to `"numbers"` to show both `icon_fields` values as two stacked percentages on the tray icon instead of one percentage with two bars; each row shows `✕` or `$` when its quota is exhausted (thanks to [@Searcus](https://github.com/Searcus) for the suggestion)
+- New `icon_style` setting - set it to `"numbers"` to show both `icon_fields` values as two stacked percentages on the tray icon instead of one percentage with two bars; each row shows `✕` or `$` when its quota is exhausted (thanks to [@Searcus](https://github.com/Searcus) for the suggestion)
 
 ### Changed
 
 - The account row now shows your name and keeps the email address hidden until you click it - the popup is often open during a screen share, and the address is the one value there worth not leaving visible. Accounts the API reports without a name show the address blurred instead, revealed by the same click
-- Usage is polled once a minute by default (`poll_interval` and `poll_fast` both `60`, upstream `180` / `120`), so the tray and the popup countdown move on a one-minute cycle; raise either setting to go back to fewer API calls
+- Usage is polled once a minute by default (`poll_interval` and `poll_fast` both `60`), so the tray and the popup countdown move on a one-minute cycle; raise either setting to go back to fewer API calls
 - The tray context menu links to this fork's repository instead of the upstream one
 - The "Test event commands" submenu is hidden entirely when no event command is configured, instead of appearing greyed out - it reappears as soon as one is set
 - The popup footer now shows the countdown to the next update from the moment the data arrives - previously it appeared only once the "updated" half had rolled over from seconds to minutes, leaving the first minute without any indication of when the next poll was due

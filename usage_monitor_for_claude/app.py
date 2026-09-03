@@ -434,18 +434,21 @@ class UsageMonitorForClaude:
 
     # Update orchestration
 
-    def update(self, force: bool = False) -> None:
+    def update(self, force: bool = False, bypass_rate_limit: bool = False) -> None:
         """Request a data refresh from the cache and process the result.
 
         Parameters
         ----------
         force : bool
-            When True, bypass the cache cooldown and the 429 rate-limit
-            backoff so the refresh happens immediately.  Used after a
-            confirmed account switch, where the freshly selected account
-            has no polling history that those throttles need to protect.
+            When True, bypass the cache cooldown so the refresh happens
+            immediately instead of at the next scheduled poll.
+        bypass_rate_limit : bool
+            When True, additionally ignore an active 429 backoff.  Used
+            after a confirmed account switch, where the freshly selected
+            account has no polling history that the backoff needs to
+            protect.
         """
-        result = self.cache.update(force=force)
+        result = self.cache.update(force=force, bypass_rate_limit=bypass_rate_limit)
         if result.data is None:
             return
 
@@ -965,7 +968,7 @@ class UsageMonitorForClaude:
             # afterwards and never register as a change - leaving the previous account's
             # usage on screen until the next regular poll.
             token_seen = read_access_token()
-            self.update(force=force_next)
+            self.update(force=force_next, bypass_rate_limit=force_next)
             force_next = False
             interval = self._calculate_poll_interval()
 

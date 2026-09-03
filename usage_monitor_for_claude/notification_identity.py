@@ -21,7 +21,7 @@ __all__ = ['register_notification_identity']
 
 # Stable per-application identity.  Every instance (one per Claude account)
 # shares it, so notifications group under one name and logo.
-APP_USER_MODEL_ID = 'JensDuttke.UsageMonitorForClaude'
+APP_USER_MODEL_ID = 'deuxdoom.UsageMonitorForClaude'
 DISPLAY_NAME = 'Usage Monitor for Claude'
 
 # Neutral branded logo (empty usage bars) shown as the notification icon.
@@ -33,6 +33,11 @@ _NOTIFICATION_LOGO = Path(__file__).resolve().parent / 'notification_logo.ico'
 # A registry entry is enough - no Start Menu shortcut is required.
 _REG_PATH = r'Software\Classes\AppUserModelId\{}'.format(APP_USER_MODEL_ID)
 
+# Identity this app registered before it was renamed.  Its key is dead weight
+# on every machine that ran an earlier version, so startup removes it once.
+# Safe to drop from the code once no one is upgrading from before 1.80.0.
+_LEGACY_REG_PATH = r'Software\Classes\AppUserModelId\JensDuttke.UsageMonitorForClaude'
+
 
 def register_notification_identity() -> None:
     """Adopt a fixed notification identity for this process.
@@ -43,11 +48,17 @@ def register_notification_identity() -> None:
     build extracts the logo to a fresh temporary directory each run, changing
     its path.
 
+    The key left behind by the app's previous identity is removed first, so
+    the cleanup still happens on a machine where the registration below
+    cannot run.
+
     On any failure - a missing logo file or a registry write error - the
     process keeps its default identity (the live tray icon).  This is never
     fatal: a notification icon must not stop the app from starting, and
     falling back to the tray icon is better than an empty one.
     """
+    _remove_legacy_identity()
+
     if not _NOTIFICATION_LOGO.is_file():
         return
 
@@ -59,3 +70,17 @@ def register_notification_identity() -> None:
         return
 
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(ctypes.c_wchar_p(APP_USER_MODEL_ID))
+
+
+def _remove_legacy_identity() -> None:
+    """Delete the registry key of the identity this app used to register.
+
+    Best-effort and silent: the key is already gone on a first-time install
+    and on every start after the first, and a machine that will not let it be
+    deleted is no reason to fail a startup.  ``DeleteKey`` also refuses a key
+    that has subkeys, so nothing that grew under it is removed blindly.
+    """
+    try:
+        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, _LEGACY_REG_PATH)
+    except OSError:
+        pass

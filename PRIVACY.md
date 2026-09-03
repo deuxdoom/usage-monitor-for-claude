@@ -26,10 +26,17 @@ the application closes. An optional settings file (`usage-monitor-settings.json`
 
 Two values are written to the Windows registry, both under `HKEY_CURRENT_USER`:
 
-- `Software\Classes\AppUserModelId\JensDuttke.UsageMonitorForClaude` - the display name and icon
+- `Software\Classes\AppUserModelId\deuxdoom.UsageMonitorForClaude` - the display name and icon
   shown in the header of the application's notifications. Re-registered on every start.
 - `Software\Microsoft\Windows\CurrentVersion\Run` - the autostart entry. Written only when you
   enable autostart from the tray menu, removed when you disable it again.
+
+One key is deleted, once, on the first start of version 1.80.0:
+
+- `Software\Classes\AppUserModelId\JensDuttke.UsageMonitorForClaude` - the notification identity used
+  before the application was renamed. Nothing reads it any more, so it is removed rather than left
+  behind. The deletion is attempted on every start and does nothing once the key is gone; a machine
+  that refuses it is ignored and the application starts normally.
 
 ## Claude Code Installation
 
@@ -44,4 +51,4 @@ The application does not integrate with any analytics, tracking, advertising, or
 ## Contact
 
 For questions about this privacy policy, please open an issue at
-https://github.com/jens-duttke/usage-monitor-for-claude/issues
+https://github.com/deuxdoom/usage-monitor-for-claude/issues

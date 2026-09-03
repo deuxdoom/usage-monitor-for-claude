@@ -176,18 +176,25 @@ class UsageCache:
                 self._version += 1
             log.info('fetch_profile -> %s', 'OK' if profile else 'failed')
 
-    def update(self, *, force: bool = False) -> UpdateResult:
-        """Fetch usage data with lock and cooldown protection.
+    def update(self, *, force: bool = False, bypass_rate_limit: bool = False) -> UpdateResult:
+        """Fetch usage data with lock, cooldown and rate-limit protection.
 
         Parameters
         ----------
         force : bool
-            When True, bypass the ``POLL_FAST`` cooldown and the 429
-            rate-limit backoff for this single fetch.  Used only for an
-            immediate refresh after a confirmed account switch: the newly
-            selected account has no polling history, so it cannot be the
-            source of a rate limit those throttles guard against.  The
+            When True, bypass the ``POLL_FAST`` cooldown for this single
+            fetch.  Used for a refresh the user asked for explicitly, which
+            wants data now rather than at the next scheduled poll.  The
             update lock is still honored, so concurrent fetches never run.
+        bypass_rate_limit : bool
+            When True, additionally ignore an active 429 backoff window.
+            Reserved for the immediate refresh after a confirmed account
+            switch: the newly selected account has no polling history, so it
+            cannot be the source of the rate limit the backoff guards
+            against.  It must never be set for a fetch against the account
+            that was limited - a request inside the backoff window is
+            precisely what the server asked the app to stop sending, and it
+            keeps the limit alive.
 
         Returns
         -------
@@ -201,13 +208,13 @@ class UsageCache:
             return UpdateResult(data=None)
 
         try:
-            return self._update_locked(force=force)
+            return self._update_locked(force=force, bypass_rate_limit=bypass_rate_limit)
         finally:
             self._lock.release()
 
     # Private helpers
 
-    def _update_locked(self, *, force: bool = False) -> UpdateResult:
+    def _update_locked(self, *, force: bool = False, bypass_rate_limit: bool = False) -> UpdateResult:
         """Execute the actual update while holding ``_lock``."""
         # Clamp epoch-based throttle state after a backward clock jump
         # (manual correction, NTP step, VM restore) - otherwise cooldown and
@@ -223,7 +230,7 @@ class UsageCache:
             log.debug('update skipped (cooldown, %.0fs remaining)', POLL_FAST - (time.time() - self._last_success_time))
             return UpdateResult(data=None)
 
-        if not force and time.time() < self._rate_limit_until:
+        if not bypass_rate_limit and time.time() < self._rate_limit_until:
             log.debug('update skipped (rate-limit backoff, %.0fs remaining)', self._rate_limit_until - time.time())
             return UpdateResult(data=None)
 
@@ -291,13 +298,16 @@ class UsageCache:
 
         Uses the server's ``Retry-After`` when present (clamped between
         ``POLL_INTERVAL`` and ``MAX_BACKOFF``), otherwise an exponential
-        backoff based on the consecutive error count.
+        backoff based on the consecutive error count.  The ramp starts at
+        twice ``POLL_INTERVAL``: a first 429 answered one normal interval
+        later is not a backoff at all, it just repeats the request rate the
+        server already rejected.
         """
         retry_after = data.get('retry_after')
         if retry_after is not None and retry_after > 0:
             delay = min(max(retry_after, POLL_INTERVAL), MAX_BACKOFF)
         else:
-            delay = min(POLL_INTERVAL * (2 ** max(self._consecutive_errors - 1, 0)), MAX_BACKOFF)
+            delay = min(POLL_INTERVAL * (2 ** max(self._consecutive_errors, 1)), MAX_BACKOFF)
         self._rate_limit_until = time.time() + delay
         log.warning('fetch_usage -> rate limited, backoff %.0fs', delay)
 

@@ -1298,8 +1298,8 @@ class TestOnThemeChanged(unittest.TestCase):
 # _calculate_poll_interval
 # ---------------------------------------------------------------------------
 
-# Pinned to the upstream cadence (180 / 120) so the interval math these tests
-# describe stays readable; this fork ships 60 / 60 as the shipped default.
+# Pinned to 180 / 120 so the interval math these tests describe stays fixed
+# regardless of the shipped cadence (this fork ships 60 / 60).
 @patch('usage_monitor_for_claude.app.POLL_INTERVAL', 180)
 @patch('usage_monitor_for_claude.app.POLL_FAST', 120)
 class TestCalculatePollInterval(unittest.TestCase):
@@ -1434,8 +1434,8 @@ class TestSecondsUntilNextReset(unittest.TestCase):
 # Poll interval reset alignment
 # ---------------------------------------------------------------------------
 
-# Pinned to the upstream cadence (180 / 120) so the interval math these tests
-# describe stays readable; this fork ships 60 / 60 as the shipped default.
+# Pinned to 180 / 120 so the interval math these tests describe stays fixed
+# regardless of the shipped cadence (this fork ships 60 / 60).
 @patch('usage_monitor_for_claude.app.POLL_INTERVAL', 180)
 @patch('usage_monitor_for_claude.app.POLL_FAST', 120)
 class TestResetAlignment(unittest.TestCase):
@@ -1483,8 +1483,8 @@ class TestResetAlignment(unittest.TestCase):
 _UPSTREAM_POLL_FAST = 120
 
 
-# Pinned to the upstream cadence (180 / 120) so the interval math these tests
-# describe stays readable; this fork ships 60 / 60 as the shipped default.
+# Pinned to 180 / 120 so the interval math these tests describe stays fixed
+# regardless of the shipped cadence (this fork ships 60 / 60).
 @patch('usage_monitor_for_claude.app.POLL_INTERVAL', 180)
 @patch('usage_monitor_for_claude.app.POLL_FAST', 120)
 class TestAlignToReset(unittest.TestCase):
@@ -2203,7 +2203,7 @@ class TestPollLoopWhileAway(unittest.TestCase):
         """An idle or locked machine must not stop the regular poll cadence."""
         update_count = [0]
 
-        def update_side_effect(force=False):
+        def update_side_effect(force=False, bypass_rate_limit=False):
             update_count[0] += 1
             if update_count[0] >= 3:
                 self.app.running = False
@@ -2494,8 +2494,8 @@ class TestPollLoopAccountSwitch(unittest.TestCase):
         """A token change confirmed as a different account triggers a forced update."""
         force_calls = []
 
-        def update_side_effect(force=False):
-            force_calls.append(force)
+        def update_side_effect(force=False, bypass_rate_limit=False):
+            force_calls.append((force, bypass_rate_limit))
             if len(force_calls) >= 2:
                 self.app.running = False
 
@@ -2507,8 +2507,10 @@ class TestPollLoopAccountSwitch(unittest.TestCase):
              patch('usage_monitor_for_claude.app.read_access_token', side_effect=['tok-a', 'tok-b', 'tok-b', 'tok-b']):
             self.app.poll_loop()
 
-        # First poll is the normal cadence, the second is forced by the switch.
-        self.assertEqual(force_calls, [False, True])
+        # First poll is the normal cadence, the second is forced by the switch.  The forced
+        # one also bypasses the 429 backoff: the new account has no polling history and so
+        # cannot be what the old account's rate limit was protecting.
+        self.assertEqual(force_calls, [(False, False), (True, True)])
 
     @patch('usage_monitor_for_claude.app.time.time', return_value=100.0)
     def test_token_refresh_same_account_does_not_force(self, _mock_time):
@@ -2519,7 +2521,7 @@ class TestPollLoopAccountSwitch(unittest.TestCase):
             # End the loop after one inner tick so the test terminates.
             self.app.running = False
 
-        with patch.object(self.app, 'update', side_effect=lambda force=False: force_calls.append(force)), \
+        with patch.object(self.app, 'update', side_effect=lambda force=False, bypass_rate_limit=False: force_calls.append(force)), \
              patch.object(self.app, '_calculate_poll_interval', return_value=180), \
              patch.object(self.app, '_account_switched', return_value=False), \
              patch.object(self.app, '_is_user_away', return_value=False), \
@@ -2538,7 +2540,7 @@ class TestPollLoopAccountSwitch(unittest.TestCase):
         self.app._last_response = {'error': 'expired', 'auth_error': True}
         force_calls = []
 
-        def update_side_effect(force=False):
+        def update_side_effect(force=False, bypass_rate_limit=False):
             force_calls.append(force)
             if len(force_calls) >= 2:
                 self.app.running = False
@@ -2565,7 +2567,7 @@ class TestPollLoopAccountSwitch(unittest.TestCase):
         ticks = []
         switched = False
 
-        def update_side_effect(force=False):
+        def update_side_effect(force=False, bypass_rate_limit=False):
             nonlocal switched
             force_calls.append(force)
             # The user switches accounts while this request is in flight.
@@ -2964,7 +2966,7 @@ class TestAccountSwitchedProbe(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestUpdateForce(unittest.TestCase):
-    """Tests that update(force=...) forwards the flag to the cache."""
+    """Tests that update() forwards its cooldown and rate-limit flags to the cache."""
 
     def setUp(self):
         self.app = _make_app()
@@ -2976,11 +2978,20 @@ class TestUpdateForce(unittest.TestCase):
 
     def test_force_forwarded_to_cache_update(self):
         self.app.update(force=True)
-        self.app.cache.update.assert_called_once_with(force=True)
+        self.app.cache.update.assert_called_once_with(force=True, bypass_rate_limit=False)
 
     def test_default_not_forced(self):
         self.app.update()
-        self.app.cache.update.assert_called_once_with(force=False)
+        self.app.cache.update.assert_called_once_with(force=False, bypass_rate_limit=False)
+
+    def test_bypass_rate_limit_forwarded_to_cache_update(self):
+        self.app.update(force=True, bypass_rate_limit=True)
+        self.app.cache.update.assert_called_once_with(force=True, bypass_rate_limit=True)
+
+    def test_force_alone_keeps_the_rate_limit_backoff(self):
+        """A refresh the user asked for skips the cooldown but never an active 429 backoff."""
+        self.app.update(force=True)
+        self.assertFalse(self.app.cache.update.call_args.kwargs['bypass_rate_limit'])
 
 
 # ---------------------------------------------------------------------------

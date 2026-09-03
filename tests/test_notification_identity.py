@@ -77,5 +77,70 @@ class TestRegisterNotificationIdentity(unittest.TestCase):
         self.assertIn(r'Software\Classes\AppUserModelId', ni._REG_PATH)
 
 
+class TestRemoveLegacyIdentity(unittest.TestCase):
+    """Tests that startup clears the registry key of the app's former identity.
+
+    The app was renamed, so every machine that ran an earlier version carries a
+    key nothing reads any more.  Removing it must never be able to cost a
+    startup, and must never reach past the one key it is meant to clear.
+    """
+
+    @patch.object(ni, 'ctypes')
+    @patch.object(ni, 'winreg')
+    def test_legacy_key_is_deleted_on_startup(self, mock_winreg, _mock_ctypes):
+        logo = MagicMock()
+        logo.is_file.return_value = True
+
+        with patch.object(ni, '_NOTIFICATION_LOGO', logo):
+            ni.register_notification_identity()
+
+        mock_winreg.DeleteKey.assert_called_once_with(mock_winreg.HKEY_CURRENT_USER, ni._LEGACY_REG_PATH)
+
+    @patch.object(ni, 'ctypes')
+    @patch.object(ni, 'winreg')
+    def test_legacy_key_is_deleted_even_without_a_logo(self, mock_winreg, _mock_ctypes):
+        """The cleanup runs before the early return a missing logo takes."""
+        logo = MagicMock()
+        logo.is_file.return_value = False
+
+        with patch.object(ni, '_NOTIFICATION_LOGO', logo):
+            ni.register_notification_identity()
+
+        mock_winreg.DeleteKey.assert_called_once_with(mock_winreg.HKEY_CURRENT_USER, ni._LEGACY_REG_PATH)
+        mock_winreg.CreateKey.assert_not_called()
+
+    @patch.object(ni, 'ctypes')
+    @patch.object(ni, 'winreg')
+    def test_missing_legacy_key_still_registers_the_identity(self, mock_winreg, mock_ctypes):
+        """Already deleted (or never present) is the normal case, not a failure."""
+        mock_winreg.DeleteKey.side_effect = FileNotFoundError('key not found')
+        logo = MagicMock()
+        logo.is_file.return_value = True
+
+        with patch.object(ni, '_NOTIFICATION_LOGO', logo):
+            ni.register_notification_identity()
+
+        mock_ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID.assert_called_once()
+
+    @patch.object(ni, 'ctypes')
+    @patch.object(ni, 'winreg')
+    def test_undeletable_legacy_key_still_registers_the_identity(self, mock_winreg, mock_ctypes):
+        """A refused delete - no permission, or subkeys present - is not fatal."""
+        mock_winreg.DeleteKey.side_effect = PermissionError('access denied')
+        logo = MagicMock()
+        logo.is_file.return_value = True
+
+        with patch.object(ni, '_NOTIFICATION_LOGO', logo):
+            ni.register_notification_identity()
+
+        mock_ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID.assert_called_once()
+
+    def test_legacy_path_is_a_different_key_under_the_same_parent(self):
+        """The cleanup targets the former AUMID only - never the current one."""
+        self.assertNotEqual(ni._LEGACY_REG_PATH, ni._REG_PATH)
+        self.assertTrue(ni._LEGACY_REG_PATH.startswith(r'Software\Classes\AppUserModelId'))
+        self.assertNotIn(ni.APP_USER_MODEL_ID, ni._LEGACY_REG_PATH)
+
+
 if __name__ == '__main__':
     unittest.main()
