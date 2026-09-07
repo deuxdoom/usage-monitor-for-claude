@@ -8,7 +8,7 @@ The script queries the GitHub Releases API, compares the latest version against 
 
 ### 1. Save the script
 
-Save the following as `check-update.ps1` next to your `UsageMonitorForClaude.exe` (or in the project root when running from source):
+Save the following as `check-update.ps1` next to your `AIAgentsUsageMonitor.exe` (or in the project root when running from source):
 
 ```powershell
 $currentVersion = if ($env:USAGE_MONITOR_VERSION) { $env:USAGE_MONITOR_VERSION } else { '0.0.0' }
@@ -29,7 +29,7 @@ try {
         $xml = [Windows.Data.Xml.Dom.XmlDocument]::new()
         $xml.LoadXml("<toast activationType='protocol' launch='$($release.html_url)'>
             <visual><binding template='ToastGeneric'>
-                <text>Usage Monitor for Claude</text>
+                <text>AI Agents Usage Monitor</text>
                 <text>Version $latest available (current: $currentVersion)</text>
             </binding></visual>
         </toast>")

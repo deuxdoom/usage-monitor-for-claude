@@ -32,10 +32,10 @@ __all__ = [
     'FG', 'FG_DIM', 'FG_HEADING', 'FG_LINK',
     'ICON_DARK', 'ICON_FIELDS', 'ICON_LIGHT', 'ICON_STYLE', 'IDLE_PAUSE',
     'LANGUAGE', 'MAX_BACKOFF', 'NOTIFY_CLAUDE_UPDATE',
-    'ON_DOUBLE_CLICK_COMMAND', 'ON_RESET_COMMAND', 'ON_STARTUP_COMMAND', 'ON_THRESHOLD_COMMAND',
+    'ON_RESET_COMMAND', 'ON_STARTUP_COMMAND', 'ON_THRESHOLD_COMMAND', 'QUICK_ACTION_COMMAND',
     'POLL_ERROR', 'POLL_FAST', 'POLL_FAST_EXTRA', 'POLL_INTERVAL',
     'POPUP_FIELDS', 'POPUP_HIDE_FIELDS', 'POPUP_HIDE_INACTIVE', 'POPUP_MARGIN',
-    'SETTINGS_FILENAME', 'SETTINGS_PATH', 'TIME_FORMAT', 'TOOLTIP_FIELDS',
+    'SETTINGS_FILENAME', 'SETTINGS_PATH', 'TIME_FORMAT', 'TOOLTIP_FIELDS', 'TRAY_PROVIDER',
     'get_alert_thresholds',
 ]
 
@@ -62,7 +62,9 @@ _PERCENT_KEYS = frozenset({'alert_time_aware_below'})
 _STRING_KEYS = frozenset({'currency_symbol', 'language'})
 _VALID_TIME_FORMATS = frozenset({'24h', '12h'})
 _VALID_ICON_STYLES = frozenset({'number+bars', 'numbers'})
-_COMMAND_KEYS = frozenset({'on_double_click_command', 'on_reset_command', 'on_startup_command', 'on_threshold_command'})
+_COMMAND_KEYS = frozenset({
+    'on_double_click_command', 'on_reset_command', 'on_startup_command', 'on_threshold_command', 'quick_action_command',
+})
 _BOOL_KEYS = frozenset({'alert_time_aware', 'notify_claude_update', 'popup_hide_inactive'})
 _STRING_LIST_KEYS = frozenset({'tooltip_fields', 'compact_hide', 'popup_hide_fields'})
 _WILDCARD_STRING_LIST_KEYS = frozenset({'popup_fields'})
@@ -103,7 +105,7 @@ def _load_settings() -> dict:
             except (json.JSONDecodeError, ValueError) as exc:
                 ctypes.windll.user32.MessageBoxW(
                     0, f'Invalid JSON in settings file:\n{path}\n\n{exc}',
-                    'Usage Monitor for Claude - Settings Error', 0x30,
+                    'AI Agents Usage Monitor - Settings Error', 0x30,
                 )
                 return {}
             except OSError:
@@ -299,7 +301,7 @@ def _validate(data: dict, path: Path) -> dict:
     if errors:
         ctypes.windll.user32.MessageBoxW(
             0, f'Invalid values in settings file:\n{path}\n\n' + '\n'.join(errors),
-            'Usage Monitor for Claude - Settings Error', 0x30,
+            'AI Agents Usage Monitor - Settings Error', 0x30,
         )
 
     return data
@@ -353,6 +355,14 @@ ICON_DARK = _icon_colors('icon_dark', {
     'fg_dim': (0, 0, 0, 140),
     'fg_warn': (224, 80, 80, 255),
 })
+
+# Which provider the tray icon, its tooltip and the threshold alerts follow.
+# 'codex' additionally makes the app read Codex quotas on the poll beat, not
+# only while the popup's Codex view is open - see docs/configuration.md.
+# Anything else falls back to 'claude' rather than leaving the tray blank.
+TRAY_PROVIDER: str = _S.get('tray_provider', 'claude')
+if TRAY_PROVIDER not in ('claude', 'codex'):
+    TRAY_PROVIDER = 'claude'
 
 # Tray icon fields
 ICON_FIELDS: list[str] = _S.get('icon_fields', ['five_hour', 'seven_day'])
@@ -445,8 +455,9 @@ TIME_FORMAT: str = _S.get('time_format', _SYSTEM_TIME_FORMAT)
 # take part in authentication (see claude_cli.py).
 CLI_COMMAND: dict[str, list[str]] = _S.get('cli_command', {})
 
-# Event commands
-ON_DOUBLE_CLICK_COMMAND: list[str] = _S.get('on_double_click_command', [])
+# Event commands.  'quick_action_command' replaced 'on_double_click_command';
+# the old key still works so an existing settings file keeps running as it is.
+QUICK_ACTION_COMMAND: list[str] = _S.get('quick_action_command') or _S.get('on_double_click_command', [])
 ON_RESET_COMMAND: list[str] = _S.get('on_reset_command', [])
 ON_STARTUP_COMMAND: list[str] = _S.get('on_startup_command', [])
 ON_THRESHOLD_COMMAND: list[str] = _S.get('on_threshold_command', [])

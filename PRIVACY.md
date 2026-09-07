@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**Usage Monitor for Claude** is a local desktop application that monitors your Claude API usage.
+**AI Agents Usage Monitor** is a local desktop application that monitors your Claude and Codex usage.
 
 ## Data Collection
 
@@ -8,8 +8,12 @@ This application does **not** collect, store, or transmit any personal data.
 
 ## Network Communication
 
-The application communicates exclusively with `api.anthropic.com` to retrieve your current API usage
-data. No other network connections are made.
+The application's own HTTP requests go to `api.anthropic.com` for Claude usage.
+While the Codex view is open, it launches the installed native Codex CLI or IDE binary as an
+app-server and requests account and quota information over local standard input/output.
+Codex authenticates and communicates with OpenAI services using its own configuration.
+Analytics and the OpenTelemetry exporter are disabled for this child process.
+No prompts or model turns are submitted by the monitor.
 
 ## Credentials
 
@@ -21,7 +25,15 @@ The application reads your existing Claude OAuth token from the local Claude CLI
 
 ## Local Storage
 
-The application does not write any files. All usage data is kept in memory only and discarded when
+The Codex view reads existing `sessions/**/*.jsonl` and `archived_sessions/**/*.jsonl` under
+`CODEX_HOME` (or `~/.codex`). It retains only model names, timestamps and token counters in memory.
+Local token records are not sent over the network. For account quota graphs, the monitor uses
+Codex's `account/read` and `account/rateLimits/read` protocol methods. The monitor does not read
+Codex credentials; Codex handles authentication. Email, plan and quota data remain in memory.
+
+The monitor itself does not write files. The delegated Codex process may write its own logs,
+databases or refreshed credentials under its configured home, as Codex normally does.
+All usage data held by the monitor is kept in memory only and discarded when
 the application closes. An optional settings file (`usage-monitor-settings.json`) is read-only.
 
 Two values are written to the Windows registry, both under `HKEY_CURRENT_USER`:

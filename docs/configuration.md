@@ -1,5 +1,29 @@
 # Configuration
 
+The popup header switches between Claude and Codex. Codex displays the signed-in ChatGPT
+account, plan and server quota windows using the installed native Codex CLI or IDE extension's
+app-server. Install Codex and sign in with ChatGPT first; API-key-only accounts do not supply
+these subscription quota graphs. The reported window durations and reset times determine the
+labels, bars and time markers. A failed read clears previous account values and retries with
+exponential backoff (120 seconds up to 15 minutes). Normal reads run every minute while the
+Codex view is open; reopening the popup or manual refresh respects the same cooldown/backoff.
+
+Both tabs start with token details collapsed. Click a five-hour or seven-day Codex bar (or press
+Enter/Space) to expand its local token totals and model breakdown independently. Open details
+refresh with new data. Both footers list the CLI and installed IDE extension versions and name
+which extension each row is - `VS Code (Claude)` and `VS Code (Codex)` are the extension
+versions, not the editor version - and the Codex `Changelog` link opens the official
+openai/codex release notes. The first switch to Codex keeps the view already on screen until
+the read lands, then swaps it in one pass, so the popup changes height only once.
+
+Separate local token totals read `sessions` and `archived_sessions` under `CODEX_HOME`
+(default `~/.codex`). Set `CODEX_HOME` before launching the monitor to use a different Windows
+Codex home for both the account reader and local logs. This is independent of Claude's
+`--config-dir`, API polling and account selection. Local totals can span multiple Codex accounts;
+they are not the account quota numerator. Cached input is included; reasoning is part of output.
+The selection lasts until the popup closes. Tray icons, alerts and event commands track Claude.
+The Codex child process may write its own logs, databases and refreshed credentials; see PRIVACY.md.
+
 All settings work out of the box - no configuration file is needed. To customize behavior, create a file called `usage-monitor-settings.json` with only the keys you want to change:
 
 ```json
@@ -211,6 +235,7 @@ The tray icon displays two small progress bars. By default, these show the sessi
 
 | Key | Default | Description |
 |-----|---------|-------------|
+| `tray_provider` | `"claude"` | Which agent the tray icon, its tooltip and the threshold alerts follow: `"claude"` or `"codex"`. `"codex"` also makes the app read Codex quotas on the poll beat instead of only while the popup's Codex view is open, so the Codex app-server runs in the background as well. `icon_fields` and `tooltip_fields` name Claude API fields and are ignored under `"codex"`, which always draws its shortest window on top and its longest below. The popup shows both agents either way |
 | `icon_fields` | `["five_hour", "seven_day"]` | Which two usage fields to show as icon bars. The first entry is the top bar (also determines the icon text), the second is the bottom bar |
 | `icon_style` | `"number+bars"` | Icon layout: `"number+bars"` shows the first field's percentage above two progress bars; `"numbers"` shows both fields as two stacked percentages without bars |
 
@@ -264,7 +289,7 @@ Run a shell command when a usage event occurs. See [Event Commands](event-comman
 | `on_reset_command` | *(none)* | Shell command (or array of commands) to run when a quota resets (usage drops) |
 | `on_startup_command` | *(none)* | Shell command (or array of commands) to run once after the first successful API update following app start |
 | `on_threshold_command` | *(none)* | Shell command (or array of commands) to run when usage crosses a configured alert threshold |
-| `on_double_click_command` | *(none)* | Shell command (or array of commands) to run when you double-click the tray icon; a single click still opens the popup |
+| `quick_action_command` | *(none)* | Shell command (or array of commands) to run when you double-click the tray icon; a single click still opens the popup. Previously named `on_double_click_command`, which still works |
 
 ## Polling intervals
 

@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, call, patch
 
 from PIL import Image, ImageDraw
 
-import usage_monitor_for_claude.tray_icon as tray_icon_mod
+import ai_agents_usage_monitor.tray_icon as tray_icon_mod
 
 
 def setUpModule():

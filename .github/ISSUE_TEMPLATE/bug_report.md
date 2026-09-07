@@ -7,11 +7,11 @@ labels: ''
 <!-- Tip: If the app fails to start or behaves unexpectedly, running with
 --verbose prints system diagnostics that help identify the problem:
 
-  UsageMonitorForClaude.exe --verbose
+  AIAgentsUsageMonitor.exe --verbose
 
 or from source:
 
-  python -m usage_monitor_for_claude --verbose
+  python -m ai_agents_usage_monitor --verbose
 
 Paste the output below if you can - it saves a lot of back and forth. -->
 

@@ -2,13 +2,13 @@
 Build Script
 =============
 
-Builds a standalone EXE for Usage Monitor for Claude using PyInstaller.
+Builds a standalone EXE for AI Agents Usage Monitor using PyInstaller.
 
 Usage:
     python build.py
 
 Produces:
-    dist/UsageMonitorForClaude.exe
+    dist/AIAgentsUsageMonitor.exe
 """
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).parent
 DIST = ROOT / 'dist'
-SPEC = ROOT / 'usage_monitor_for_claude.spec'
-INIT = ROOT / 'usage_monitor_for_claude' / '__init__.py'
+SPEC = ROOT / 'ai_agents_usage_monitor.spec'
+INIT = ROOT / 'ai_agents_usage_monitor' / '__init__.py'
 VERSION_INFO = ROOT / 'version_info.py'
 CHANGELOG = ROOT / 'CHANGELOG.md'
 
@@ -33,7 +33,7 @@ def build() -> None:
     cmd = [sys.executable, '-m', 'PyInstaller', '--clean', '--noconfirm', str(SPEC)]
     subprocess.check_call(cmd, cwd=str(ROOT))
 
-    exe = DIST / 'UsageMonitorForClaude.exe'
+    exe = DIST / 'AIAgentsUsageMonitor.exe'
     if exe.exists():
         size_mb = exe.stat().st_size / (1024 * 1024)
         print(f'\nBuild successful!  {exe}  ({size_mb:.1f} MB)  v{version}')
@@ -74,7 +74,7 @@ def check_versions() -> str:
         mismatches.append(('CHANGELOG.md  newest heading', heading, version))
 
     if mismatches:
-        print(f'Version mismatch - refusing to build.\n\n  usage_monitor_for_claude/__init__.py  __version__  {version}\n')
+        print(f'Version mismatch - refusing to build.\n\n  ai_agents_usage_monitor/__init__.py  __version__  {version}\n')
         for source, found, expected in mismatches:
             print(f'  {source}  {found}  <- expected {expected}')
         print(

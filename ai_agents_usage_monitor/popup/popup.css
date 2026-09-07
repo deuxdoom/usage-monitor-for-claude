@@ -25,11 +25,21 @@ header {
     align-items: center;
     gap: 8px;
 
-    & > span {
-        font-size: 15px;
-        font-weight: 700;
-        color: var(--fg-heading);
-        min-width: 0;
+    & .provider-switch {
+        display: flex;
+        gap: 8px;
+
+        & button {
+            width: auto;
+            height: 26px;
+            padding: 2px 5px;
+            font-size: 15px;
+
+            &[aria-pressed="true"] {
+                color: var(--fg-heading);
+                border-bottom: 2px solid var(--fg-link);
+            }
+        }
     }
 
     & button {
@@ -100,8 +110,12 @@ section, footer {
     &.visible { display: flex; }
 }
 
-section { transition: opacity 0.5s ease; }
+section, footer { transition: opacity 0.5s ease; }
 section.stale { opacity: 0.4; }
+
+/* First Codex read: the outgoing view is held on screen rather than emptied,
+   so the window resizes once - when there is Codex content to replace it with. */
+body.pending > section, body.pending > footer { opacity: 0.4; }
 
 section.visible ~ section.visible, section.visible ~ footer.visible {
     border-top: 1px solid var(--bar-bg);
@@ -176,7 +190,27 @@ dl > div {
     display: flex;
     justify-content: space-between;
     font-size: 13px;
+    align-items: center;
 }
+
+.bar-pct {
+    font-size: 18px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--bar-fg);
+    transition: color 0.3s ease;
+
+    &.warn { color: var(--bar-fg-warn); }
+}
+
+.pace-text {
+    font-size: 11px;
+    color: var(--fg-dim);
+
+    &.warn { color: var(--bar-fg-warn); }
+}
+
+.usage-entry > .bar-container { height: 10px; }
 
 .bar-container {
     position: relative;

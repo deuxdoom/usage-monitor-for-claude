@@ -11,7 +11,7 @@ Add these keys to your [`usage-monitor-settings.json`](configuration.md). After 
 | `on_reset_command` | *(none)* | Shell command (or array of commands) to run when a quota resets (usage drops) |
 | `on_startup_command` | *(none)* | Shell command (or array of commands) to run once after the first successful API update following app start |
 | `on_threshold_command` | *(none)* | Shell command (or array of commands) to run when usage crosses a configured alert threshold |
-| `on_double_click_command` | *(none)* | Shell command (or array of commands) to run when you double-click the tray icon |
+| `quick_action_command` | *(none)* | Shell command (or array of commands) to run when you double-click the tray icon. Previously named `on_double_click_command`, which still works |
 
 Commands run with the same privileges as the app and **without a visible window** - no console pops up and no focus is stolen. This is ideal for background tasks like sending notifications, playing sounds, or running headless commands (e.g. `claude -p "..."`). Relative paths in commands are resolved relative to the executable's folder (or the project root when running from source).
 
@@ -19,9 +19,9 @@ Each of these settings accepts a single command string or an array of strings to
 
 Commands only fire on **state changes** detected while the app is running. On app startup, already-exceeded thresholds trigger a desktop notification but do not run `on_threshold_command` - this prevents duplicate commands after a restart or reboot.
 
-`on_double_click_command` is the exception: it reacts to a user action, not a usage event. A single click still opens the detail popup as usual - the command only runs on a double-click. When this command is configured, opening the popup is deferred by the system double-click interval (typically about half a second) so a second click can be recognized in time; without the command set, the popup opens instantly as before.
+`quick_action_command` is the exception: it reacts to a user action, not a usage event. A single click still opens the detail popup as usual - the command only runs on a double-click. When this command is configured, opening the popup is deferred by the system double-click interval (typically about half a second) so a second click can be recognized in time; without the command set, the popup opens instantly as before.
 
-Because a double-click is user-driven, a command that exits with a non-zero (error) code shows its stderr in an error dialog, so a wrong path or a broken command is not swallowed silently. The automatic reset, threshold, and startup commands stay silent - they fire in the background and must not interrupt you with dialogs.
+Because a double-click is user-driven, a command that exits with a non-zero (error) code shows its stderr in an error dialog, so a wrong path or a broken command is not swallowed silently. Only a failure within the first few seconds counts: a quick action usually starts a program you then keep open, and that program exiting with an error hours later is its own business, not a broken setting. The automatic reset, threshold, and startup commands stay silent - they fire in the background and must not interrupt you with dialogs.
 
 Polling follows the popup rather than you: it runs while the popup is open - including a pinned one - and for `idle_pause` seconds after you close it, then pauses until you open it again. An idle, locked or unattended computer does not stop it; only an app with nothing on screen does.
 
@@ -36,24 +36,24 @@ The poll cadence is aligned to the expected reset time, so a reset command fires
 > ```
 
 > [!TIP]
-> Use the **Test event commands** submenu in the tray context menu to fire your configured commands with sample data. The submenu only appears once at least one event command is configured. This lets you verify your command and script setup without waiting for a real event. When triggered from this menu, the command's exit code, stdout, and stderr are printed once it finishes - visible when you run the app from source (`python -m usage_monitor_for_claude`) or from the console `--verbose` attaches to the packaged EXE. If the command exits with a non-zero (error) code, its stderr is also shown in an error dialog, so a wrong path or a command that otherwise fails silently is easy to spot (event commands normally discard all output).
+> Use the **Test event commands** submenu in the tray context menu to fire your configured commands with sample data. The submenu only appears once at least one event command is configured. This lets you verify your command and script setup without waiting for a real event. When triggered from this menu, the command's exit code, stdout, and stderr are printed once it finishes - visible when you run the app from source (`python -m ai_agents_usage_monitor`) or from the console `--verbose` attaches to the packaged EXE. If the command exits with a non-zero (error) code, its stderr is also shown in an error dialog, so a wrong path or a command that otherwise fails silently is easy to spot (event commands normally discard all output).
 
 ## Examples
 
 ### Open a tool of your choice on double-click
 
-The tray icon you already watch for your limits can double as a shortcut. A double-click runs `on_double_click_command` while a single click still opens the usage popup, so anything you reach for often - a terminal, a dashboard, a script - is one gesture away.
+The tray icon you already watch for your limits can double as a shortcut. A double-click runs `quick_action_command` while a single click still opens the usage popup, so anything you reach for often - a terminal, a dashboard, a script - is one gesture away.
 
-Relative paths resolve against the folder holding `UsageMonitorForClaude.exe`, so a program kept next to it needs no full path. Add the setting and restart the app via the tray context menu:
+Relative paths resolve against the folder holding `AIAgentsUsageMonitor.exe`, so a program kept next to it needs no full path. Add the setting and restart the app via the tray context menu:
 
 ```json
 {
-  "on_double_click_command": "MyTool.exe"
+  "quick_action_command": "MyTool.exe"
 }
 ```
 
 > [!TIP]
-> If the program lives somewhere else, use its full path instead, e.g. `"on_double_click_command": "C:\\Tools\\MyTool.exe"`.
+> If the program lives somewhere else, use its full path instead, e.g. `"quick_action_command": "C:\\Tools\\MyTool.exe"`.
 
 ### Resume a Claude Code session when the quota resets
 
@@ -242,13 +242,13 @@ Fires once after the first successful API update following app start (also after
 
 Per-quota variables are emitted for every quota field the API returns - additional variants like `USAGE_MONITOR_UTILIZATION_SEVEN_DAY_SONNET` follow the same pattern. An empty `USAGE_MONITOR_RESETS_AT_*` indicates that the quota has no active window (either never used, or the previous window has expired).
 
-### `on_double_click_command`
+### `quick_action_command`
 
 Fires when you double-click the tray icon. Receives the same full quota state as `on_startup_command` (from the most recent successful update), so the command can act on current usage if it wants to. Most double-click commands simply launch another program and ignore these values.
 
 | Variable | Example | Description |
 |---|---|---|
-| `USAGE_MONITOR_EVENT` | `double_click` | Event type |
+| `USAGE_MONITOR_EVENT` | `quick_action` | Event type |
 | `USAGE_MONITOR_UTILIZATION_FIVE_HOUR` | `0` | Current session (5h) usage (integer) |
 | `USAGE_MONITOR_RESETS_AT_FIVE_HOUR` | `2025-01-15T18:00:00Z` | When the 5h session resets, or empty if no session is active |
 | `USAGE_MONITOR_UTILIZATION_SEVEN_DAY` | `42` | Current weekly (7d) usage (integer) |

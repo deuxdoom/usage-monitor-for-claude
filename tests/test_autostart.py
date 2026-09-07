@@ -10,7 +10,7 @@ import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
-import usage_monitor_for_claude.autostart as autostart_mod
+import ai_agents_usage_monitor.autostart as autostart_mod
 
 
 class _DefaultConfigDirTestCase(unittest.TestCase):

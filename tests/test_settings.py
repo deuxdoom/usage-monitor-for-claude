@@ -12,12 +12,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
-import usage_monitor_for_claude.settings as settings_mod
+import ai_agents_usage_monitor.settings as settings_mod
 
 
 def _load(app_dir: Path, home_dir: Path) -> dict:
     """Call _load_settings with controlled app_dir and home_dir."""
-    fake_file = str(app_dir / 'usage_monitor_for_claude' / 'settings.py')
+    fake_file = str(app_dir / 'ai_agents_usage_monitor' / 'settings.py')
     with patch.object(settings_mod, '__file__', fake_file), \
          patch.object(Path, 'home', return_value=home_dir), \
          patch.object(settings_mod, 'ctypes', MagicMock()):
@@ -57,7 +57,7 @@ class TestLoadSettings(unittest.TestCase):
             config_dir = Path(config_tmp)
             settings = {'bg': '#111111'}
             (config_dir / settings_mod.SETTINGS_FILENAME).write_text(json.dumps(settings), encoding='utf-8')
-            fake_file = str(Path(app_tmp) / 'usage_monitor_for_claude' / 'settings.py')
+            fake_file = str(Path(app_tmp) / 'ai_agents_usage_monitor' / 'settings.py')
             with patch.object(settings_mod, '__file__', fake_file), \
                  patch.dict('os.environ', {'CLAUDE_CONFIG_DIR': config_tmp}), \
                  patch.object(settings_mod, 'ctypes', MagicMock()):
@@ -71,7 +71,7 @@ class TestLoadSettings(unittest.TestCase):
             claude_dir.mkdir()
             settings = {'bg': '#222222'}
             (claude_dir / settings_mod.SETTINGS_FILENAME).write_text(json.dumps(settings), encoding='utf-8')
-            fake_file = str(Path(app_tmp) / 'usage_monitor_for_claude' / 'settings.py')
+            fake_file = str(Path(app_tmp) / 'ai_agents_usage_monitor' / 'settings.py')
             with patch.object(settings_mod, '__file__', fake_file), \
                  patch.object(Path, 'home', return_value=Path(home_tmp)), \
                  patch.dict('os.environ', {'CLAUDE_CONFIG_DIR': config_tmp}), \
@@ -86,7 +86,7 @@ class TestLoadSettings(unittest.TestCase):
             claude_dir.mkdir()
             (claude_dir / settings_mod.SETTINGS_FILENAME).write_text(json.dumps({'bg': '#home'}), encoding='utf-8')
             (Path(config_tmp) / settings_mod.SETTINGS_FILENAME).write_text(json.dumps({'bg': '#custom'}), encoding='utf-8')
-            fake_file = str(Path(app_tmp) / 'usage_monitor_for_claude' / 'settings.py')
+            fake_file = str(Path(app_tmp) / 'ai_agents_usage_monitor' / 'settings.py')
             with patch.object(settings_mod, '__file__', fake_file), \
                  patch.object(Path, 'home', return_value=Path(home_tmp)), \
                  patch.dict('os.environ', {'CLAUDE_CONFIG_DIR': config_tmp}), \
@@ -101,7 +101,7 @@ class TestLoadSettings(unittest.TestCase):
             claude_dir.mkdir()
             settings = {'bg': '#333333'}
             (claude_dir / settings_mod.SETTINGS_FILENAME).write_text(json.dumps(settings), encoding='utf-8')
-            fake_file = str(Path(app_tmp) / 'usage_monitor_for_claude' / 'settings.py')
+            fake_file = str(Path(app_tmp) / 'ai_agents_usage_monitor' / 'settings.py')
             with patch.object(settings_mod, '__file__', fake_file), \
                  patch.object(Path, 'home', return_value=Path(home_tmp)), \
                  patch.dict('os.environ', {'CLAUDE_CONFIG_DIR': str(claude_dir)}), \
@@ -114,7 +114,7 @@ class TestLoadSettings(unittest.TestCase):
         with TemporaryDirectory() as app_tmp, TemporaryDirectory() as config_tmp:
             (Path(app_tmp) / settings_mod.SETTINGS_FILENAME).write_text(json.dumps({'bg': '#app'}), encoding='utf-8')
             (Path(config_tmp) / settings_mod.SETTINGS_FILENAME).write_text(json.dumps({'bg': '#custom'}), encoding='utf-8')
-            fake_file = str(Path(app_tmp) / 'usage_monitor_for_claude' / 'settings.py')
+            fake_file = str(Path(app_tmp) / 'ai_agents_usage_monitor' / 'settings.py')
             with patch.object(settings_mod, '__file__', fake_file), \
                  patch.dict('os.environ', {'CLAUDE_CONFIG_DIR': config_tmp}), \
                  patch.object(settings_mod, 'ctypes', MagicMock()):
@@ -178,7 +178,7 @@ class TestLoadSettings(unittest.TestCase):
         """Malformed JSON triggers a Windows MessageBox."""
         with TemporaryDirectory() as app_tmp, TemporaryDirectory() as home_tmp:
             (Path(app_tmp) / settings_mod.SETTINGS_FILENAME).write_text('{broken', encoding='utf-8')
-            fake_file = str(Path(app_tmp) / 'usage_monitor_for_claude' / 'settings.py')
+            fake_file = str(Path(app_tmp) / 'ai_agents_usage_monitor' / 'settings.py')
             mock_ctypes = MagicMock()
             with patch.object(settings_mod, '__file__', fake_file), \
                  patch.object(Path, 'home', return_value=Path(home_tmp)), \
@@ -203,7 +203,7 @@ class TestLoadSettings(unittest.TestCase):
     def test_unreadable_file_returns_empty_dict(self):
         """File that cannot be read returns empty dict."""
         with TemporaryDirectory() as app_tmp, TemporaryDirectory() as home_tmp:
-            fake_file = str(Path(app_tmp) / 'usage_monitor_for_claude' / 'settings.py')
+            fake_file = str(Path(app_tmp) / 'ai_agents_usage_monitor' / 'settings.py')
             with patch.object(settings_mod, '__file__', fake_file), \
                  patch.object(Path, 'home', return_value=Path(home_tmp)), \
                  patch.object(settings_mod, 'ctypes', MagicMock()), \
@@ -229,7 +229,7 @@ class TestLoadSettings(unittest.TestCase):
         with TemporaryDirectory() as app_tmp, TemporaryDirectory() as home_tmp:
             settings = {'poll_interval': 'not_a_number', 'poll_fast': 30}
             (Path(app_tmp) / settings_mod.SETTINGS_FILENAME).write_text(json.dumps(settings), encoding='utf-8')
-            fake_file = str(Path(app_tmp) / 'usage_monitor_for_claude' / 'settings.py')
+            fake_file = str(Path(app_tmp) / 'ai_agents_usage_monitor' / 'settings.py')
             mock_ctypes = MagicMock()
             with patch.object(settings_mod, '__file__', fake_file), \
                  patch.object(Path, 'home', return_value=Path(home_tmp)), \
@@ -1325,6 +1325,52 @@ class TestCompactHideDefault(unittest.TestCase):
             (Path(app_tmp) / settings_mod.SETTINGS_FILENAME).write_text(json.dumps(settings), encoding='utf-8')
             loaded = _load(Path(app_tmp), Path(home_tmp))
         self.assertEqual(loaded['compact_hide'], ['account', 'status'])
+
+
+class TestQuickActionCommandKey(unittest.TestCase):
+    """Tests that the renamed quick-action key still accepts the old name.
+
+    ``on_double_click_command`` became ``quick_action_command``.  Settings files
+    are written by hand and never migrated, so an existing one has to keep
+    working exactly as it did.
+    """
+
+    @staticmethod
+    def _resolve(settings: dict) -> list[str]:
+        """Resolve the setting the way settings.py does at import time."""
+        with TemporaryDirectory() as app_tmp, TemporaryDirectory() as home_tmp:
+            (Path(app_tmp) / settings_mod.SETTINGS_FILENAME).write_text(json.dumps(settings), encoding='utf-8')
+            loaded = _load(Path(app_tmp), Path(home_tmp))
+
+        return loaded.get('quick_action_command') or loaded.get('on_double_click_command', [])
+
+    def test_new_key_is_used(self):
+        self.assertEqual(self._resolve({'quick_action_command': 'MyTool.exe'}), ['MyTool.exe'])
+
+    def test_legacy_key_still_works(self):
+        self.assertEqual(self._resolve({'on_double_click_command': 'MyTool.exe'}), ['MyTool.exe'])
+
+    def test_new_key_wins_when_both_are_present(self):
+        settings = {'quick_action_command': 'new.exe', 'on_double_click_command': 'old.exe'}
+        self.assertEqual(self._resolve(settings), ['new.exe'])
+
+    def test_legacy_key_applies_when_the_new_one_is_empty(self):
+        """An empty string means "not set", so the old key still has its say."""
+        settings = {'quick_action_command': '   ', 'on_double_click_command': 'old.exe'}
+        self.assertEqual(self._resolve(settings), ['old.exe'])
+
+    def test_neither_key_yields_nothing(self):
+        self.assertEqual(self._resolve({}), [])
+
+    def test_new_key_is_validated_like_a_command(self):
+        """A non-string value is rejected rather than reaching the command machinery."""
+        with TemporaryDirectory() as app_tmp, TemporaryDirectory() as home_tmp:
+            (Path(app_tmp) / settings_mod.SETTINGS_FILENAME).write_text(
+                json.dumps({'quick_action_command': 42}), encoding='utf-8')
+            with patch('ai_agents_usage_monitor.settings.ctypes'):
+                loaded = _load(Path(app_tmp), Path(home_tmp))
+
+        self.assertNotIn('quick_action_command', loaded)
 
 
 if __name__ == '__main__':

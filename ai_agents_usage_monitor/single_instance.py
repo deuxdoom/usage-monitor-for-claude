@@ -190,7 +190,7 @@ def ensure_single_instance() -> bool:
     if not _mutex_handle and last_error != _ERROR_ACCESS_DENIED:
         ctypes.windll.user32.MessageBoxW(
             None, f'Failed to create the single-instance mutex (Windows error {last_error}).',
-            T['popup_title'], 0x10,  # MB_ICONERROR
+            T['app_name'], 0x10,  # MB_ICONERROR
         )
         return False
 
@@ -202,7 +202,7 @@ def ensure_single_instance() -> bool:
 
     holder_pid, running_version = _read_holder_info()
 
-    title = T['popup_title']
+    title = T['app_name']
     if running_version:
         title += f' v{running_version}'
 

@@ -17,7 +17,7 @@ from __future__ import annotations
 import unittest
 
 from build import CHANGELOG, INIT, VERSION_INFO, read, tuple_version
-from usage_monitor_for_claude import __version__
+from ai_agents_usage_monitor import __version__
 
 
 class TestVersionSources(unittest.TestCase):

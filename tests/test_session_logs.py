@@ -1,4 +1,4 @@
-"""Unit tests for usage_monitor_for_claude.session_logs.
+"""Unit tests for ai_agents_usage_monitor.session_logs.
 
 Covers: token/message extraction from transcript lines, dedupe of retried
 turns, window filtering, the mtime-based file skip, and per-file caching.
@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from usage_monitor_for_claude.session_logs import (
+from ai_agents_usage_monitor.session_logs import (
     ModelUsage, WindowStats, _extract_entry, _parse_timestamp, clear_cache, usage_in_window,
 )
 
@@ -220,7 +220,7 @@ class TestUsageInWindow(unittest.TestCase):
         old_time = _epoch(2026, 1, 1, 0, 0, 0)
         os.utime(path, (old_time, old_time))
 
-        with patch('usage_monitor_for_claude.session_logs._parse_file') as mock_parse:
+        with patch('ai_agents_usage_monitor.session_logs._parse_file') as mock_parse:
             stats = usage_in_window(self.root, _epoch(2026, 8, 13, 9, 0, 0), _epoch(2026, 8, 13, 11, 0, 0))
         mock_parse.assert_not_called()
         self.assertEqual(stats.total_tokens, 0)
@@ -230,7 +230,7 @@ class TestUsageInWindow(unittest.TestCase):
         _write_jsonl(path, [_assistant_line('m1', 'x', input_tokens=100, timestamp=_iso(2026, 8, 13, 10, 0, 0))])
 
         stats1 = usage_in_window(self.root, _epoch(2026, 8, 13, 9, 0, 0), _epoch(2026, 8, 13, 11, 0, 0))
-        with patch('usage_monitor_for_claude.session_logs._parse_file') as mock_parse:
+        with patch('ai_agents_usage_monitor.session_logs._parse_file') as mock_parse:
             stats2 = usage_in_window(self.root, _epoch(2026, 8, 13, 9, 0, 0), _epoch(2026, 8, 13, 11, 0, 0))
         mock_parse.assert_not_called()
         self.assertEqual(stats1.total_tokens, stats2.total_tokens)

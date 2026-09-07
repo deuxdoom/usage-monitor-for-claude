@@ -13,13 +13,14 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
-from usage_monitor_for_claude.formatting import (
+from ai_agents_usage_monitor.formatting import (
     PERIOD_5H, PERIOD_7D,
-    divider_positions, elapsed_pct, expand_popup_fields, field_countdown_only, field_hidden,
-    field_inactive, field_period, format_count, format_credits, format_tooltip, parse_field_name,
-    popup_label, time_until, tooltip_label,
+    codex_reset_iso, divider_positions, duration_label, elapsed_pct, expand_popup_fields,
+    field_countdown_only, field_hidden, field_inactive, field_period, format_codex_tooltip,
+    format_count, format_credits, format_tooltip, parse_field_name, popup_label, time_until,
+    tooltip_label,
 )
-from usage_monitor_for_claude.i18n import LOCALE_DIR
+from ai_agents_usage_monitor.i18n import LOCALE_DIR, T
 
 EN = json.loads((LOCALE_DIR / 'en.json').read_text(encoding='utf-8'))
 
@@ -80,7 +81,7 @@ class TestParseFieldName(unittest.TestCase):
 # tooltip_label
 # ---------------------------------------------------------------------------
 
-@patch('usage_monitor_for_claude.formatting.T', EN)
+@patch('ai_agents_usage_monitor.formatting.T', EN)
 class TestTooltipLabel(unittest.TestCase):
     """Tests for tooltip_label()."""
 
@@ -93,7 +94,7 @@ class TestTooltipLabel(unittest.TestCase):
     def test_localized_unit(self):
         """The unit is taken from the active locale, not a hardcoded suffix."""
         korean = dict(EN, unit_hours='{n}시간', unit_days='{n}일')
-        with patch('usage_monitor_for_claude.formatting.T', korean):
+        with patch('ai_agents_usage_monitor.formatting.T', korean):
             self.assertEqual(tooltip_label('five_hour'), '5시간')
             self.assertEqual(tooltip_label('seven_day'), '7일')
 
@@ -140,7 +141,7 @@ class TestTooltipLabel(unittest.TestCase):
 # popup_label
 # ---------------------------------------------------------------------------
 
-@patch('usage_monitor_for_claude.formatting.T', EN)
+@patch('ai_agents_usage_monitor.formatting.T', EN)
 class TestPopupLabel(unittest.TestCase):
     """Tests for popup_label()."""
 
@@ -202,7 +203,7 @@ class TestFieldPeriod(unittest.TestCase):
 # field_hidden
 # ---------------------------------------------------------------------------
 
-@patch('usage_monitor_for_claude.formatting.T', EN)
+@patch('ai_agents_usage_monitor.formatting.T', EN)
 class TestFieldHidden(unittest.TestCase):
     """Tests for field_hidden()."""
 
@@ -313,34 +314,34 @@ class TestExpandPopupFields(unittest.TestCase):
         result = expand_popup_fields(['*'], usage)
         self.assertEqual(result, ['five_hour', 'seven_day', 'seven_day_sonnet'])
 
-    @patch('usage_monitor_for_claude.formatting.T', EN)
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', False)
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', ['nimbus_quill'])
+    @patch('ai_agents_usage_monitor.formatting.T', EN)
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_INACTIVE', False)
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_FIELDS', ['nimbus_quill'])
     def test_hidden_field_removed_from_wildcard(self):
         """popup_hide_fields drops a field the wildcard would otherwise pick up."""
         usage = self._usage(five_hour=10, seven_day=20, nimbus_quill=1)
         result = expand_popup_fields(['*'], usage)
         self.assertEqual(result, ['five_hour', 'seven_day'])
 
-    @patch('usage_monitor_for_claude.formatting.T', EN)
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', False)
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', ['nimbus_quill'])
+    @patch('ai_agents_usage_monitor.formatting.T', EN)
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_INACTIVE', False)
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_FIELDS', ['nimbus_quill'])
     def test_hidden_field_removed_when_listed_explicitly(self):
         """popup_hide_fields wins over an explicit popup_fields entry."""
         usage = self._usage(five_hour=10, nimbus_quill=1)
         result = expand_popup_fields(['nimbus_quill', 'five_hour'], usage)
         self.assertEqual(result, ['five_hour'])
 
-    @patch('usage_monitor_for_claude.formatting.T', EN)
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', False)
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', [])
+    @patch('ai_agents_usage_monitor.formatting.T', EN)
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_INACTIVE', False)
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_FIELDS', [])
     def test_no_hide_list_keeps_every_field(self):
         usage = self._usage(five_hour=10, nimbus_quill=1)
         result = expand_popup_fields(['*'], usage)
         self.assertEqual(result, ['five_hour', 'nimbus_quill'])
 
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', [])
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', True)
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_FIELDS', [])
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_INACTIVE', True)
     def test_untouched_five_hour_stays_in_wildcard(self):
         """A session limit nobody has touched yet must not vanish from the popup."""
         usage = {
@@ -349,8 +350,8 @@ class TestExpandPopupFields(unittest.TestCase):
         }
         self.assertEqual(expand_popup_fields(['*'], usage), ['five_hour', 'seven_day'])
 
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', [])
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', True)
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_FIELDS', [])
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_INACTIVE', True)
     def test_inactive_field_dropped_from_wildcard(self):
         """A never-used quota is not picked up by the wildcard."""
         usage = {
@@ -359,8 +360,8 @@ class TestExpandPopupFields(unittest.TestCase):
         }
         self.assertEqual(expand_popup_fields(['*'], usage), ['five_hour'])
 
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', [])
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', True)
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_FIELDS', [])
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_INACTIVE', True)
     def test_inactive_field_kept_when_listed_explicitly(self):
         """Naming an unused quota explicitly overrides the inactive filter."""
         usage = {
@@ -369,15 +370,15 @@ class TestExpandPopupFields(unittest.TestCase):
         }
         self.assertEqual(expand_popup_fields(['seven_day_opus', '*'], usage), ['seven_day_opus', 'five_hour'])
 
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', [])
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', True)
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_FIELDS', [])
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_INACTIVE', True)
     def test_active_field_at_zero_percent_kept(self):
         """A quota that has reset to 0% still has a reset window, so it stays."""
         usage = {'seven_day': {'utilization': 0, 'resets_at': '2026-08-17T18:00:00+00:00'}}
         self.assertEqual(expand_popup_fields(['*'], usage), ['seven_day'])
 
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_FIELDS', [])
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', False)
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_FIELDS', [])
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_INACTIVE', False)
     def test_inactive_field_kept_when_setting_disabled(self):
         usage = {
             'five_hour': {'utilization': 45, 'resets_at': '2026-08-13T08:00:00+00:00'},
@@ -490,7 +491,7 @@ class TestExpandPopupFields(unittest.TestCase):
         result = expand_popup_fields(['*'], {})
         self.assertEqual(result, [])
 
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', False)
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_INACTIVE', False)
     def test_utilization_zero_included(self):
         """Fields with utilization 0 are included (0 is a valid value, not null)."""
         usage = {'five_hour': {'utilization': 0, 'resets_at': ''}}
@@ -502,7 +503,7 @@ class TestExpandPopupFields(unittest.TestCase):
 # elapsed_pct
 # ---------------------------------------------------------------------------
 
-@patch('usage_monitor_for_claude.formatting.datetime')
+@patch('ai_agents_usage_monitor.formatting.datetime')
 class TestElapsedPct(unittest.TestCase):
     """Tests for elapsed_pct()."""
 
@@ -729,9 +730,9 @@ class TestDividerPositions(unittest.TestCase):
 # time_until
 # ---------------------------------------------------------------------------
 
-@patch('usage_monitor_for_claude.formatting.TIME_FORMAT', '24h')
-@patch('usage_monitor_for_claude.formatting.T', EN)
-@patch('usage_monitor_for_claude.formatting.datetime')
+@patch('ai_agents_usage_monitor.formatting.TIME_FORMAT', '24h')
+@patch('ai_agents_usage_monitor.formatting.T', EN)
+@patch('ai_agents_usage_monitor.formatting.datetime')
 class TestTimeUntil(unittest.TestCase):
     """Tests for time_until().
 
@@ -1023,7 +1024,7 @@ class TestFieldCountdownOnly(unittest.TestCase):
 # format_tooltip
 # ---------------------------------------------------------------------------
 
-@patch('usage_monitor_for_claude.formatting.T', EN)
+@patch('ai_agents_usage_monitor.formatting.T', EN)
 class TestFormatTooltip(unittest.TestCase):
     """Tests for format_tooltip()."""
 
@@ -1051,7 +1052,7 @@ class TestFormatTooltip(unittest.TestCase):
         error_line = result.split('\n')[1]
         self.assertEqual(len(error_line), 80)
 
-    @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.formatting.time_until', return_value='')
     def test_both_periods(self, _mock_tu):
         data = {
             'five_hour': {'utilization': 42.0, 'resets_at': ''},
@@ -1059,12 +1060,12 @@ class TestFormatTooltip(unittest.TestCase):
         }
         self.assertEqual(format_tooltip(data), 'Claude Usage\n5hr: 42%\n7 day: 15%')
 
-    @patch('usage_monitor_for_claude.formatting.time_until', return_value='Resets in 2h 30m')
+    @patch('ai_agents_usage_monitor.formatting.time_until', return_value='Resets in 2h 30m')
     def test_with_reset_info(self, _mock_tu):
         data = {'five_hour': {'utilization': 42.0, 'resets_at': '2025-01-15T14:30:00+00:00'}}
         self.assertEqual(format_tooltip(data), 'Claude Usage\n5hr: 42% (Resets in 2h 30m)')
 
-    @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.formatting.time_until', return_value='')
     def test_utilization_none_skipped(self, _mock_tu):
         data = {
             'five_hour': {'utilization': None, 'resets_at': ''},
@@ -1072,33 +1073,33 @@ class TestFormatTooltip(unittest.TestCase):
         }
         self.assertEqual(format_tooltip(data), 'Claude Usage\n7 day: 80%')
 
-    @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.formatting.time_until', return_value='')
     def test_empty_data_shows_title_only(self, _mock_tu):
         self.assertEqual(format_tooltip({}), 'Claude Usage')
 
-    @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.formatting.time_until', return_value='')
     def test_zero_percent(self, _mock_tu):
         data = {'five_hour': {'utilization': 0.0, 'resets_at': ''}}
         self.assertEqual(format_tooltip(data), 'Claude Usage\n5hr: 0%')
 
-    @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.formatting.time_until', return_value='')
     def test_hundred_percent(self, _mock_tu):
         data = {'five_hour': {'utilization': 100.0, 'resets_at': ''}}
         self.assertEqual(format_tooltip(data), 'Claude Usage\n5hr: 100%')
 
-    @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.formatting.time_until', return_value='')
     def test_entry_none_skipped(self, _mock_tu):
         """Entry that is None is skipped by the guard clause."""
         data = {'five_hour': None, 'seven_day': {'utilization': 50.0, 'resets_at': ''}}
         self.assertEqual(format_tooltip(data), 'Claude Usage\n7 day: 50%')
 
-    @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.formatting.time_until', return_value='')
     def test_entry_empty_dict_skipped(self, _mock_tu):
         """Entry with no utilization key is skipped."""
         data = {'five_hour': {}, 'seven_day': {'utilization': 50.0, 'resets_at': ''}}
         self.assertEqual(format_tooltip(data), 'Claude Usage\n7 day: 50%')
 
-    @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.formatting.time_until', return_value='')
     def test_only_seven_day(self, _mock_tu):
         """Only seven_day present, five_hour absent."""
         data = {'seven_day': {'utilization': 25.0, 'resets_at': ''}}
@@ -1110,7 +1111,7 @@ class TestFormatTooltip(unittest.TestCase):
         result = format_tooltip(data)
         self.assertEqual(result, 'Usage Monitor: Error\nSomething broke')
 
-    @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.formatting.time_until', return_value='')
     def test_extra_usage_ignored(self, _mock_tu):
         """Extra usage data is not shown in tooltip."""
         data = {
@@ -1119,8 +1120,8 @@ class TestFormatTooltip(unittest.TestCase):
         }
         self.assertEqual(format_tooltip(data), 'Claude Usage\n5hr: 26%')
 
-    @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
-    @patch('usage_monitor_for_claude.formatting.TOOLTIP_FIELDS', ['seven_day_sonnet', 'five_hour'])
+    @patch('ai_agents_usage_monitor.formatting.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.formatting.TOOLTIP_FIELDS', ['seven_day_sonnet', 'five_hour'])
     def test_custom_fields_and_order(self, _mock_tu):
         """Custom tooltip_fields controls which fields appear and in what order."""
         data = {
@@ -1130,29 +1131,29 @@ class TestFormatTooltip(unittest.TestCase):
         }
         self.assertEqual(format_tooltip(data), 'Claude Usage\n7 day Sonnet: 30%\n5hr: 10%')
 
-    @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
-    @patch('usage_monitor_for_claude.formatting.TOOLTIP_FIELDS', ['seven_day_sonnet'])
+    @patch('ai_agents_usage_monitor.formatting.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.formatting.TOOLTIP_FIELDS', ['seven_day_sonnet'])
     def test_custom_field_null_skipped(self, _mock_tu):
         """Configured field that is null in API response is skipped."""
         data = {'seven_day_sonnet': None, 'five_hour': {'utilization': 50.0, 'resets_at': ''}}
         self.assertEqual(format_tooltip(data), 'Claude Usage')
 
-    @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
-    @patch('usage_monitor_for_claude.formatting.TOOLTIP_FIELDS', ['nonexistent_field'])
+    @patch('ai_agents_usage_monitor.formatting.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.formatting.TOOLTIP_FIELDS', ['nonexistent_field'])
     def test_custom_field_missing_from_response_skipped(self, _mock_tu):
         """Configured field not present in API response is skipped."""
         data = {'five_hour': {'utilization': 50.0, 'resets_at': ''}}
         self.assertEqual(format_tooltip(data), 'Claude Usage')
 
-    @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
-    @patch('usage_monitor_for_claude.formatting.TOOLTIP_FIELDS', [])
+    @patch('ai_agents_usage_monitor.formatting.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.formatting.TOOLTIP_FIELDS', [])
     def test_empty_fields_shows_title_only(self, _mock_tu):
         """Empty tooltip_fields shows only the title."""
         data = {'five_hour': {'utilization': 50.0, 'resets_at': ''}}
         self.assertEqual(format_tooltip(data), 'Claude Usage')
 
-    @patch('usage_monitor_for_claude.formatting.time_until', return_value='')
-    @patch('usage_monitor_for_claude.formatting.TOOLTIP_FIELDS', ['five_hour', 'limits'])
+    @patch('ai_agents_usage_monitor.formatting.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.formatting.TOOLTIP_FIELDS', ['five_hour', 'limits'])
     def test_custom_field_pointing_to_non_dict_skipped(self, _mock_tu):
         """A configured field holding a non-dict response value (e.g. the limits
         array) is skipped instead of crashing the poll loop."""
@@ -1225,94 +1226,126 @@ class TestTooltipMaxLength(unittest.TestCase):
 class TestFormatCredits(unittest.TestCase):
     """Tests for format_credits()."""
 
-    @patch('usage_monitor_for_claude.formatting._SYSTEM_CURRENCY_SYMBOL', '$')
-    @patch('usage_monitor_for_claude.formatting.CURRENCY_SYMBOL', None)
-    @patch('usage_monitor_for_claude.formatting._locale.currency', return_value='$4.20')
+    @patch('ai_agents_usage_monitor.formatting._SYSTEM_CURRENCY_SYMBOL', '$')
+    @patch('ai_agents_usage_monitor.formatting.CURRENCY_SYMBOL', None)
+    @patch('ai_agents_usage_monitor.formatting._locale.currency', return_value='$4.20')
     def test_uses_locale_currency(self, mock_currency):
         """Uses locale.currency() for formatting."""
         self.assertEqual(format_credits(420.0), '$4.20')
         mock_currency.assert_called_once_with(4.2, grouping=True)
 
-    @patch('usage_monitor_for_claude.formatting._SYSTEM_CURRENCY_SYMBOL', '€')
-    @patch('usage_monitor_for_claude.formatting.CURRENCY_SYMBOL', '$')
-    @patch('usage_monitor_for_claude.formatting._locale.currency', return_value='10,00 €')
+    @patch('ai_agents_usage_monitor.formatting._SYSTEM_CURRENCY_SYMBOL', '€')
+    @patch('ai_agents_usage_monitor.formatting.CURRENCY_SYMBOL', '$')
+    @patch('ai_agents_usage_monitor.formatting._locale.currency', return_value='10,00 €')
     def test_symbol_override_replaces(self, mock_currency):
         """Settings override replaces system symbol in formatted output."""
         self.assertEqual(format_credits(1000.0), '10,00 $')
 
-    @patch('usage_monitor_for_claude.formatting._SYSTEM_CURRENCY_SYMBOL', '')
-    @patch('usage_monitor_for_claude.formatting.CURRENCY_SYMBOL', None)
-    @patch('usage_monitor_for_claude.formatting._locale.currency', side_effect=ValueError)
+    @patch('ai_agents_usage_monitor.formatting._SYSTEM_CURRENCY_SYMBOL', '')
+    @patch('ai_agents_usage_monitor.formatting.CURRENCY_SYMBOL', None)
+    @patch('ai_agents_usage_monitor.formatting._locale.currency', side_effect=ValueError)
     def test_no_symbol_plain_number(self, mock_currency):
         """No currency symbol falls back to plain number."""
         self.assertEqual(format_credits(420.0), '4.20')
 
-    @patch('usage_monitor_for_claude.formatting._SYSTEM_CURRENCY_SYMBOL', '')
-    @patch('usage_monitor_for_claude.formatting.CURRENCY_SYMBOL', '¥')
-    @patch('usage_monitor_for_claude.formatting._locale.currency', side_effect=ValueError)
+    @patch('ai_agents_usage_monitor.formatting._SYSTEM_CURRENCY_SYMBOL', '')
+    @patch('ai_agents_usage_monitor.formatting.CURRENCY_SYMBOL', '¥')
+    @patch('ai_agents_usage_monitor.formatting._locale.currency', side_effect=ValueError)
     def test_locale_error_uses_symbol_fallback(self, mock_currency):
         """Locale error falls back to manual formatting with symbol."""
         self.assertEqual(format_credits(420.0), '¥\u00a04.20')
 
-    @patch('usage_monitor_for_claude.formatting._SYSTEM_CURRENCY_SYMBOL', '$')
-    @patch('usage_monitor_for_claude.formatting.CURRENCY_SYMBOL', None)
-    @patch('usage_monitor_for_claude.formatting._locale.currency', return_value='$0.00')
+    @patch('ai_agents_usage_monitor.formatting._SYSTEM_CURRENCY_SYMBOL', '$')
+    @patch('ai_agents_usage_monitor.formatting.CURRENCY_SYMBOL', None)
+    @patch('ai_agents_usage_monitor.formatting._locale.currency', return_value='$0.00')
     def test_zero_cents(self, mock_currency):
         """Zero cents formats correctly."""
         self.assertEqual(format_credits(0.0), '$0.00')
 
-    @patch('usage_monitor_for_claude.formatting._SYSTEM_CURRENCY_SYMBOL', '$')
-    @patch('usage_monitor_for_claude.formatting.CURRENCY_SYMBOL', None)
-    @patch('usage_monitor_for_claude.formatting._locale.currency', return_value='$10.00')
+    @patch('ai_agents_usage_monitor.formatting._SYSTEM_CURRENCY_SYMBOL', '$')
+    @patch('ai_agents_usage_monitor.formatting.CURRENCY_SYMBOL', None)
+    @patch('ai_agents_usage_monitor.formatting._locale.currency', return_value='$10.00')
     def test_api_currency_overrides_system_symbol(self, mock_currency):
         """The API billing currency replaces the system symbol when they differ."""
         self.assertEqual(format_credits(1000.0, 'EUR'), '€10.00')
 
-    @patch('usage_monitor_for_claude.formatting._SYSTEM_CURRENCY_SYMBOL', '€')
-    @patch('usage_monitor_for_claude.formatting.CURRENCY_SYMBOL', 'CHF')
-    @patch('usage_monitor_for_claude.formatting._locale.currency', return_value='10,00 €')
+    @patch('ai_agents_usage_monitor.formatting._SYSTEM_CURRENCY_SYMBOL', '€')
+    @patch('ai_agents_usage_monitor.formatting.CURRENCY_SYMBOL', 'CHF')
+    @patch('ai_agents_usage_monitor.formatting._locale.currency', return_value='10,00 €')
     def test_user_override_wins_over_api_currency(self, mock_currency):
         """An explicit currency_symbol override takes precedence over the API currency."""
         self.assertEqual(format_credits(1000.0, 'USD'), '10,00 CHF')
 
-    @patch('usage_monitor_for_claude.formatting._SYSTEM_CURRENCY_SYMBOL', '$')
-    @patch('usage_monitor_for_claude.formatting.CURRENCY_SYMBOL', '$')
-    @patch('usage_monitor_for_claude.formatting._locale.currency', return_value='$10.00')
+    @patch('ai_agents_usage_monitor.formatting._SYSTEM_CURRENCY_SYMBOL', '$')
+    @patch('ai_agents_usage_monitor.formatting.CURRENCY_SYMBOL', '$')
+    @patch('ai_agents_usage_monitor.formatting._locale.currency', return_value='$10.00')
     def test_override_equal_to_system_symbol_wins_over_api_currency(self, mock_currency):
         """An override that happens to equal the system symbol still takes
         precedence over the API billing currency (e.g. forcing dollars on an
         en-US system for an account billed in EUR)."""
         self.assertEqual(format_credits(1000.0, 'EUR'), '$10.00')
 
-    @patch('usage_monitor_for_claude.formatting._SYSTEM_CURRENCY_SYMBOL', '€')
-    @patch('usage_monitor_for_claude.formatting.CURRENCY_SYMBOL', '')
-    @patch('usage_monitor_for_claude.formatting._locale.currency', return_value='10,00 €')
+    @patch('ai_agents_usage_monitor.formatting._SYSTEM_CURRENCY_SYMBOL', '€')
+    @patch('ai_agents_usage_monitor.formatting.CURRENCY_SYMBOL', '')
+    @patch('ai_agents_usage_monitor.formatting._locale.currency', return_value='10,00 €')
     def test_empty_override_suppresses_symbol(self, mock_currency):
         """An empty currency_symbol override means "no symbol" in the locale
         formatting path too, not only in the fallback path."""
         self.assertEqual(format_credits(1000.0), '10,00')
 
-    @patch('usage_monitor_for_claude.formatting._SYSTEM_CURRENCY_SYMBOL', '')
-    @patch('usage_monitor_for_claude.formatting.CURRENCY_SYMBOL', None)
-    @patch('usage_monitor_for_claude.formatting._locale.currency', side_effect=ValueError)
+    @patch('ai_agents_usage_monitor.formatting._SYSTEM_CURRENCY_SYMBOL', '')
+    @patch('ai_agents_usage_monitor.formatting.CURRENCY_SYMBOL', None)
+    @patch('ai_agents_usage_monitor.formatting._locale.currency', side_effect=ValueError)
     def test_decimal_places_zero_divides_by_one(self, mock_currency):
         """decimal_places=0 treats the amount as whole units (no /100)."""
         self.assertEqual(format_credits(1000.0, 'JPY', 0), '¥ 1000')
 
-    @patch('usage_monitor_for_claude.formatting._SYSTEM_CURRENCY_SYMBOL', '$')
-    @patch('usage_monitor_for_claude.formatting.CURRENCY_SYMBOL', None)
-    @patch('usage_monitor_for_claude.formatting._locale.currency', side_effect=ValueError)
+    @patch('ai_agents_usage_monitor.formatting._SYSTEM_CURRENCY_SYMBOL', '$')
+    @patch('ai_agents_usage_monitor.formatting.CURRENCY_SYMBOL', None)
+    @patch('ai_agents_usage_monitor.formatting._locale.currency', side_effect=ValueError)
     def test_unknown_currency_uses_iso_code(self, mock_currency):
         """An unmapped currency code is shown verbatim as the symbol."""
         self.assertEqual(format_credits(500.0, 'XYZ'), 'XYZ 5.00')
 
-    @patch('usage_monitor_for_claude.formatting._SYSTEM_CURRENCY_SYMBOL', '$')
-    @patch('usage_monitor_for_claude.formatting.CURRENCY_SYMBOL', None)
-    @patch('usage_monitor_for_claude.formatting._locale.currency', return_value='$1.00')
+    @patch('ai_agents_usage_monitor.formatting._SYSTEM_CURRENCY_SYMBOL', '$')
+    @patch('ai_agents_usage_monitor.formatting.CURRENCY_SYMBOL', None)
+    @patch('ai_agents_usage_monitor.formatting._locale.currency', return_value='$1.00')
     def test_decimal_places_scales_amount(self, mock_currency):
         """decimal_places controls the minor-unit divisor passed to locale.currency."""
         format_credits(1000.0, 'USD', 3)
         mock_currency.assert_called_once_with(1.0, grouping=True)
+
+
+class TestCodexFormatting(unittest.TestCase):
+    """Codex reports a window length instead of naming it, so labels come from that."""
+
+    def test_duration_label_matches_the_field_name_labels(self):
+        self.assertEqual(duration_label(18000), popup_label('five_hour'))
+        self.assertEqual(duration_label(604800), popup_label('seven_day'))
+
+    def test_duration_label_handles_a_window_no_field_name_covers(self):
+        """A 90-minute window has no number word, so it must still read as a session."""
+        self.assertEqual(duration_label(5400), T['session_label'].format(suffix=T['unit_hours'].format(n='1.5')))
+
+    def test_reset_timestamp_becomes_iso_and_none_becomes_empty(self):
+        self.assertEqual(codex_reset_iso(None), '')
+        self.assertTrue(codex_reset_iso(1900000000).startswith('2030-'))
+
+    def test_tooltip_lists_every_window(self):
+        tooltip = format_codex_tooltip({'error': None, 'windows': [
+            {'key': 'codex_primary', 'used': 97.4, 'seconds': 18000, 'resets_at': None},
+            {'key': 'codex_secondary', 'used': 15, 'seconds': 604800, 'resets_at': None},
+        ]})
+        self.assertEqual(tooltip.splitlines(), [
+            T['tooltip_title_codex'],
+            f"{duration_label(18000)}: 97%",
+            f"{duration_label(604800)}: 15%",
+        ])
+
+    def test_tooltip_reports_a_failed_read(self):
+        tooltip = format_codex_tooltip({'error': 'codex_cli_missing', 'windows': []})
+        self.assertIn(T['error_label'], tooltip)
+        self.assertIn(T['codex_cli_missing'][:40], tooltip)
 
 
 if __name__ == '__main__':

@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This changelog covers 1.30.0 onwards, the point from which this project builds independently.
 
 
+## [1.90.0] - 2026-09-07
+
+The quick-action rename, the autostart wording, the late-failure dialog, the event-command reset fix and the two TLS changes below were found in, and adapted from, upstream [usage-monitor-for-claude v1.22.0](https://github.com/jens-duttke/usage-monitor-for-claude/releases/tag/v1.22.0) - thanks to [@jens-duttke](https://github.com/jens-duttke). The Codex view and the rename to AI Agents Usage Monitor are this fork's own work.
+
+### Added
+
+- Switch between Claude and Codex in the popup header to see the Codex account, plan and server quota bars with reset times, refreshed every minute, with local 5-hour/7-day token details collapsed under each clickable bar and installed CLI/IDE extension versions plus a Changelog link to the Codex release notes in the footer
+- `tray_provider` picks which agent the tray icon, its tooltip and the threshold alerts follow. It stays on Claude unless you set `"tray_provider": "codex"`, which also keeps Codex quotas up to date while the popup is closed - see [docs/configuration.md](docs/configuration.md)
+
+### Changed
+
+- The app is now called **AI Agents Usage Monitor**, and the download is `AIAgentsUsageMonitor.exe`. It no longer watches Claude alone, so the tray menu, the notifications and the dialogs drop the Claude-only name. The tray menu opens with the app name as a heading and its first action reads "Show usage" rather than "Show Claude usage"; the popup header became a Claude/Codex switch, so the app name moved to the footer, where hovering the version shows it. Your settings file is unchanged. Because the file name changed, the old `UsageMonitorForClaude.exe` stays where it is when you copy the new one in - delete it, and if you had "start at login" on, launch the new file once so the entry points at it again
+- The Codex plan row names the product, not just the tier: "ChatGPT Plus" instead of "Plus", and the same for Free, Go, Pro, Business and Enterprise
+- Claude and Codex quota bars show larger percentages in the bar's blue/red color, with elapsed-time and consumption-pace text to explain when usage is ahead of the time budget
+- **Breaking:** the quick action (a double-click on the tray icon) now reports itself as `USAGE_MONITOR_EVENT=quick_action` instead of `double_click`. A script that branches on that variable needs the new value
+- The `on_double_click_command` setting is now called `quick_action_command`. Existing settings files keep working unchanged - the old name is still accepted, and the new one wins if you set both
+- The autostart menu entry now reads "Start at login", which is when it actually runs
+- The installed-version rows in the popup now name the extension, not just the editor: "VS Code (Claude)" next to the "VS Code (Codex)" the Codex view shows, so one editor carrying both extensions reads unambiguously
+- A quick action no longer raises a failure dialog when the program it started exits with an error later on. Starting something you keep open and closing it hours afterwards is not a broken command, and a dialog appearing then has no visible connection to the click. A command that fails immediately - a wrong path, a bad argument - is still reported at once
+
+### Fixed
+
+- Event commands now run when a quota resets. If the API reported the fresh quota without a new reset time yet, the app passed an empty value the launched process rejected, and `on_reset_command` was silently skipped - at the one moment it exists for. Threshold commands could be lost the same way
+- The app now reaches the API from behind a corporate proxy that inspects TLS. Certificates are verified against the Windows certificate store, which holds the root your company installs, instead of only the list bundled with the app
+- A failed certificate check now says so, instead of being reported as an ordinary connection failure that gave no hint where to look
+
+[Show all code changes](https://github.com/deuxdoom/usage-monitor-for-claude/compare/v1.80.0...v1.90.0)
+
 ## [1.80.0] - 2026-09-04
 
 ### Changed

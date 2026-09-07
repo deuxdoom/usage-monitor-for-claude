@@ -12,12 +12,12 @@ import unittest
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
-MODULE = 'usage_monitor_for_claude.single_instance'
+MODULE = 'ai_agents_usage_monitor.single_instance'
 
 
 def _reset_globals():
     """Reset module-level handles to None between tests."""
-    import usage_monitor_for_claude.single_instance as si
+    import ai_agents_usage_monitor.single_instance as si
     si._mutex_handle = None
     si._pid_mapping_handle = None
 
@@ -40,7 +40,7 @@ class TestSharedMemoryRoundTrip(unittest.TestCase):
         self._isolated_names.start()
 
     def tearDown(self):
-        import usage_monitor_for_claude.single_instance as si
+        import ai_agents_usage_monitor.single_instance as si
         if si._pid_mapping_handle:
             si._kernel32.CloseHandle(si._pid_mapping_handle)
             si._pid_mapping_handle = None
@@ -48,7 +48,7 @@ class TestSharedMemoryRoundTrip(unittest.TestCase):
 
     def _live_record(self):
         """Read the holder record under the real (non-test) object name."""
-        import usage_monitor_for_claude.single_instance as si
+        import ai_agents_usage_monitor.single_instance as si
 
         self._isolated_names.stop()
         try:
@@ -58,7 +58,7 @@ class TestSharedMemoryRoundTrip(unittest.TestCase):
 
     @patch(f'{MODULE}.__version__', '2.5.3')
     def test_round_trip_returns_pid_and_version(self):
-        from usage_monitor_for_claude.single_instance import _read_holder_info, _store_holder_info
+        from ai_agents_usage_monitor.single_instance import _read_holder_info, _store_holder_info
 
         _store_holder_info()
         pid, version = _read_holder_info()
@@ -68,7 +68,7 @@ class TestSharedMemoryRoundTrip(unittest.TestCase):
 
     @patch(f'{MODULE}.__version__', '0.0.1')
     def test_round_trip_short_version(self):
-        from usage_monitor_for_claude.single_instance import _read_holder_info, _store_holder_info
+        from ai_agents_usage_monitor.single_instance import _read_holder_info, _store_holder_info
 
         _store_holder_info()
         pid, version = _read_holder_info()
@@ -79,7 +79,7 @@ class TestSharedMemoryRoundTrip(unittest.TestCase):
     @patch(f'{MODULE}.__version__', 'a' * 100)
     def test_long_version_is_truncated(self):
         """Version strings exceeding shared memory size are truncated, not crashed."""
-        from usage_monitor_for_claude.single_instance import _read_holder_info, _store_holder_info
+        from ai_agents_usage_monitor.single_instance import _read_holder_info, _store_holder_info
 
         _store_holder_info()
         pid, version = _read_holder_info()
@@ -95,7 +95,7 @@ class TestSharedMemoryRoundTrip(unittest.TestCase):
         The record then outlives the test process (the live instance keeps the
         mapping alive), and a later "replace running instance" targets a dead PID
         and fails."""
-        import usage_monitor_for_claude.single_instance as si
+        import ai_agents_usage_monitor.single_instance as si
 
         before = self._live_record()
         si._store_holder_info()
@@ -126,7 +126,7 @@ class TestEnsureSingleInstance(unittest.TestCase):
         mock_kernel32.CreateMutexW.return_value = 42
 
         with patch(f'{MODULE}._kernel32', mock_kernel32):
-            from usage_monitor_for_claude.single_instance import ensure_single_instance
+            from ai_agents_usage_monitor.single_instance import ensure_single_instance
             result = ensure_single_instance()
 
         self.assertTrue(result)
@@ -149,7 +149,7 @@ class TestEnsureSingleInstance(unittest.TestCase):
 
         with patch(f'{MODULE}._kernel32', mock_kernel32), \
              patch(f'{MODULE}.ctypes.windll.user32', mock_user32):
-            from usage_monitor_for_claude.single_instance import ensure_single_instance
+            from ai_agents_usage_monitor.single_instance import ensure_single_instance
             result = ensure_single_instance()
 
         self.assertTrue(result)
@@ -173,7 +173,7 @@ class TestEnsureSingleInstance(unittest.TestCase):
 
         with patch(f'{MODULE}._kernel32', mock_kernel32), \
              patch(f'{MODULE}.ctypes.windll.user32', mock_user32):
-            from usage_monitor_for_claude.single_instance import ensure_single_instance
+            from ai_agents_usage_monitor.single_instance import ensure_single_instance
             result = ensure_single_instance()
 
         self.assertFalse(result)
@@ -197,7 +197,7 @@ class TestEnsureSingleInstance(unittest.TestCase):
 
         with patch(f'{MODULE}._kernel32', mock_kernel32), \
              patch(f'{MODULE}.ctypes.windll.user32', mock_user32):
-            from usage_monitor_for_claude.single_instance import ensure_single_instance
+            from ai_agents_usage_monitor.single_instance import ensure_single_instance
             result = ensure_single_instance()
 
         self.assertFalse(result)
@@ -219,7 +219,7 @@ class TestEnsureSingleInstance(unittest.TestCase):
         with patch(f'{MODULE}._read_holder_info', side_effect=[(99999, '1.9.0'), (None, None)]), \
              patch(f'{MODULE}._kernel32', mock_kernel32), \
              patch(f'{MODULE}.ctypes.windll.user32', mock_user32):
-            from usage_monitor_for_claude.single_instance import ensure_single_instance
+            from ai_agents_usage_monitor.single_instance import ensure_single_instance
             result = ensure_single_instance()
 
         self.assertTrue(result)
@@ -242,7 +242,7 @@ class TestEnsureSingleInstance(unittest.TestCase):
         with patch(f'{MODULE}._read_holder_info', side_effect=[(99999, '1.9.0'), (55555, '1.9.1')]), \
              patch(f'{MODULE}._kernel32', mock_kernel32), \
              patch(f'{MODULE}.ctypes.windll.user32', mock_user32):
-            from usage_monitor_for_claude.single_instance import ensure_single_instance
+            from ai_agents_usage_monitor.single_instance import ensure_single_instance
             result = ensure_single_instance()
 
         self.assertFalse(result)
@@ -265,7 +265,7 @@ class TestEnsureSingleInstance(unittest.TestCase):
 
         with patch(f'{MODULE}._kernel32', mock_kernel32), \
              patch(f'{MODULE}.ctypes.windll.user32', mock_user32):
-            from usage_monitor_for_claude.single_instance import ensure_single_instance
+            from ai_agents_usage_monitor.single_instance import ensure_single_instance
             result = ensure_single_instance()
 
         self.assertTrue(result)
@@ -285,7 +285,7 @@ class TestEnsureSingleInstance(unittest.TestCase):
 
         with patch(f'{MODULE}._kernel32', mock_kernel32), \
              patch(f'{MODULE}.ctypes.windll.user32', mock_user32):
-            from usage_monitor_for_claude.single_instance import ensure_single_instance
+            from ai_agents_usage_monitor.single_instance import ensure_single_instance
             result = ensure_single_instance()
 
         self.assertFalse(result)
@@ -303,7 +303,7 @@ class TestEnsureSingleInstance(unittest.TestCase):
 
         with patch(f'{MODULE}._kernel32', mock_kernel32), \
              patch(f'{MODULE}.ctypes.windll.user32', mock_user32):
-            from usage_monitor_for_claude.single_instance import ensure_single_instance
+            from ai_agents_usage_monitor.single_instance import ensure_single_instance
             ensure_single_instance()
 
         title = mock_user32.MessageBoxW.call_args[0][2]
@@ -322,7 +322,7 @@ class TestEnsureSingleInstance(unittest.TestCase):
 
         with patch(f'{MODULE}._kernel32', mock_kernel32), \
              patch(f'{MODULE}.ctypes.windll.user32', mock_user32):
-            from usage_monitor_for_claude.single_instance import ensure_single_instance
+            from ai_agents_usage_monitor.single_instance import ensure_single_instance
             ensure_single_instance()
 
         message = mock_user32.MessageBoxW.call_args[0][1]
@@ -344,7 +344,7 @@ class TestEnsureSingleInstance(unittest.TestCase):
 
         with patch(f'{MODULE}._kernel32', mock_kernel32), \
              patch(f'{MODULE}.ctypes.windll.user32', mock_user32):
-            from usage_monitor_for_claude.single_instance import ensure_single_instance
+            from ai_agents_usage_monitor.single_instance import ensure_single_instance
             result = ensure_single_instance()
 
         self.assertFalse(result)
@@ -365,7 +365,7 @@ class TestEnsureSingleInstance(unittest.TestCase):
 
         with patch(f'{MODULE}._kernel32', mock_kernel32), \
              patch(f'{MODULE}.ctypes.windll.user32', mock_user32):
-            from usage_monitor_for_claude.single_instance import ensure_single_instance
+            from ai_agents_usage_monitor.single_instance import ensure_single_instance
             result = ensure_single_instance()
 
         self.assertFalse(result)
@@ -382,7 +382,7 @@ class TestObjectNames(unittest.TestCase):
 
     def test_default_config_dir_uses_legacy_names(self):
         """Default config dir keeps the unsuffixed names for cross-version detection."""
-        import usage_monitor_for_claude.single_instance as si
+        import ai_agents_usage_monitor.single_instance as si
 
         with patch(f'{MODULE}.config_dir_suffix', return_value=''):
             mutex_name, mapping_name = si._object_names()
@@ -392,7 +392,7 @@ class TestObjectNames(unittest.TestCase):
 
     def test_custom_config_dir_appends_suffix(self):
         """A custom config dir yields suffixed, per-instance names."""
-        import usage_monitor_for_claude.single_instance as si
+        import ai_agents_usage_monitor.single_instance as si
 
         with patch(f'{MODULE}.config_dir_suffix', return_value='_abc123def456'):
             mutex_name, mapping_name = si._object_names()
@@ -402,7 +402,7 @@ class TestObjectNames(unittest.TestCase):
 
     def test_two_config_dirs_get_distinct_names(self):
         """Two different config dirs never collide on kernel object names."""
-        import usage_monitor_for_claude.single_instance as si
+        import ai_agents_usage_monitor.single_instance as si
 
         with TemporaryDirectory() as dir_a, TemporaryDirectory() as dir_b:
             with patch.dict('os.environ', {'CLAUDE_CONFIG_DIR': dir_a}):
@@ -429,7 +429,7 @@ class TestReleaseInstanceLock(unittest.TestCase):
 
     def test_release_closes_both_handles(self):
         """Both mutex and mapping handles are closed and set to None."""
-        import usage_monitor_for_claude.single_instance as si
+        import ai_agents_usage_monitor.single_instance as si
         mock_kernel32 = MagicMock()
 
         si._mutex_handle = 100
@@ -444,7 +444,7 @@ class TestReleaseInstanceLock(unittest.TestCase):
 
     def test_release_with_no_handles_is_safe(self):
         """Calling release when no handles are held does not crash."""
-        import usage_monitor_for_claude.single_instance as si
+        import ai_agents_usage_monitor.single_instance as si
 
         si._mutex_handle = None
         si._pid_mapping_handle = None

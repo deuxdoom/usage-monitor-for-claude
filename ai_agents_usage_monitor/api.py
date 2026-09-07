@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import requests
+import truststore
 
 from .i18n import T
 
@@ -27,6 +28,15 @@ API_URL_PROFILE = 'https://api.anthropic.com/api/oauth/profile'
 CLAUDE_CONFIG_DIR = Path(os.environ.get('CLAUDE_CONFIG_DIR', '')) if os.environ.get('CLAUDE_CONFIG_DIR') else Path.home() / '.claude'
 CLAUDE_CREDENTIALS = CLAUDE_CONFIG_DIR / '.credentials.json'
 _FALLBACK_USER_AGENT = 'claude-code/2.1.204'
+
+# Verify TLS certificates against the Windows certificate store instead of the
+# CA bundle shipped with requests, which carries no root a company proxy adds
+# by group policy - without this the app simply cannot reach the API from
+# behind TLS-inspecting corporate proxies.  This replaces ssl.SSLContext
+# process-wide, which is safe here because requests is the only TLS client in
+# the process.  It changes which authorities are trusted, never whether
+# certificates are checked: verification stays on.
+truststore.inject_into_ssl()
 
 
 def read_access_token() -> str | None:
@@ -69,6 +79,8 @@ def fetch_usage() -> dict[str, Any]:
         resp = requests.get(API_URL_USAGE, headers=headers, timeout=10)
         resp.raise_for_status()
         return _merge_scoped_limits(resp.json())
+    except requests.exceptions.SSLError:
+        return {'error': T['certificate_error']}
     except requests.ConnectionError:
         return {'error': T['connection_error']}
     except requests.HTTPError as e:

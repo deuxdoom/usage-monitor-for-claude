@@ -160,7 +160,10 @@ def find_installations() -> list[ClaudeInstallation]:
             continue
 
         if best_version and best_path:
-            results.append(ClaudeInstallation(ide_name, best_version, best_path))
+            # The suffix names which extension this is: one editor can carry the
+            # Claude and the Codex extension at the same time, and the Codex view
+            # labels its own rows the same way.
+            results.append(ClaudeInstallation(f'{ide_name} (Claude)', best_version, best_path))
 
     return results
 

@@ -18,9 +18,10 @@ from .settings import (
 )
 
 __all__ = [
-    'divider_positions', 'elapsed_pct', 'expand_popup_fields', 'field_countdown_only', 'field_hidden',
-    'field_inactive', 'field_period', 'format_count', 'format_credits', 'format_tooltip',
-    'parse_field_name', 'popup_label', 'time_until', 'tooltip_label',
+    'codex_reset_iso', 'divider_positions', 'duration_label', 'elapsed_pct', 'expand_popup_fields',
+    'field_countdown_only', 'field_hidden', 'field_inactive', 'field_period', 'format_codex_tooltip',
+    'format_count', 'format_credits', 'format_tooltip', 'parse_field_name', 'popup_label',
+    'time_until', 'tooltip_label',
 ]
 
 PERIOD_5H = 5 * 3600
@@ -548,6 +549,58 @@ def format_credits(minor_units: float, currency: str | None = None, decimal_plac
         if symbol:
             return f'{symbol}\u00a0{amount:.{places}f}'
         return f'{amount:.{places}f}'
+
+
+def duration_label(seconds: int) -> str:
+    """Label a quota window from its length, for quotas that do not name it.
+
+    Claude encodes the window in the field name (``five_hour``), so its label
+    comes from ``parse_field_name()``.  Codex names its windows ``primary``
+    and ``secondary`` and reports the length separately, so the same session
+    and weekly templates are filled from the duration instead.
+
+    Parameters
+    ----------
+    seconds : int
+        Window length in seconds, as the Codex app-server reports it.
+    """
+    day_scoped = seconds % 86400 == 0
+    number = seconds / (86400 if day_scoped else 3600)
+    suffix = T['unit_days' if day_scoped else 'unit_hours'].format(n=f'{number:g}')
+
+    return T['weekly_label' if day_scoped else 'session_label'].format(suffix=suffix)
+
+
+def codex_reset_iso(resets_at: float | None) -> str:
+    """Convert a Codex reset timestamp to the ISO form the time helpers take."""
+    if resets_at is None:
+        return ''
+
+    return datetime.fromtimestamp(resets_at, timezone.utc).isoformat()
+
+
+def format_codex_tooltip(snapshot: dict[str, Any]) -> str:
+    """Format a Codex account snapshot as short tray tooltip text.
+
+    Parameters
+    ----------
+    snapshot : dict
+        A ``CodexAccount.snapshot()`` result: quota ``windows`` plus a
+        translatable ``error`` key when the last read failed.
+    """
+    if snapshot.get('error'):
+        return f"{T['error_label']}\n{T[snapshot['error']][:80]}"
+
+    lines = [T['tooltip_title_codex']]
+    for window in snapshot.get('windows') or []:
+        seconds = window['seconds']
+        reset = time_until(codex_reset_iso(window['resets_at']), countdown_only=seconds % 86400 != 0)
+        line = f"{duration_label(seconds)}: {window['used']:.0f}%"
+        if reset:
+            line += f' ({reset})'
+        lines.append(line)
+
+    return '\n'.join(lines)
 
 
 def format_tooltip(data: dict[str, Any]) -> str:

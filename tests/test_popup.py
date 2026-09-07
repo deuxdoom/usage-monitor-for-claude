@@ -14,12 +14,12 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-from usage_monitor_for_claude.cache import CacheSnapshot
-from usage_monitor_for_claude.popup import (
-    UsagePopup, _BASELINE_DPI, _MONITORINFO, _SWP_NOACTIVATE, _SWP_NOSIZE, _SWP_NOZORDER,
-    _init_config, _snapshot_to_dict, _usage_entries,
+from ai_agents_usage_monitor.cache import CacheSnapshot
+from ai_agents_usage_monitor.popup import (
+    UsagePopup, _PopupApi, _BASELINE_DPI, _MONITORINFO, _SWP_NOACTIVATE, _SWP_NOSIZE, _SWP_NOZORDER,
+    _codex_account_to_dict, _init_config, _snapshot_to_dict, _usage_entries,
 )
-from usage_monitor_for_claude.session_logs import ModelUsage, WindowStats
+from ai_agents_usage_monitor.session_logs import ModelUsage, WindowStats
 
 
 def _snap(
@@ -41,6 +41,74 @@ def _snap(
 # _usage_entries
 # ---------------------------------------------------------------------------
 
+class TestCodexAccountFormatting(unittest.TestCase):
+    def test_link_targets_are_fixed_per_provider(self):
+        api = _PopupApi(MagicMock())
+        with patch('ai_agents_usage_monitor.popup.webbrowser.open') as open_link:
+            api.open_url('codex')
+            self.assertEqual(open_link.call_args.args[0], 'https://github.com/openai/codex/releases')
+            api.open_url('https://untrusted.example')
+            self.assertEqual(open_link.call_args.args[0], 'https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md')
+
+    def test_detail_period_follows_duration_not_primary_secondary_name(self):
+        snapshot = {'profile': None, 'windows': [
+            {'key': 'codex_secondary', 'seconds': 18000, 'used': 35, 'resets_at': None},
+            {'key': 'codex_primary', 'seconds': 604800, 'used': 6, 'resets_at': None},
+            {'key': 'codex_short', 'seconds': 900, 'used': 6, 'resets_at': None}],
+            'updated_at': 1, 'next_read': 61, 'error': None}
+        self.assertEqual([bar['detail_seconds'] for bar in _codex_account_to_dict(snapshot)['usage']], [18000, 604800, None])
+
+    def test_time_budget_colors_for_both_windows(self):
+        for period in (18000, 604800):
+            for elapsed, used, warning in ((0, 0, False), (0, 1, True), (50, 49, False), (50, 50, False),
+                                           (50, 51, True), (100, 100, True), (None, 35, False)):
+                with self.subTest(period=period, elapsed=elapsed, used=used):
+                    snapshot = {'profile': None, 'windows': [
+                        {'key': 'codex_window', 'seconds': period, 'used': used, 'resets_at': 1900000000}],
+                        'updated_at': 1, 'next_read': 61, 'error': None}
+                    with patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=elapsed):
+                        bar = _codex_account_to_dict(snapshot)['usage'][0]
+                    self.assertEqual(bar['warn'], warning)
+                    self.assertEqual(bar['fill_pct'], used / 100)
+                    self.assertEqual(bar['marker_rel'], elapsed / 100 if elapsed is not None else None)
+                    self.assertEqual(bool(bar['pace_text']), elapsed is not None)
+
+    def test_time_advancing_turns_red_back_to_blue(self):
+        snapshot = {'profile': None, 'windows': [
+            {'key': 'codex_primary', 'seconds': 18000, 'used': 50, 'resets_at': 1900000000}],
+            'updated_at': 1, 'next_read': 61, 'error': None}
+        with patch('ai_agents_usage_monitor.popup.elapsed_pct', side_effect=[49, 50]):
+            before = _codex_account_to_dict(snapshot)['usage'][0]
+            after = _codex_account_to_dict(snapshot)['usage'][0]
+        self.assertTrue(before['warn'])
+        self.assertFalse(after['warn'])
+        self.assertNotEqual(before['pace_text'], after['pace_text'])
+
+    def test_server_periods_use_claude_labels_and_countdowns(self):
+        snapshot = {
+            'profile': {'email': 'codex@example.test', 'plan': 'Plus', 'name': ''},
+            'windows': [{'key': 'codex_primary', 'seconds': 18000, 'used': 35, 'resets_at': 1900000000},
+                        {'key': 'codex_secondary', 'seconds': 604800, 'used': 6, 'resets_at': 1900600000}],
+            'updated_at': 1899999900, 'next_read': 1899999960, 'error': None,
+        }
+        with patch('ai_agents_usage_monitor.popup.time_until', return_value='reset') as countdown:
+            result = _codex_account_to_dict(snapshot)
+        self.assertEqual([entry['fill_pct'] for entry in result['usage']], [0.35, 0.06])
+        self.assertEqual([call.kwargs['countdown_only'] for call in countdown.call_args_list], [True, False])
+        self.assertEqual(result['profile'], snapshot['profile'])
+        self.assertEqual(result['status']['next_poll_time'], snapshot['next_read'])
+
+    def test_unknown_reset_does_not_invent_markers(self):
+        result = _codex_account_to_dict({'profile': None, 'windows': [
+            {'key': 'codex_primary', 'seconds': 3600, 'used': 101, 'resets_at': None}],
+            'updated_at': 1, 'next_read': 61, 'error': None})
+        bar = result['usage'][0]
+        self.assertEqual(bar['fill_pct'], 1)
+        self.assertTrue(bar['warn'])
+        self.assertEqual(bar['reset_text'], '')
+        self.assertIsNone(bar['marker_rel'])
+
+
 class TestUsageEntries(unittest.TestCase):
     """Tests for _usage_entries - extracts labelled tuples from usage dict."""
 
@@ -56,7 +124,7 @@ class TestUsageEntries(unittest.TestCase):
 
     def test_labels_use_popup_label(self):
         """Each entry's label is generated via popup_label."""
-        from usage_monitor_for_claude.formatting import popup_label
+        from ai_agents_usage_monitor.formatting import popup_label
 
         usage = {
             'five_hour': {'utilization': 42, 'resets_at': '2026-01-01T00:00:00Z'},
@@ -116,7 +184,7 @@ class TestUsageEntries(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0][1]['utilization'], 20)
 
-    @patch('usage_monitor_for_claude.popup.POPUP_FIELDS', ['fve_hour', 'seven_day'])
+    @patch('ai_agents_usage_monitor.popup.POPUP_FIELDS', ['fve_hour', 'seven_day'])
     def test_misspelled_popup_field_skipped(self):
         """Misspelled popup_fields entry is skipped, valid one shown."""
         usage = {
@@ -127,7 +195,7 @@ class TestUsageEntries(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0][1]['utilization'], 20)
 
-    @patch('usage_monitor_for_claude.popup.POPUP_FIELDS', ['seven_day_sonnet'])
+    @patch('ai_agents_usage_monitor.popup.POPUP_FIELDS', ['seven_day_sonnet'])
     def test_popup_field_pointing_to_null_skipped(self):
         """popup_fields entry pointing to a null field produces no entries."""
         usage = {'seven_day_sonnet': None, 'five_hour': {'utilization': 42, 'resets_at': ''}}
@@ -232,9 +300,9 @@ class TestSnapshotToDict(unittest.TestCase):
         result = _snapshot_to_dict(_snap(usage=usage), installations=[])
         self.assertEqual(result['usage'], [])
 
-    @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=None)
-    @patch('usage_monitor_for_claude.popup.time_until', return_value='5h 0m')
-    @patch('usage_monitor_for_claude.popup.divider_positions', return_value=[])
+    @patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=None)
+    @patch('ai_agents_usage_monitor.popup.time_until', return_value='5h 0m')
+    @patch('ai_agents_usage_monitor.popup.divider_positions', return_value=[])
     def test_usage_bar_fields(self, _mock_dividers, _mock_time_until, _mock_elapsed):
         """Each usage bar dict has all required fields with correct types."""
         usage = {'five_hour': {'utilization': 42, 'resets_at': '2026-01-01T05:00:00Z'}}
@@ -249,9 +317,9 @@ class TestSnapshotToDict(unittest.TestCase):
         self.assertEqual(bar['reset_text'], '5h 0m')
         self.assertEqual(bar['dividers'], [])
 
-    @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=None)
-    @patch('usage_monitor_for_claude.popup.divider_positions', return_value=[])
-    @patch('usage_monitor_for_claude.popup.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=None)
+    @patch('ai_agents_usage_monitor.popup.divider_positions', return_value=[])
+    @patch('ai_agents_usage_monitor.popup.time_until', return_value='')
     def test_reset_rendering_mode_is_per_field(self, mock_time_until, _dividers, _elapsed):
         """The session bar always counts down; the weekly bar keeps the calendar form."""
         usage = {
@@ -263,7 +331,7 @@ class TestSnapshotToDict(unittest.TestCase):
         modes = {call.args[0]: call.kwargs['countdown_only'] for call in mock_time_until.call_args_list}
         self.assertEqual(modes, {'2026-01-01T05:00:00Z': True, '2026-01-05T05:00:00Z': False})
 
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', False)
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_INACTIVE', False)
     def test_field_with_null_resets_at(self):
         """An inactive scoped limit (resets_at None) renders a 0% bar with no reset text.
 
@@ -283,7 +351,7 @@ class TestSnapshotToDict(unittest.TestCase):
         self.assertIsNone(bar['marker_rel'])
         self.assertFalse(bar['warn'])
 
-    @patch('usage_monitor_for_claude.formatting.POPUP_HIDE_INACTIVE', True)
+    @patch('ai_agents_usage_monitor.formatting.POPUP_HIDE_INACTIVE', True)
     def test_inactive_field_omitted_from_popup(self):
         """With popup_hide_inactive on, a never-used quota produces no bar at all."""
         usage = {
@@ -294,9 +362,9 @@ class TestSnapshotToDict(unittest.TestCase):
 
         self.assertEqual([bar['key'] for bar in result['usage']], ['five_hour'])
 
-    @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=30.0)
-    @patch('usage_monitor_for_claude.popup.time_until', return_value='3h 30m')
-    @patch('usage_monitor_for_claude.popup.divider_positions', return_value=[0.5])
+    @patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=30.0)
+    @patch('ai_agents_usage_monitor.popup.time_until', return_value='3h 30m')
+    @patch('ai_agents_usage_monitor.popup.divider_positions', return_value=[0.5])
     def test_warn_when_usage_ahead_of_time(self, _mock_dividers, _mock_time_until, _mock_elapsed):
         """Bar is marked warn when utilization exceeds elapsed percentage."""
         usage = {'five_hour': {'utilization': 60, 'resets_at': '2026-01-01T05:00:00Z'}}
@@ -306,9 +374,9 @@ class TestSnapshotToDict(unittest.TestCase):
         self.assertTrue(bar['warn'])
         self.assertAlmostEqual(bar['marker_rel'], 0.3)
 
-    @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=80.0)
-    @patch('usage_monitor_for_claude.popup.time_until', return_value='1h 0m')
-    @patch('usage_monitor_for_claude.popup.divider_positions', return_value=[])
+    @patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=80.0)
+    @patch('ai_agents_usage_monitor.popup.time_until', return_value='1h 0m')
+    @patch('ai_agents_usage_monitor.popup.divider_positions', return_value=[])
     def test_no_warn_when_usage_behind_time(self, _mock_dividers, _mock_time_until, _mock_elapsed):
         """Bar is not warn when utilization is below elapsed percentage."""
         usage = {'five_hour': {'utilization': 40, 'resets_at': '2026-01-01T05:00:00Z'}}
@@ -317,36 +385,36 @@ class TestSnapshotToDict(unittest.TestCase):
         bar = result['usage'][0]
         self.assertFalse(bar['warn'])
 
-    @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=50.0)
-    @patch('usage_monitor_for_claude.popup.time_until', return_value='2h 30m')
-    @patch('usage_monitor_for_claude.popup.divider_positions', return_value=[])
+    @patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=50.0)
+    @patch('ai_agents_usage_monitor.popup.time_until', return_value='2h 30m')
+    @patch('ai_agents_usage_monitor.popup.divider_positions', return_value=[])
     def test_no_warn_when_equal(self, _mock_dividers, _mock_time_until, _mock_elapsed):
         """Exactly equal usage and elapsed is not a warning (strictly greater)."""
         usage = {'five_hour': {'utilization': 50, 'resets_at': '2026-01-01T05:00:00Z'}}
         result = _snapshot_to_dict(_snap(usage=usage), installations=[])
         self.assertFalse(result['usage'][0]['warn'])
 
-    @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=None)
-    @patch('usage_monitor_for_claude.popup.time_until', return_value='')
-    @patch('usage_monitor_for_claude.popup.divider_positions', return_value=[])
+    @patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=None)
+    @patch('ai_agents_usage_monitor.popup.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.popup.divider_positions', return_value=[])
     def test_warn_at_100_without_time_period(self, _mock_dividers, _mock_time_until, _mock_elapsed):
         """Bar at 100% is warn even when no time period (time_pct is None)."""
         usage = {'five_hour': {'utilization': 100, 'resets_at': ''}}
         result = _snapshot_to_dict(_snap(usage=usage), installations=[])
         self.assertTrue(result['usage'][0]['warn'])
 
-    @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=100.0)
-    @patch('usage_monitor_for_claude.popup.time_until', return_value='')
-    @patch('usage_monitor_for_claude.popup.divider_positions', return_value=[])
+    @patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=100.0)
+    @patch('ai_agents_usage_monitor.popup.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.popup.divider_positions', return_value=[])
     def test_warn_at_100_when_time_also_100(self, _mock_dividers, _mock_time_until, _mock_elapsed):
         """Bar at 100% is warn even when elapsed time is also 100% (strict > would miss this)."""
         usage = {'five_hour': {'utilization': 100, 'resets_at': '2026-01-01T05:00:00Z'}}
         result = _snapshot_to_dict(_snap(usage=usage), installations=[])
         self.assertTrue(result['usage'][0]['warn'])
 
-    @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=None)
-    @patch('usage_monitor_for_claude.popup.time_until', return_value='')
-    @patch('usage_monitor_for_claude.popup.divider_positions', return_value=[])
+    @patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=None)
+    @patch('ai_agents_usage_monitor.popup.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.popup.divider_positions', return_value=[])
     def test_fill_pct_clamped_to_0_1(self, _mock_dividers, _mock_time_until, _mock_elapsed):
         """Fill percentage is clamped between 0.0 and 1.0, and over-quota is always warn."""
         usage = {'five_hour': {'utilization': 150, 'resets_at': '2026-01-01T05:00:00Z'}}
@@ -354,9 +422,9 @@ class TestSnapshotToDict(unittest.TestCase):
         self.assertEqual(result['usage'][0]['fill_pct'], 1.0)
         self.assertTrue(result['usage'][0]['warn'])
 
-    @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=None)
-    @patch('usage_monitor_for_claude.popup.time_until', return_value='')
-    @patch('usage_monitor_for_claude.popup.divider_positions', return_value=[])
+    @patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=None)
+    @patch('ai_agents_usage_monitor.popup.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.popup.divider_positions', return_value=[])
     def test_zero_utilization(self, _mock_dividers, _mock_time_until, _mock_elapsed):
         """Zero utilization produces 0% text and 0.0 fill."""
         usage = {'five_hour': {'utilization': 0, 'resets_at': '2026-01-01T05:00:00Z'}}
@@ -366,9 +434,9 @@ class TestSnapshotToDict(unittest.TestCase):
         self.assertEqual(bar['pct_text'], '0%')
         self.assertAlmostEqual(bar['fill_pct'], 0.0)
 
-    @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=None)
-    @patch('usage_monitor_for_claude.popup.time_until', return_value='')
-    @patch('usage_monitor_for_claude.popup.divider_positions', return_value=[])
+    @patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=None)
+    @patch('ai_agents_usage_monitor.popup.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.popup.divider_positions', return_value=[])
     def test_multiple_usage_entries(self, _mock_dividers, _mock_time_until, _mock_elapsed):
         """Multiple usage types each produce a bar entry."""
         usage = {
@@ -381,9 +449,9 @@ class TestSnapshotToDict(unittest.TestCase):
         pcts = [b['pct_text'] for b in result['usage']]
         self.assertEqual(pcts, ['10%', '20%', '30%'])
 
-    @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=None)
-    @patch('usage_monitor_for_claude.popup.time_until', return_value='')
-    @patch('usage_monitor_for_claude.popup.divider_positions', return_value=[])
+    @patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=None)
+    @patch('ai_agents_usage_monitor.popup.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.popup.divider_positions', return_value=[])
     def test_usage_bar_includes_field_key(self, _mock_div, _mock_tu, _mock_ep):
         """Each usage bar dict carries its API field name for compact hiding."""
         usage = {
@@ -394,10 +462,10 @@ class TestSnapshotToDict(unittest.TestCase):
         keys = [bar['key'] for bar in result['usage']]
         self.assertEqual(keys, ['five_hour', 'seven_day_opus'])
 
-    @patch('usage_monitor_for_claude.popup.POPUP_FIELDS', ['typo_field', 'seven_day'])
-    @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=None)
-    @patch('usage_monitor_for_claude.popup.time_until', return_value='')
-    @patch('usage_monitor_for_claude.popup.divider_positions', return_value=[])
+    @patch('ai_agents_usage_monitor.popup.POPUP_FIELDS', ['typo_field', 'seven_day'])
+    @patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=None)
+    @patch('ai_agents_usage_monitor.popup.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.popup.divider_positions', return_value=[])
     def test_misspelled_popup_field_skipped_in_dict(self, _mock_div, _mock_tu, _mock_ep):
         """Misspelled popup_fields entry produces no bar, valid one shown."""
         usage = {
@@ -414,9 +482,9 @@ class TestSnapshotToDict(unittest.TestCase):
         result = _snapshot_to_dict(_snap(usage=usage), installations=[])
         self.assertEqual(result['usage'], [])
 
-    @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=None)
-    @patch('usage_monitor_for_claude.popup.time_until', return_value='')
-    @patch('usage_monitor_for_claude.popup.divider_positions', return_value=[])
+    @patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=None)
+    @patch('ai_agents_usage_monitor.popup.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.popup.divider_positions', return_value=[])
     def test_non_dict_values_in_response_ignored(self, _mock_div, _mock_tu, _mock_ep):
         """Non-dict values in the API response are not shown as bars."""
         usage = {
@@ -447,7 +515,7 @@ class TestSnapshotToDict(unittest.TestCase):
         result = _snapshot_to_dict(_snap(usage=usage), installations=[])
         self.assertIsNone(result['extra'])
 
-    @patch('usage_monitor_for_claude.popup.format_credits', side_effect=lambda c, *_: f'${c / 100:.2f}')
+    @patch('ai_agents_usage_monitor.popup.format_credits', side_effect=lambda c, *_: f'${c / 100:.2f}')
     def test_extra_usage_zero_limit_shows_no_cap_variant(self, _mock_credits):
         """A zero monthly limit shows the no-cap spent text instead of hiding the section."""
         usage = {'extra_usage': {'is_enabled': True, 'monthly_limit': 0, 'used_credits': 0}}
@@ -458,7 +526,7 @@ class TestSnapshotToDict(unittest.TestCase):
         self.assertEqual(extra['pct_text'], '')
         self.assertIn('$0.00', extra['spent_text'])
 
-    @patch('usage_monitor_for_claude.popup.format_credits', side_effect=lambda c, *_: f'${c / 100:.2f}')
+    @patch('ai_agents_usage_monitor.popup.format_credits', side_effect=lambda c, *_: f'${c / 100:.2f}')
     def test_extra_usage_null_limit_shows_no_cap_variant(self, _mock_credits):
         """A null monthly_limit (uncapped pay-as-you-go credits) shows what has been spent."""
         usage = {'extra_usage': {'is_enabled': True, 'monthly_limit': None, 'used_credits': 2981}}
@@ -468,7 +536,7 @@ class TestSnapshotToDict(unittest.TestCase):
         self.assertFalse(extra['has_limit'])
         self.assertIn('$29.81', extra['spent_text'])
 
-    @patch('usage_monitor_for_claude.popup.format_credits', side_effect=lambda c, *_: f'${c / 100:.2f}')
+    @patch('ai_agents_usage_monitor.popup.format_credits', side_effect=lambda c, *_: f'${c / 100:.2f}')
     def test_extra_usage_calculation(self, _mock_credits):
         """Extra usage computes percentage and formatted text correctly."""
         usage = {'extra_usage': {'is_enabled': True, 'monthly_limit': 10000, 'used_credits': 2500}}
@@ -482,7 +550,7 @@ class TestSnapshotToDict(unittest.TestCase):
         self.assertIn('$25.00', extra['spent_text'])
         self.assertIn('$100.00', extra['spent_text'])
 
-    @patch('usage_monitor_for_claude.popup.format_credits', side_effect=lambda c, *_: f'${c / 100:.2f}')
+    @patch('ai_agents_usage_monitor.popup.format_credits', side_effect=lambda c, *_: f'${c / 100:.2f}')
     def test_extra_usage_fill_clamped(self, _mock_credits):
         """Extra usage fill is clamped to 1.0 when over limit."""
         usage = {'extra_usage': {'is_enabled': True, 'monthly_limit': 1000, 'used_credits': 2000}}
@@ -497,7 +565,7 @@ class TestSnapshotToDict(unittest.TestCase):
         result = _snapshot_to_dict(_snap(), installations=installs)
         self.assertEqual(result['installations'], installs)
 
-    @patch('usage_monitor_for_claude.popup.find_installations')
+    @patch('ai_agents_usage_monitor.popup.find_installations')
     def test_installations_auto_detected(self, mock_find):
         """When installations is None, find_installations() is called."""
         inst = MagicMock()
@@ -525,15 +593,15 @@ class TestSnapshotToDict(unittest.TestCase):
 
     def test_status_refreshing_when_no_usage_no_error(self):
         """Shows refreshing status when no usage data and no error."""
-        from usage_monitor_for_claude.i18n import T
+        from ai_agents_usage_monitor.i18n import T
 
         result = _snapshot_to_dict(_snap(usage={}, last_error=None), installations=[])
         self.assertEqual(result['status']['text'], T['status_refreshing'])
         self.assertFalse(result['status']['is_error'])
 
-    @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=None)
-    @patch('usage_monitor_for_claude.popup.time_until', return_value='')
-    @patch('usage_monitor_for_claude.popup.divider_positions', return_value=[])
+    @patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=None)
+    @patch('ai_agents_usage_monitor.popup.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.popup.divider_positions', return_value=[])
     def test_status_live_mode_keys(self, _mock_div, _mock_tu, _mock_ep):
         """Live mode status contains all required keys for the JS timer."""
         usage = {'five_hour': {'utilization': 50, 'resets_at': '2026-01-01T05:00:00Z'}}
@@ -543,9 +611,9 @@ class TestSnapshotToDict(unittest.TestCase):
         )
         self.assertEqual(set(result['status'].keys()), {'last_success_time', 'next_poll_time', 'refreshing', 'error'})
 
-    @patch('usage_monitor_for_claude.popup.elapsed_pct', return_value=None)
-    @patch('usage_monitor_for_claude.popup.time_until', return_value='')
-    @patch('usage_monitor_for_claude.popup.divider_positions', return_value=[])
+    @patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=None)
+    @patch('ai_agents_usage_monitor.popup.time_until', return_value='')
+    @patch('ai_agents_usage_monitor.popup.divider_positions', return_value=[])
     def test_status_error_truncated_in_live_mode(self, _mock_div, _mock_tu, _mock_ep):
         """Error messages are truncated to 120 characters in live mode."""
         usage = {'five_hour': {'utilization': 50, 'resets_at': '2026-01-01T05:00:00Z'}}
@@ -576,7 +644,7 @@ class TestInitConfig(unittest.TestCase):
         config = _init_config(_snap())
         self.assertEqual(set(config.keys()), {'colors', 't', 'app_version', 'compact_hide', 'data'})
 
-    @patch('usage_monitor_for_claude.popup.COMPACT_HIDE', ['account', 'seven_day_opus'])
+    @patch('ai_agents_usage_monitor.popup.COMPACT_HIDE', ['account', 'seven_day_opus'])
     def test_compact_hide_from_settings(self):
         """compact_hide is taken from the COMPACT_HIDE setting."""
         config = _init_config(_snap())
@@ -584,7 +652,7 @@ class TestInitConfig(unittest.TestCase):
 
     def test_colors_from_settings(self):
         """Color values come from settings module constants."""
-        from usage_monitor_for_claude.settings import BAR_BG, BAR_DIVIDER, BAR_FG, BAR_FG_WARN, BAR_MARKER, BG, FG, FG_DIM, FG_HEADING, FG_LINK
+        from ai_agents_usage_monitor.settings import BAR_BG, BAR_DIVIDER, BAR_FG, BAR_FG_WARN, BAR_MARKER, BG, FG, FG_DIM, FG_HEADING, FG_LINK
 
         config = _init_config(_snap())
         colors = config['colors']
@@ -601,11 +669,11 @@ class TestInitConfig(unittest.TestCase):
 
     def test_translations_from_i18n(self):
         """Translation values come from the T dict."""
-        from usage_monitor_for_claude.i18n import T
+        from ai_agents_usage_monitor.i18n import T
 
         config = _init_config(_snap())
         t = config['t']
-        self.assertEqual(t['title'], T['popup_title'])
+        self.assertEqual(t['title'], T['app_name'])
         self.assertEqual(t['account'], T['account'])
         self.assertEqual(t['email'], T['email'])
         self.assertEqual(t['plan'], T['plan'])
@@ -625,7 +693,7 @@ class TestInitConfig(unittest.TestCase):
 
     def test_app_version(self):
         """app_version matches the package version."""
-        from usage_monitor_for_claude import __version__
+        from ai_agents_usage_monitor import __version__
 
         config = _init_config(_snap())
         self.assertEqual(config['app_version'], __version__)
@@ -670,14 +738,14 @@ class TestSessionDetail(unittest.TestCase):
         popup = self._popup({'five_hour': None})
         self.assertTrue(popup._session_detail('five_hour')['unavailable'])
 
-    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
     def test_scan_failure_is_unavailable_not_raised(self, mock_scan):
         mock_scan.side_effect = RuntimeError('boom')
         popup = self._popup({'five_hour': {'utilization': 40, 'resets_at': '2026-08-13T18:00:00Z'}})
         result = popup._session_detail('five_hour')
         self.assertEqual(result['unavailable'], True)
 
-    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
     def test_window_derived_from_resets_at_and_period(self, mock_scan):
         """The scanned window must be [resets_at - period, resets_at)."""
         mock_scan.return_value = WindowStats(total_tokens=0, message_count=0, models=[])
@@ -690,7 +758,7 @@ class TestSessionDetail(unittest.TestCase):
         self.assertAlmostEqual(end, expected_end)
         self.assertAlmostEqual(start, expected_end - 5 * 3600)
 
-    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
     def test_z_suffix_resets_at_parsed(self, mock_scan):
         mock_scan.return_value = WindowStats(total_tokens=0, message_count=0, models=[])
         popup = self._popup({'seven_day': {'utilization': 20, 'resets_at': '2026-08-17T18:00:00Z'}})
@@ -701,8 +769,8 @@ class TestSessionDetail(unittest.TestCase):
         expected_end = datetime(2026, 8, 17, 18, 0, 0, tzinfo=timezone.utc).timestamp()
         self.assertAlmostEqual(end, expected_end)
 
-    @patch('usage_monitor_for_claude.popup.time.time', return_value=1_800_000_000.0)
-    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.time.time', return_value=1_800_000_000.0)
+    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
     def test_null_resets_at_falls_back_to_rolling_window_ending_now(self, mock_scan, _mock_time):
         """An untouched period (see field_inactive) has no resets_at to anchor on."""
         mock_scan.return_value = WindowStats(total_tokens=0, message_count=0, models=[])
@@ -714,7 +782,7 @@ class TestSessionDetail(unittest.TestCase):
         self.assertEqual(end, 1_800_000_000.0)
         self.assertEqual(start, 1_800_000_000.0 - 5 * 3600)
 
-    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
     def test_tokens_and_messages_formatted_with_grouping(self, mock_scan):
         mock_scan.return_value = WindowStats(total_tokens=353830, message_count=1033, models=[])
         popup = self._popup({'five_hour': {'utilization': 40, 'resets_at': '2026-08-13T18:00:00Z'}})
@@ -725,7 +793,7 @@ class TestSessionDetail(unittest.TestCase):
         self.assertEqual(result['tokens'], '353,830')
         self.assertEqual(result['messages'], '1,033')
 
-    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
     def test_estimated_total_derived_from_utilization(self, mock_scan):
         mock_scan.return_value = WindowStats(total_tokens=400, message_count=1, models=[])
         popup = self._popup({'five_hour': {'utilization': 40, 'resets_at': '2026-08-13T18:00:00Z'}})
@@ -735,7 +803,7 @@ class TestSessionDetail(unittest.TestCase):
         # 400 tokens at 40% utilization implies a full period of ~1,000.
         self.assertEqual(result['estimated_total'], '1,000')
 
-    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
     def test_estimated_total_omitted_below_minimum_utilization(self, mock_scan):
         """Dividing by a near-zero percentage would amplify noise into a huge, meaningless number."""
         mock_scan.return_value = WindowStats(total_tokens=400, message_count=1, models=[])
@@ -745,7 +813,7 @@ class TestSessionDetail(unittest.TestCase):
 
         self.assertIsNone(result['estimated_total'])
 
-    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
     def test_estimated_total_omitted_with_no_local_tokens(self, mock_scan):
         """Nothing to divide when the local scan itself found no tokens for the window."""
         mock_scan.return_value = WindowStats(total_tokens=0, message_count=0, models=[])
@@ -755,7 +823,7 @@ class TestSessionDetail(unittest.TestCase):
 
         self.assertIsNone(result['estimated_total'])
 
-    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
     def test_models_formatted_and_ordered(self, mock_scan):
         mock_scan.return_value = WindowStats(
             total_tokens=400, message_count=2,
@@ -773,7 +841,7 @@ class TestSessionDetail(unittest.TestCase):
             {'model': 'claude-sonnet-4-6', 'tokens': '100', 'pct': '25.0'},
         ])
 
-    @patch('usage_monitor_for_claude.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
     def test_zero_usage_window_still_available_not_unavailable(self, mock_scan):
         """A genuinely empty window is a real result, distinct from a failed lookup."""
         mock_scan.return_value = WindowStats(total_tokens=0, message_count=0, models=[])
@@ -918,7 +986,7 @@ class TestReportHeight(unittest.TestCase):
         webview.create_window.
         """
         patcher_watch = patch.object(UsagePopup, '_dismiss_watch', lambda self: None)
-        patcher_webview = patch('usage_monitor_for_claude.popup.webview')
+        patcher_webview = patch('ai_agents_usage_monitor.popup.webview')
         patcher_watch.start()
         mock_webview = patcher_webview.start()
         self.addCleanup(patcher_webview.stop)
@@ -1141,9 +1209,9 @@ class TestUpdateLoopResilience(unittest.TestCase):
             if iterations[0] > 10:
                 popup._running = False
 
-        with patch('usage_monitor_for_claude.popup.time.sleep', side_effect=guarded_sleep), \
-             patch('usage_monitor_for_claude.popup.find_installations', return_value=[]), \
-             patch('usage_monitor_for_claude.popup._snapshot_to_dict', return_value={}):
+        with patch('ai_agents_usage_monitor.popup.time.sleep', side_effect=guarded_sleep), \
+             patch('ai_agents_usage_monitor.popup.find_installations', return_value=[]), \
+             patch('ai_agents_usage_monitor.popup._snapshot_to_dict', return_value={}):
             popup._update_loop()
 
         self.assertEqual(popup._window.evaluate_js.call_count, 2)
@@ -1176,9 +1244,9 @@ class TestUpdateLoopResilience(unittest.TestCase):
             if iterations[0] > 10:
                 popup._running = False
 
-        with patch('usage_monitor_for_claude.popup.time.sleep', side_effect=guarded_sleep), \
-             patch('usage_monitor_for_claude.popup.find_installations', return_value=[]), \
-             patch('usage_monitor_for_claude.popup._snapshot_to_dict', return_value={}):
+        with patch('ai_agents_usage_monitor.popup.time.sleep', side_effect=guarded_sleep), \
+             patch('ai_agents_usage_monitor.popup.find_installations', return_value=[]), \
+             patch('ai_agents_usage_monitor.popup._snapshot_to_dict', return_value={}):
             popup._update_loop()
 
         self.assertEqual(popup._window.evaluate_js.call_count, 2)
@@ -1214,7 +1282,7 @@ class TestUpdateLoopClockTick(unittest.TestCase):
         return popup
 
     def _run_loop(self, popup: UsagePopup, sleep_effect) -> MagicMock:
-        with patch('usage_monitor_for_claude.popup.time.sleep', side_effect=sleep_effect),              patch('usage_monitor_for_claude.popup.time.time', side_effect=lambda: self.clock[0]),              patch('usage_monitor_for_claude.popup.find_installations', return_value=[]) as mock_scan,              patch('usage_monitor_for_claude.popup._snapshot_to_dict', return_value={}):
+        with patch('ai_agents_usage_monitor.popup.time.sleep', side_effect=sleep_effect),              patch('ai_agents_usage_monitor.popup.time.time', side_effect=lambda: self.clock[0]),              patch('ai_agents_usage_monitor.popup.find_installations', return_value=[]) as mock_scan,              patch('ai_agents_usage_monitor.popup._snapshot_to_dict', return_value={}):
             popup._update_loop()
 
         return mock_scan
@@ -1387,14 +1455,14 @@ class TestTrayPosition(unittest.TestCase):
         self.assertEqual(x, 1920 - 340 - 12)
         self.assertEqual(y, 40 + 12)
 
-    @patch('usage_monitor_for_claude.popup.POPUP_MARGIN', 75)
+    @patch('ai_agents_usage_monitor.popup.POPUP_MARGIN', 75)
     def test_custom_margin_applied_at_bottom_right(self):
         """popup_margin replaces the default gap to the work-area edge."""
         x, y = self._call(0, 0, 1920, 1040, _BASELINE_DPI, 340, 400)
         self.assertEqual(x, 1920 - 340 - 75)
         self.assertEqual(y, 1040 - 400 - 75)
 
-    @patch('usage_monitor_for_claude.popup.POPUP_MARGIN', 75)
+    @patch('ai_agents_usage_monitor.popup.POPUP_MARGIN', 75)
     def test_custom_margin_applied_on_left_and_top_edges(self):
         """The same margin anchors the popup when the taskbar is on the left or top."""
         x, _ = self._call(60, 0, 1920, 1080, _BASELINE_DPI, 340, 400)

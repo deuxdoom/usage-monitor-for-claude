@@ -16,7 +16,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-_POPUP_JS = Path(__file__).parent.parent / 'usage_monitor_for_claude' / 'popup' / 'popup.js'
+_POPUP_JS = Path(__file__).parent.parent / 'ai_agents_usage_monitor' / 'popup' / 'popup.js'
 
 _NODE = shutil.which('node')
 
@@ -276,6 +276,23 @@ const NOW = Date.now() / 1000;
 @unittest.skipUnless(_NODE, 'Node.js not available')
 class TestUsageBarUpdates(unittest.TestCase):
     """Tests for updateUsageBars/updateBarElement in popup.js."""
+
+    def test_percentage_and_bar_colors_follow_time_budget_together(self):
+        result = _run_scenario(r'''
+updateUsageBars([makeEntry({key: 'codex_primary', pct_text: '51%', fill_pct: 0.51, warn: true, pace_text: 'Elapsed 50% - ahead'})]);
+const div = els.usageBars.children[0];
+function state() {
+    return ['.bar-pct', '.bar-fill', '.pace-text'].map(selector => div.querySelector(selector).classList.contains('warn'));
+}
+const before = state();
+updateUsageBars([makeEntry({key: 'codex_primary', pct_text: '51%', fill_pct: 0.51, warn: false, pace_text: 'Elapsed 51% - within'})]);
+const after = state();
+const text = div.querySelector('.pace-text').textContent;
+updateUsageBars([makeEntry({key: 'codex_primary', pace_text: ''})]);
+console.log(JSON.stringify({before, after, text, removed: div.querySelector('.pace-text') === null}));
+''')
+        self.assertEqual(result, {'before': [True, True, True], 'after': [False, False, False],
+                                  'text': 'Elapsed 51% - within', 'removed': True})
 
     def test_changed_field_set_with_equal_count_updates_labels(self):
         """When the set of quota fields changes but the count stays the same
@@ -625,6 +642,148 @@ Promise.resolve().then(() => {
 });
 ''')
         self.assertEqual(result, ['bar-header', 'bar-container', 'reset-text', 'usage-detail'])
+
+
+@unittest.skipUnless(_NODE, 'Node.js not available')
+class TestCodexView(unittest.TestCase):
+    _CODEX_PRELUDE = '''
+const nodes = {};
+document.getElementById = (id) => nodes[id] || (nodes[id] = document.createElement('div'));
+for (const key of ['accountSection', 'usageSection', 'extraSection', 'installSection']) els[key] = document.createElement('section');
+refreshButton = document.createElement('button');
+let renders = 0, interval = null, resolveRead;
+renderCodex = () => { renders++; };
+setTimeout = (_, ms) => { interval = ms; return 1; };
+clearTimeout = () => {};
+globalThis.pywebview = {api: {codex_usage: () => new Promise(resolve => { resolveRead = resolve; })}};
+'''
+
+    def test_first_switch_holds_the_outgoing_view_until_the_read_lands(self):
+        '''The window must resize once, at the swap - not empty out and grow back.'''
+        result = _run_scenario(self._CODEX_PRELUDE + '''
+selectProvider('codex');
+const held = {renders, pending: document.body.classList.contains('pending'),
+    spinning: refreshButton.classList.contains('spinning'), interval};
+resolveRead({available: true});
+setImmediate(() => {
+    const swapped = {renders, pending: document.body.classList.contains('pending'),
+        spinning: refreshButton.classList.contains('spinning'), interval};
+    // A later visit already has the data, so nothing is held the second time.
+    selectProvider('claude');
+    selectProvider('codex');
+    console.log(JSON.stringify({held, swapped, revisit: renders,
+        revisitPending: document.body.classList.contains('pending')}));
+});
+''')
+        self.assertEqual(result, {
+            'held': {'renders': 0, 'pending': True, 'spinning': True, 'interval': None},
+            'swapped': {'renders': 1, 'pending': False, 'spinning': False, 'interval': 60000},
+            'revisit': 2, 'revisitPending': False,
+        })
+
+    def test_switching_back_releases_the_held_view_and_drops_a_late_response(self):
+        result = _run_scenario(self._CODEX_PRELUDE + '''
+let restores = 0;
+reapplyData = () => { restores++; };
+selectProvider('codex');
+selectProvider('claude');
+const released = {restores, pending: document.body.classList.contains('pending'),
+    spinning: refreshButton.classList.contains('spinning')};
+resolveRead({available: true});
+setImmediate(() => console.log(JSON.stringify({released, renders, interval, provider: selectedProvider})));
+''')
+        self.assertEqual(result, {
+            'released': {'restores': 1, 'pending': False, 'spinning': False},
+            'renders': 0, 'interval': None, 'provider': 'claude',
+        })
+
+    def test_model_names_render_as_text_and_missing_data(self):
+        result = _run_scenario(r'''
+translations = {codex_source: 'local only', codex_five_hours: '5h', detail_tokens: 'Tokens', detail_models: 'Models', codex_unavailable: 'missing'};
+codexData = {available: true, windows: [{seconds: 18000, tokens: 25, models: [{model: '<script>bad</script>', tokens: 25}]}]};
+updateUsageBars([makeEntry({key: 'codex_primary', detail_seconds: 18000})]);
+const bar = els.usageBars.children[0];
+const collapsed = bar.querySelector('.usage-detail') === null;
+bar.dispatchEvent('click');
+const model = bar.querySelector('.detail-model-name');
+const safe = model.textContent;
+const childCount = model.children.length;
+codexData = {available: false};
+updateUsageBars([makeEntry({key: 'codex_primary', detail_seconds: 18000})]);
+console.log(JSON.stringify({safe, childCount, collapsed, empty: bar.querySelector('.usage-detail').textContent}));
+''')
+        self.assertEqual(result, {'safe': '<script>bad</script>', 'childCount': 0, 'collapsed': True, 'empty': 'missing'})
+
+    def test_each_period_expands_independently_and_refreshes_in_place(self):
+        result = _run_scenario(r'''
+translations = {detail_tokens: 'Tokens', detail_models: 'Models', codex_source: 'local', codex_five_hours: '5h', codex_seven_days: '7d'};
+codexData = {available: true, windows: [
+    {seconds: 18000, tokens: 25, models: [{model: 'alpha', tokens: 25}]},
+    {seconds: 604800, tokens: 100, models: [{model: 'beta', tokens: 100}]},
+]};
+const entries = [makeEntry({key: 'codex_primary', detail_seconds: 18000}), makeEntry({key: 'codex_secondary', detail_seconds: 604800})];
+updateUsageBars(entries);
+const [session, weekly] = els.usageBars.children;
+session.dispatchEvent('click');
+const independent = !weekly.querySelector('.usage-detail');
+weekly.dispatchEvent('keydown', {key: 'Enter', preventDefault() {}});
+const weeklyText = weekly.querySelector('.usage-detail').textContent;
+codexData.windows[0].tokens = 30;
+updateUsageBars(entries);
+const sessionText = session.querySelector('.usage-detail').textContent;
+session.dispatchEvent('click');
+console.log(JSON.stringify({independent, weekly: weeklyText.includes('100') && weeklyText.includes('beta'),
+    refreshed: sessionText.includes('30'), collapsed: !session.querySelector('.usage-detail'), weeklyOpen: !!weekly.querySelector('.usage-detail')}));
+''')
+        self.assertEqual(result, {'independent': True, 'weekly': True, 'refreshed': True, 'collapsed': True, 'weeklyOpen': True})
+
+    def test_installation_footer_switches_provider(self):
+        result = _run_scenario(r'''
+const nodes = {};
+document.getElementById = id => nodes[id] || (nodes[id] = document.createElement('div'));
+els.installRows = document.createElement('dl');
+els.installSection = document.createElement('section');
+translations = {claude_code: 'CLAUDE CODE', changelog: 'Changelog'};
+// init() sets the link label once; renderInstallations no longer rewrites it.
+document.getElementById('changelogLink').textContent = translations.changelog;
+renderInstallations([{name: 'Codex CLI', version: '0.153.0'}], 'codex');
+const codex = [nodes.headingClaudeCode.textContent, nodes.changelogLink.textContent, els.installRows.textContent];
+renderInstallations([{name: 'CLI', version: '2.0.0'}], 'claude');
+const claude = [nodes.headingClaudeCode.textContent, nodes.changelogLink.textContent, els.installRows.textContent];
+renderInstallations([], 'codex');
+const emptyCodex = els.installSection.classList.contains('visible');
+renderInstallations([], 'claude');
+console.log(JSON.stringify({codex, claude, emptyCodex, emptyClaude: els.installSection.classList.contains('visible')}));
+''')
+        self.assertEqual(result, {'codex': ['CODEX', 'Changelog', 'Codex CLI0.153.0'], 'claude': ['CLAUDE CODE', 'Changelog', 'CLI2.0.0'],
+                                  'emptyCodex': True, 'emptyClaude': False})
+
+    def test_account_bars_and_email_privacy_on_switch(self):
+        result = _run_scenario(r'''
+for (const key of ['accountSection', 'usageSection', 'headingUsage', 'planValue', 'planRow']) els[key] = document.createElement('div');
+let renderedProfile, bars;
+renderAccountRow = profile => { renderedProfile = profile; };
+updateUsageBars = usage => { bars = usage; };
+renderCodexAccount({profile: {email: 'codex@example.test', name: '', plan: 'Plus'}, usage: [makeEntry({key: 'codex_primary'})]});
+const visible = els.accountSection.classList.contains('visible') && els.usageSection.classList.contains('visible');
+const plan = els.planValue.textContent;
+const key = bars[0].key;
+renderCodexAccount(null);
+console.log(JSON.stringify({visible, plan, key, cleared: !els.accountSection.classList.contains('visible') && bars.length === 0}));
+''')
+        self.assertEqual(result, {'visible': True, 'plan': 'Plus', 'key': 'codex_primary', 'cleared': True})
+
+    def test_refresh_schedules_one_minute_after_completion(self):
+        result = _run_scenario(r'''
+selectedProvider = 'codex';
+let interval, calls = 0;
+renderCodex = () => {};
+setTimeout = (_, ms) => { interval = ms; return 1; };
+clearTimeout = () => {};
+globalThis.pywebview = {api: {codex_usage: async () => { calls++; return {}; }}};
+Promise.all([refreshCodex(), refreshCodex()]).then(() => console.log(JSON.stringify({interval, calls})));
+''')
+        self.assertEqual(result, {'interval': 60000, 'calls': 1})
 
 
 if __name__ == '__main__':

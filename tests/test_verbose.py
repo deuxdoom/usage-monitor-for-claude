@@ -10,7 +10,7 @@ import io
 import unittest
 from unittest.mock import MagicMock, patch
 
-from usage_monitor_for_claude.verbose import (
+from ai_agents_usage_monitor.verbose import (
     _credentials_status,
     _dotnet_version,
     _dpi_info,
@@ -145,7 +145,7 @@ class TestWebview2Version(unittest.TestCase):
     def test_runtime_found(self):
         """Returns version when Runtime GUID is in registry."""
         runtime_guid = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
-        with patch('usage_monitor_for_claude.verbose.winreg') as mock_winreg:
+        with patch('ai_agents_usage_monitor.verbose.winreg') as mock_winreg:
             mock_winreg.HKEY_CURRENT_USER = 0x80000001
             mock_winreg.HKEY_LOCAL_MACHINE = 0x80000002
             mock_winreg.OpenKey = self._mock_open_key([(runtime_guid, '130.0.2849.56')])
@@ -156,7 +156,7 @@ class TestWebview2Version(unittest.TestCase):
     def test_beta_channel_labeled(self):
         """Non-Runtime channels include the channel name."""
         beta_guid = '{2CD8A007-E189-409D-A2C8-9AF4EF3C72AA}'
-        with patch('usage_monitor_for_claude.verbose.winreg') as mock_winreg:
+        with patch('ai_agents_usage_monitor.verbose.winreg') as mock_winreg:
             mock_winreg.HKEY_CURRENT_USER = 0x80000001
             mock_winreg.HKEY_LOCAL_MACHINE = 0x80000002
             mock_winreg.OpenKey = self._mock_open_key([(beta_guid, '131.0.0.1')])
@@ -167,7 +167,7 @@ class TestWebview2Version(unittest.TestCase):
 
     def test_not_found(self):
         """Returns 'not found' when no registry keys exist."""
-        with patch('usage_monitor_for_claude.verbose.winreg') as mock_winreg:
+        with patch('ai_agents_usage_monitor.verbose.winreg') as mock_winreg:
             mock_winreg.HKEY_CURRENT_USER = 0x80000001
             mock_winreg.HKEY_LOCAL_MACHINE = 0x80000002
             mock_winreg.OpenKey = MagicMock(side_effect=OSError)
@@ -177,7 +177,7 @@ class TestWebview2Version(unittest.TestCase):
     def test_zero_version_skipped(self):
         """Version '0.0.0.0' is treated as not installed."""
         runtime_guid = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
-        with patch('usage_monitor_for_claude.verbose.winreg') as mock_winreg:
+        with patch('ai_agents_usage_monitor.verbose.winreg') as mock_winreg:
             mock_winreg.HKEY_CURRENT_USER = 0x80000001
             mock_winreg.HKEY_LOCAL_MACHINE = 0x80000002
             mock_winreg.OpenKey = self._mock_open_key([(runtime_guid, '0.0.0.0')])
@@ -191,7 +191,7 @@ class TestDotnetVersion(unittest.TestCase):
 
     def test_dotnet_481(self):
         """Release >= 533320 reports 4.8.1."""
-        with patch('usage_monitor_for_claude.verbose.winreg') as mock_winreg:
+        with patch('ai_agents_usage_monitor.verbose.winreg') as mock_winreg:
             mock_key = MagicMock()
             mock_winreg.OpenKey = MagicMock(return_value=mock_key)
             mock_key.__enter__ = MagicMock(return_value=mock_key)
@@ -203,7 +203,7 @@ class TestDotnetVersion(unittest.TestCase):
 
     def test_dotnet_462(self):
         """Release >= 394802 reports 4.6.2."""
-        with patch('usage_monitor_for_claude.verbose.winreg') as mock_winreg:
+        with patch('ai_agents_usage_monitor.verbose.winreg') as mock_winreg:
             mock_key = MagicMock()
             mock_winreg.OpenKey = MagicMock(return_value=mock_key)
             mock_key.__enter__ = MagicMock(return_value=mock_key)
@@ -214,7 +214,7 @@ class TestDotnetVersion(unittest.TestCase):
 
     def test_dotnet_below_46(self):
         """Release below 393295 reports < 4.6."""
-        with patch('usage_monitor_for_claude.verbose.winreg') as mock_winreg:
+        with patch('ai_agents_usage_monitor.verbose.winreg') as mock_winreg:
             mock_key = MagicMock()
             mock_winreg.OpenKey = MagicMock(return_value=mock_key)
             mock_key.__enter__ = MagicMock(return_value=mock_key)
@@ -225,7 +225,7 @@ class TestDotnetVersion(unittest.TestCase):
 
     def test_dotnet_not_found(self):
         """Missing registry key returns 'not found'."""
-        with patch('usage_monitor_for_claude.verbose.winreg') as mock_winreg:
+        with patch('ai_agents_usage_monitor.verbose.winreg') as mock_winreg:
             mock_winreg.OpenKey = MagicMock(side_effect=OSError)
             result = _dotnet_version()
         self.assertEqual(result, 'not found')
@@ -236,7 +236,7 @@ class TestDpiInfo(unittest.TestCase):
 
     def test_per_monitor_v2_150_percent(self):
         """Reports Per-Monitor V2 and 150% scaling."""
-        with patch('usage_monitor_for_claude.verbose.ctypes') as mock_ctypes:
+        with patch('ai_agents_usage_monitor.verbose.ctypes') as mock_ctypes:
             user32 = mock_ctypes.windll.user32
             user32.GetThreadDpiAwarenessContext.return_value = -4
             user32.GetAwarenessFromDpiAwarenessContext.return_value = 2
@@ -247,7 +247,7 @@ class TestDpiInfo(unittest.TestCase):
 
     def test_system_aware_100_percent(self):
         """Reports System aware and 100% scaling."""
-        with patch('usage_monitor_for_claude.verbose.ctypes') as mock_ctypes:
+        with patch('ai_agents_usage_monitor.verbose.ctypes') as mock_ctypes:
             user32 = mock_ctypes.windll.user32
             user32.GetThreadDpiAwarenessContext.return_value = -2
             user32.GetAwarenessFromDpiAwarenessContext.return_value = 1
@@ -258,7 +258,7 @@ class TestDpiInfo(unittest.TestCase):
 
     def test_unavailable_on_error(self):
         """Returns 'unavailable' when API calls fail."""
-        with patch('usage_monitor_for_claude.verbose.ctypes') as mock_ctypes:
+        with patch('ai_agents_usage_monitor.verbose.ctypes') as mock_ctypes:
             user32 = mock_ctypes.windll.user32
             user32.GetThreadDpiAwarenessContext.side_effect = Exception('no API')
             user32.GetDpiForSystem.side_effect = Exception('no API')
@@ -272,7 +272,7 @@ class TestScreenInfo(unittest.TestCase):
 
     def test_normal_values(self):
         """Returns formatted monitor count, resolution, and work area."""
-        with patch('usage_monitor_for_claude.verbose.ctypes') as mock_ctypes:
+        with patch('ai_agents_usage_monitor.verbose.ctypes') as mock_ctypes:
             user32 = mock_ctypes.windll.user32
             user32.GetSystemMetrics.side_effect = lambda x: {80: 2, 0: 2560, 1: 1440}[x]
 
@@ -288,7 +288,7 @@ class TestScreenInfo(unittest.TestCase):
 
     def test_unavailable_on_error(self):
         """Returns 'unavailable' when system calls fail."""
-        with patch('usage_monitor_for_claude.verbose.ctypes') as mock_ctypes:
+        with patch('ai_agents_usage_monitor.verbose.ctypes') as mock_ctypes:
             user32 = mock_ctypes.windll.user32
             user32.GetSystemMetrics.side_effect = Exception('fail')
             mock_ctypes.wintypes.RECT.side_effect = Exception('fail')
@@ -304,7 +304,7 @@ class TestCredentialsStatus(unittest.TestCase):
 
     def test_found(self):
         """Reports 'found' with path when credentials file exists."""
-        with patch('usage_monitor_for_claude.verbose.Path') as mock_path, \
+        with patch('ai_agents_usage_monitor.verbose.Path') as mock_path, \
              patch.dict('os.environ', {}, clear=False):
             env = {k: v for k, v in __import__('os').environ.items() if k != 'CLAUDE_CONFIG_DIR'}
             with patch.dict('os.environ', env, clear=True):
@@ -317,7 +317,7 @@ class TestCredentialsStatus(unittest.TestCase):
 
     def test_not_found(self):
         """Reports 'NOT FOUND' with path when credentials file is missing."""
-        with patch('usage_monitor_for_claude.verbose.Path') as mock_path, \
+        with patch('ai_agents_usage_monitor.verbose.Path') as mock_path, \
              patch.dict('os.environ', {}, clear=False):
             env = {k: v for k, v in __import__('os').environ.items() if k != 'CLAUDE_CONFIG_DIR'}
             with patch.dict('os.environ', env, clear=True):
@@ -330,7 +330,7 @@ class TestCredentialsStatus(unittest.TestCase):
 
     def test_custom_config_dir(self):
         """Respects CLAUDE_CONFIG_DIR environment variable."""
-        with patch('usage_monitor_for_claude.verbose.Path') as mock_path, \
+        with patch('ai_agents_usage_monitor.verbose.Path') as mock_path, \
              patch.dict('os.environ', {'CLAUDE_CONFIG_DIR': 'D:\\custom'}):
             custom_path = MagicMock()
             mock_path.return_value = custom_path
@@ -346,10 +346,10 @@ class TestSetupConsole(unittest.TestCase):
 
     def test_attaches_parent_console_first(self):
         """Tries AttachConsole before AllocConsole."""
-        with patch('usage_monitor_for_claude.verbose.ctypes') as mock_ctypes, \
+        with patch('ai_agents_usage_monitor.verbose.ctypes') as mock_ctypes, \
              patch('builtins.open', MagicMock()), \
-             patch('usage_monitor_for_claude.verbose.sys'), \
-             patch('usage_monitor_for_claude.verbose.os'):
+             patch('ai_agents_usage_monitor.verbose.sys'), \
+             patch('ai_agents_usage_monitor.verbose.os'):
             mock_ctypes.windll.kernel32.AttachConsole.return_value = 1
             setup_console()
             mock_ctypes.windll.kernel32.AttachConsole.assert_called_once_with(-1)
@@ -357,19 +357,19 @@ class TestSetupConsole(unittest.TestCase):
 
     def test_allocates_console_on_attach_failure(self):
         """Falls back to AllocConsole when AttachConsole fails."""
-        with patch('usage_monitor_for_claude.verbose.ctypes') as mock_ctypes, \
+        with patch('ai_agents_usage_monitor.verbose.ctypes') as mock_ctypes, \
              patch('builtins.open', MagicMock()), \
-             patch('usage_monitor_for_claude.verbose.sys'), \
-             patch('usage_monitor_for_claude.verbose.os'):
+             patch('ai_agents_usage_monitor.verbose.sys'), \
+             patch('ai_agents_usage_monitor.verbose.os'):
             mock_ctypes.windll.kernel32.AttachConsole.return_value = 0
             setup_console()
             mock_ctypes.windll.kernel32.AllocConsole.assert_called_once()
 
     def test_sets_pywebview_log(self):
         """Sets PYWEBVIEW_LOG=DEBUG environment variable."""
-        with patch('usage_monitor_for_claude.verbose.ctypes') as mock_ctypes, \
+        with patch('ai_agents_usage_monitor.verbose.ctypes') as mock_ctypes, \
              patch('builtins.open', MagicMock()), \
-             patch('usage_monitor_for_claude.verbose.sys'):
+             patch('ai_agents_usage_monitor.verbose.sys'):
             mock_ctypes.windll.kernel32.AttachConsole.return_value = 1
             setup_console()
         self.assertEqual(__import__('os').environ.get('PYWEBVIEW_LOG'), 'DEBUG')
@@ -382,10 +382,10 @@ class TestPrintStartupDiagnostics(unittest.TestCase):
         """Output includes all expected section headers."""
         buf = io.StringIO()
         with patch('sys.stdout', buf), \
-             patch('usage_monitor_for_claude.verbose.ctypes') as mock_ctypes, \
-             patch('usage_monitor_for_claude.verbose.locale') as mock_locale, \
-             patch('usage_monitor_for_claude.verbose.platform') as mock_platform, \
-             patch('usage_monitor_for_claude.verbose.winreg') as mock_winreg:
+             patch('ai_agents_usage_monitor.verbose.ctypes') as mock_ctypes, \
+             patch('ai_agents_usage_monitor.verbose.locale') as mock_locale, \
+             patch('ai_agents_usage_monitor.verbose.platform') as mock_platform, \
+             patch('ai_agents_usage_monitor.verbose.winreg') as mock_winreg:
             mock_platform.platform.return_value = 'Windows-11-10.0.26200-SP0'
             mock_platform.machine.return_value = 'AMD64'
             mock_ctypes.windll.shell32.IsUserAnAdmin.return_value = 0
@@ -412,10 +412,10 @@ class TestPrintStartupDiagnostics(unittest.TestCase):
         """Output includes the app version."""
         buf = io.StringIO()
         with patch('sys.stdout', buf), \
-             patch('usage_monitor_for_claude.verbose.ctypes') as mock_ctypes, \
-             patch('usage_monitor_for_claude.verbose.locale') as mock_locale, \
-             patch('usage_monitor_for_claude.verbose.platform') as mock_platform, \
-             patch('usage_monitor_for_claude.verbose.winreg') as mock_winreg:
+             patch('ai_agents_usage_monitor.verbose.ctypes') as mock_ctypes, \
+             patch('ai_agents_usage_monitor.verbose.locale') as mock_locale, \
+             patch('ai_agents_usage_monitor.verbose.platform') as mock_platform, \
+             patch('ai_agents_usage_monitor.verbose.winreg') as mock_winreg:
             mock_platform.platform.return_value = 'Windows-11'
             mock_platform.machine.return_value = 'AMD64'
             mock_ctypes.windll.shell32.IsUserAnAdmin.return_value = 0
@@ -430,7 +430,7 @@ class TestPrintStartupDiagnostics(unittest.TestCase):
 
             print_startup_diagnostics()
 
-        from usage_monitor_for_claude import __version__
+        from ai_agents_usage_monitor import __version__
         self.assertIn(__version__, buf.getvalue())
 
 

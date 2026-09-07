@@ -5,7 +5,7 @@
     the real locale/*.json files):
         python -m http.server 8080
 
-    Then open: http://localhost:8080/usage_monitor_for_claude/popup/dev.html
+    Then open: http://localhost:8080/ai_agents_usage_monitor/popup/dev.html
 -->
 <!DOCTYPE html>
 <html>
@@ -57,6 +57,11 @@
 <body>
 <div class="dev-controls">
     <select id="langSelect" title="Language"></select>
+    <select id="codexSelect" title="What the Codex read does (reloads the preview)">
+        <option value="ok">Codex read: data (1.2s)</option>
+        <option value="slow">Codex read: data (4s)</option>
+        <option value="fail">Codex read: fails</option>
+    </select>
     <button onclick="loadPreset('full')">Full data</button>
     <button onclick="loadPreset('minimal')">Minimal (next update)</button>
     <button onclick="loadPreset('error')">Error state</button>
@@ -74,12 +79,7 @@ const COLORS = {
 };
 
 // Available locales (filename code -> display name). Keep in sync with locale/*.json.
-const LANGS = [
-    ['en', 'English'], ['de', 'Deutsch'], ['es', 'Espanol'], ['fr', 'Francais'],
-    ['hi', 'Hindi'], ['id', 'Indonesia'], ['it', 'Italiano'], ['ja', 'Japanese'],
-    ['ko', 'Korean'], ['pt-BR', 'Portugues (BR)'], ['uk', 'Ukrainian'],
-    ['zh-CN', 'Chinese (Simpl.)'], ['zh-TW', 'Chinese (Trad.)'],
-];
+const LANGS = [['en', 'English'], ['ja', 'Japanese'], ['ko', 'Korean']];
 
 // Presets carry *semantic* fields; display strings are built from the loaded
 // locale so every text case can be inspected in any language.
@@ -144,8 +144,32 @@ const PRESETS = {
     },
 };
 
+// The Codex view is fed by one bridge call, so the preview mirrors its whole
+// payload: local per-model token windows plus the server account and quotas.
+const CODEX = {
+    profile: { email: 'user@example.com', name: '', plan: 'ChatGPT Plus' },
+    usage: [
+        { unit: 'hour', period: 5, seconds: 18000, pct: 97,
+          reset: { kind: 'in', duration: '3h 55m' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.21 },
+        { unit: 'week', period: 7, seconds: 604800, pct: 15,
+          reset: { kind: 'date', month: 1, day: 18, clock: '12:00' },
+          dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.40 },
+    ],
+    windows: [
+        { seconds: 18000, tokens: 9519664, models: [
+            { model: 'gpt-6-astra', tokens: 6485168 }, { model: 'gpt-6', tokens: 3034496 }] },
+        { seconds: 604800, tokens: 21403992, models: [
+            { model: 'gpt-6-astra', tokens: 14903992 }, { model: 'gpt-6', tokens: 6500000 }] },
+    ],
+    installations: [
+        { name: 'Codex CLI', version: '0.153.0' },
+        { name: 'VS Code (Codex)', version: '26.5901.22334' },
+    ],
+};
+
 const iframe = document.getElementById('popup');
 const langSelect = document.getElementById('langSelect');
+const codexSelect = document.getElementById('codexSelect');
 const win = () => iframe.contentWindow;
 const now = () => Date.now() / 1000;
 
@@ -156,7 +180,7 @@ let currentPreset = 'full';
 // Map locale JSON keys onto the compact translation object popup.js expects.
 function buildTranslations(loc) {
     return {
-        title: loc.popup_title, account: loc.account, email: loc.email, plan: loc.plan,
+        title: loc.app_name, account: loc.account, email: loc.email, plan: loc.plan,
         usage: loc.usage, extra_usage: loc.extra_usage, claude_code: loc.claude_code, changelog: loc.changelog,
         pin_popup: loc.pin_popup, unpin_popup: loc.unpin_popup, refresh: loc.refresh,
         detail_tokens: loc.detail_tokens, detail_messages: loc.detail_messages,
@@ -166,8 +190,19 @@ function buildTranslations(loc) {
         name: loc.name, reveal_email: loc.reveal_email, hide_email: loc.hide_email,
         status_updated_s: loc.status_updated_s, status_updated: loc.status_updated,
         status_next_update: loc.status_next_update, status_refreshing: loc.status_refreshing,
-        duration_hm: loc.duration_hm, duration_m: loc.duration_m, duration_s: loc.duration_s,
+        duration_hm: loc.duration_hm, duration_m: loc.duration_m, duration_ms: loc.duration_ms, duration_s: loc.duration_s,
+        // Mirrors _init_config(): every codex_* string is forwarded as-is.
+        ...Object.fromEntries(Object.entries(loc).filter(([key]) => key.startsWith('codex_'))),
     };
+}
+
+// Mirrors _pace_text() in popup.py so the preview shows the same wording.
+function localizePace(loc, pct, markerRel) {
+    if (pct >= 100) return loc.pace_exhausted;
+    if (markerRel === null || markerRel === undefined) return '';
+    const elapsed = markerRel * 100;
+    const state = pct > elapsed ? loc.pace_ahead : loc.pace_within;
+    return loc.pace_elapsed.replace('{pct}', Math.round(elapsed)).replace('{state}', state);
 }
 
 function localizeLabel(loc, entry) {
@@ -205,12 +240,14 @@ function resolveData(name, loc) {
         pct_text: entry.pct + '%',
         fill_pct: entry.pct / 100,
         warn: entry.warn,
+        pace_text: localizePace(loc, entry.pct, entry.marker_rel),
         reset_text: localizeReset(loc, entry.reset),
         dividers: entry.dividers,
         marker_rel: entry.marker_rel,
     }));
 
     const extra = preset.extra ? {
+        has_limit: true,
         pct_text: preset.extra.pct + '%',
         fill_pct: preset.extra.pct / 100,
         spent_text: loc.extra_usage_spent.replace('{used}', preset.extra.used).replace('{limit}', preset.extra.limit),
@@ -224,8 +261,31 @@ function resolveData(name, loc) {
     return { profile: preset.profile, usage, extra, installations: preset.installations || [], status };
 }
 
+// Build the Codex bridge payload the same way _PopupApi.codex_usage() does.
+function resolveCodex(loc) {
+    const usage = CODEX.usage.map((entry) => ({
+        key: 'codex_' + entry.unit,
+        label: localizeLabel(loc, entry),
+        pct_text: entry.pct + '%',
+        fill_pct: entry.pct / 100,
+        warn: entry.pct >= 100 || entry.pct > entry.marker_rel * 100,
+        pace_text: localizePace(loc, entry.pct, entry.marker_rel),
+        detail_seconds: entry.seconds,
+        reset_text: localizeReset(loc, entry.reset),
+        dividers: entry.dividers,
+        marker_rel: entry.marker_rel,
+    }));
+
+    return {
+        windows: CODEX.windows, updated_at: now(), partial: false, available: true,
+        installations: CODEX.installations,
+        account: { profile: CODEX.profile, usage,
+                   status: { last_success_time: now(), next_poll_time: now() + 60, error: null } },
+    };
+}
+
 // Try both layouts: server rooted at the repo (dev.html under
-// /usage_monitor_for_claude/popup/) and at the package (dev.html under /popup/).
+// /ai_agents_usage_monitor/popup/) and at the package (dev.html under /popup/).
 async function loadLocale(code) {
     // Cache-buster so edits to the locale files show up without a hard reload.
     const bust = `?t=${Date.now()}`;
@@ -276,6 +336,15 @@ async function applyLanguage(code) {
         report_height(h) {
             iframe.style.height = h + 'px';
             iframe.style.visibility = 'visible';
+        },
+        // A real first read starts the Codex app-server and takes about a second.
+        // The delay is what makes the held outgoing view visible in the preview.
+        codex_usage() {
+            const mode = codexSelect.value;
+            return new Promise((resolve, reject) => setTimeout(
+                () => (mode === 'fail' ? reject(new Error('codex unavailable')) : resolve(resolveCodex(currentLocale))),
+                mode === 'slow' ? 4000 : 1200,
+            ));
         } } };
     // Demo set so toggling the pin button previews compact hiding of both
     // whole sections and an individual usage bar.
@@ -315,6 +384,9 @@ for (const [code, name] of LANGS) {
 }
 langSelect.value = currentLang;
 langSelect.addEventListener('change', () => applyLanguage(langSelect.value));
+// popup.js keeps the first Codex response for the life of the page, so reload
+// the frame - the tab switch is only pending once per load.
+codexSelect.addEventListener('change', () => applyLanguage(currentLang));
 
 (async () => {
     const hash = location.hash.slice(1);

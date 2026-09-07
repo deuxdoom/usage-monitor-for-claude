@@ -22,6 +22,10 @@ dist/
 .claude/settings.json
 .claude/settings.local.json
 
+# Codex-facing mirror of .claude/CLAUDE.md and .claude/commands/ - local only
+.agents/
+AGENTS.md
+
 # User settings
 usage-monitor-settings.json
 

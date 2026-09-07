@@ -6,11 +6,116 @@ let popupPinned = false;
 let compactHide = [];
 let lastData = null;
 let emailRevealed = false;
-// Bar keys with their detail panel currently open. Only 'five_hour' and
-// 'seven_day' ever go in here - session_detail() has no local-log
-// equivalent for a model-scoped or unlabeled quota, so those bars are
-// never made clickable in the first place.
+let refreshButton = null;
+let selectedProvider = 'claude';
+let codexTimerId = null;
+let codexBusy = false;
+let codexData = null;
+// True while the first Codex read runs with the previous view still on screen.
+let codexPending = false;
+// Bar keys with their detail panel currently open.  Claude only ever adds
+// 'five_hour' and 'seven_day' - session_detail() has no local-log equivalent
+// for a model-scoped or unlabeled quota, so those bars are never made
+// clickable - and Codex adds its own prefixed keys, so the two views cannot
+// collide and an expanded panel stays open only in the tab it belongs to.
 let expandedDetail = new Set();
+
+/**
+ * Switch the popup between the Claude and Codex views.
+ *
+ * The window has no scrollbar - its height is whatever the content needs,
+ * so every change of what is rendered moves the window edge.  The first
+ * Codex read starts the Codex app-server and takes about a second, and
+ * emptying the sections for that second would shrink the window and then
+ * resize it again once the data arrived.  The view already on screen is
+ * therefore left in place - dimmed, with the refresh icon spinning - until
+ * there is Codex content to put in its place, so the window resizes exactly
+ * once, at the swap.  Later switches render from ``codexData`` immediately.
+ */
+function selectProvider(provider) {
+    if (selectedProvider === provider) return;
+
+    emailRevealed = false;
+    selectedProvider = provider;
+    document.getElementById('title').setAttribute('aria-pressed', provider === 'claude');
+    document.getElementById('codexBtn').setAttribute('aria-pressed', provider === 'codex');
+    if (codexTimerId) clearTimeout(codexTimerId);
+    codexTimerId = null;
+
+    if (provider === 'claude') {
+        endCodexPending();
+        reapplyData();
+        return;
+    }
+
+    if (codexData) {
+        renderCodex();
+    } else {
+        codexPending = true;
+        document.body.classList.add('pending');
+        setRefreshBusy(true);
+    }
+    refreshCodex();
+}
+
+/** Release the held view, whether the read arrived or the user switched back. */
+function endCodexPending() {
+    if (!codexPending) return;
+    codexPending = false;
+    document.body.classList.remove('pending');
+    setRefreshBusy(false);
+}
+
+async function refreshCodex() {
+    if (codexBusy) return;
+    if (codexTimerId) clearTimeout(codexTimerId);
+    codexTimerId = null;
+    codexBusy = true;
+    let failed = false;
+    try {
+        codexData = await pywebview.api.codex_usage();
+    } catch (_) {
+        failed = true;
+    } finally {
+        codexBusy = false;
+        endCodexPending();
+        if (selectedProvider === 'codex') {
+            renderCodex(failed ? translations.codex_unavailable : null);
+            codexTimerId = setTimeout(refreshCodex, 60000);
+        }
+    }
+}
+
+function renderCodex(error) {
+    renderCodexAccount(codexData?.account);
+    renderInstallations(codexData?.installations || [], 'codex');
+    // Extra usage is a Claude-only section; it would otherwise survive the swap.
+    els.extraSection.classList.remove('visible');
+    if (error || !codexData) {
+        updateStatus(error ? {text: error, is_error: true} : {text: translations.status_refreshing});
+        return;
+    }
+    const status = codexData.account?.status || {
+        last_success_time: codexData.updated_at,
+        next_poll_time: codexData.updated_at + 60,
+    };
+    updateStatus({...status, error: status.error || (codexData.partial ? translations.codex_partial : null)});
+}
+
+function renderCodexAccount(account) {
+    const profile = account?.profile;
+    els.accountSection.classList.toggle('visible', !!profile && !compactHidden('account'));
+    if (profile) {
+        renderAccountRow(profile);
+        els.planValue.textContent = profile.plan;
+        els.planRow.style.display = profile.plan ? '' : 'none';
+    }
+    const usage = account?.usage || [];
+    els.usageSection.classList.toggle('visible', usage.length > 0);
+    els.usageSection.classList.remove('stale');
+    els.headingUsage.style.display = '';
+    updateUsageBars(usage);
+}
 
 /**
  * Set CSS custom properties for theme colors and inject translation strings.
@@ -28,7 +133,8 @@ function init(config) {
 
     translations = config.t;
     compactHide = config.compact_hide || [];
-    document.getElementById('title').textContent = translations.title;
+    document.getElementById('title').addEventListener('click', () => selectProvider('claude'));
+    document.getElementById('codexBtn').addEventListener('click', () => selectProvider('codex'));
     document.getElementById('headingAccount').textContent = translations.account;
     document.getElementById('labelPlan').textContent = translations.plan;
     document.getElementById('headingUsage').textContent = translations.usage;
@@ -37,14 +143,19 @@ function init(config) {
 
     const changelogLink = document.getElementById('changelogLink');
     changelogLink.textContent = translations.changelog;
-    changelogLink.addEventListener('click', () => pywebview.api.open_url());
+    changelogLink.addEventListener('click', () => pywebview.api.open_url(selectedProvider));
     document.getElementById('closeBtn').addEventListener('click', () => pywebview.api.close());
     setupRefreshButton();
     setupAccountRow();
     setupPinButton();
     setupPinnedDrag();
 
-    document.getElementById('appVersion').textContent = config.app_version;
+    // The header is a provider switch now, so the app name lives on the footer
+    // version instead. The status line beside it already ellipsizes at this
+    // width, so the name is a tooltip rather than another column of text.
+    const appVersion = document.getElementById('appVersion');
+    appVersion.textContent = config.app_version;
+    appVersion.title = `${translations.title} v${config.app_version}`;
 
     els = {
         accountSection: document.getElementById('accountSection'),
@@ -79,29 +190,32 @@ function init(config) {
  * fetch, and the Python side additionally rate-limits repeated calls.
  */
 function setupRefreshButton() {
-    const refreshBtn = document.getElementById('refreshBtn');
-    if (!refreshBtn) return;
+    refreshButton = document.getElementById('refreshBtn');
+    if (!refreshButton) return;
 
-    refreshBtn.setAttribute('aria-label', translations.refresh);
-    refreshBtn.title = translations.refresh;
+    refreshButton.setAttribute('aria-label', translations.refresh);
+    refreshButton.title = translations.refresh;
 
-    function setBusy(busy) {
-        refreshBtn.disabled = busy;
-        refreshBtn.classList.toggle('spinning', busy);
-    }
-
-    refreshBtn.addEventListener('click', () => {
-        if (refreshBtn.disabled) return;
-        setBusy(true);
+    refreshButton.addEventListener('click', () => {
+        if (refreshButton.disabled) return;
+        setRefreshBusy(true);
         // Minimum spin time so a cache hit does not flash the icon.
         const settled = new Promise((resolve) => setTimeout(resolve, 500));
         Promise.all([
-            Promise.resolve(pywebview.api.refresh()).catch(() => null),
+            Promise.resolve(selectedProvider === 'codex' ? refreshCodex() : pywebview.api.refresh()).catch(() => null),
             settled,
-        ]).then(() => setBusy(false));
+        ]).then(() => setRefreshBusy(false));
     });
 
-    setBusy(false);
+    setRefreshBusy(false);
+}
+
+// A provider switch spins the icon for the first Codex read as well, so the
+// busy state is set from outside the button's own setup.
+function setRefreshBusy(busy) {
+    if (!refreshButton) return;
+    refreshButton.disabled = busy;
+    refreshButton.classList.toggle('spinning', busy);
 }
 
 
@@ -209,6 +323,14 @@ function compactHidden(key) {
 
 // Re-render the last snapshot so compact hiding takes effect on pin toggle.
 function reapplyData() {
+    // The outgoing view is held on screen on purpose while the first Codex
+    // read runs, and rendering an empty Codex view here would undo that.
+    if (codexPending) return;
+
+    if (selectedProvider === 'codex') {
+        renderCodex();
+        return;
+    }
     if (lastData) {
         updateData(lastData);
     }
@@ -265,6 +387,7 @@ function setupPinnedDrag() {
  */
 function updateData(data) {
     lastData = data;
+    if (selectedProvider === 'codex') return;
 
     const hasProfile = !!data.profile;
     const accountVisible = hasProfile && !compactHidden('account');
@@ -293,27 +416,35 @@ function updateData(data) {
         els.extraFill.style.width = `${data.extra.fill_pct * 100}%`;
     }
 
-    const hasInstalls = !!data.installations?.length;
-    const installsVisible = hasInstalls && !compactHidden('claude_code');
-    els.installSection.classList.toggle('visible', installsVisible);
+    const installsVisible = !!data.installations?.length && !compactHidden('claude_code');
 
     // The "Usage" heading only labels the bars against the other sections;
     // when the usage bars stand alone, drop the now-redundant heading.
     els.headingUsage.style.display = (hasUsage && !accountVisible && !extraVisible && !installsVisible) ? 'none' : '';
 
-    if (hasInstalls) {
-        els.installRows.replaceChildren(...data.installations.map((inst) => {
-            const row = document.createElement('div');
-            const dt = document.createElement('dt');
-            dt.textContent = inst.name;
-            const dd = document.createElement('dd');
-            dd.textContent = inst.version;
-            row.append(dt, dd);
-            return row;
-        }));
-    }
+    renderInstallations(data.installations || [], 'claude');
 
     updateStatus(data.status);
+}
+
+/**
+ * Fill the footer's installed-version list for one provider.
+ *
+ * The Codex section stays visible even when nothing is installed, so its
+ * changelog link - the Codex release notes - is always reachable.
+ */
+function renderInstallations(installations, provider) {
+    document.getElementById('headingClaudeCode').textContent = provider === 'codex' ? 'CODEX' : translations.claude_code;
+    els.installSection.classList.toggle('visible', (installations.length > 0 || provider === 'codex') && !compactHidden('claude_code'));
+    els.installRows.replaceChildren(...installations.map(inst => {
+        const row = document.createElement('div');
+        const name = document.createElement('dt');
+        name.textContent = inst.name;
+        const version = document.createElement('dd');
+        version.textContent = inst.version;
+        row.append(name, version);
+        return row;
+    }));
 }
 
 /**
@@ -445,7 +576,8 @@ function updateUsageBars(entries) {
     // an in-place update would show the new values under the old labels.
     const bars = els.usageBars.children;
     const sameFields = entries.length === bars.length
-        && entries.every((entry, i) => bars[i].dataset.key === entry.key);
+        && entries.every((entry, i) => bars[i].dataset.key === entry.key
+            && bars[i].dataset.detailSeconds === String(entry.detail_seconds || ''));
 
     if (!sameFields) {
         els.usageBars.replaceChildren(...entries.map(createBarElement));
@@ -466,6 +598,7 @@ function createBarElement(entry) {
     const div = document.createElement('div');
     div.className = 'usage-entry';
     div.dataset.key = entry.key;
+    div.dataset.detailSeconds = String(entry.detail_seconds || '');
 
     const header = document.createElement('div');
     header.className = 'bar-header';
@@ -474,6 +607,7 @@ function createBarElement(entry) {
     const pct = document.createElement('span');
     pct.className = 'bar-pct';
     pct.textContent = entry.pct_text;
+    pct.classList.toggle('warn', entry.warn);
     header.append(label, pct);
 
     const container = document.createElement('div');
@@ -499,6 +633,7 @@ function createBarElement(entry) {
     }
 
     div.append(header, container);
+    updatePaceText(div, entry);
 
     if (entry.reset_text) {
         const reset = document.createElement('div');
@@ -507,7 +642,7 @@ function createBarElement(entry) {
         div.appendChild(reset);
     }
 
-    if (DETAIL_FIELDS.has(entry.key)) {
+    if (DETAIL_FIELDS.has(entry.key) || entry.detail_seconds) {
         div.classList.add('detail-toggleable');
         div.setAttribute('role', 'button');
         div.setAttribute('tabindex', '0');
@@ -531,7 +666,11 @@ function createBarElement(entry) {
 }
 
 function updateBarElement(div, entry) {
-    div.querySelector('.bar-pct').textContent = entry.pct_text;
+    if (entry.detail_seconds && expandedDetail.has(entry.key)) renderCodexDetail(div);
+    const pct = div.querySelector('.bar-pct');
+    pct.textContent = entry.pct_text;
+    pct.classList.toggle('warn', entry.warn);
+    updatePaceText(div, entry);
 
     const fill = div.querySelector('.bar-fill');
     fill.style.width = `${entry.fill_pct * 100}%`;
@@ -575,6 +714,21 @@ function updateBarElement(div, entry) {
     }
 }
 
+function updatePaceText(div, entry) {
+    let pace = div.querySelector('.pace-text');
+    if (!entry.pace_text) {
+        if (pace) pace.remove();
+        return;
+    }
+    if (!pace) {
+        pace = document.createElement('div');
+        pace.className = 'pace-text';
+        div.insertBefore(pace, div.querySelector('.reset-text') || div.querySelector('.usage-detail'));
+    }
+    pace.textContent = entry.pace_text;
+    pace.classList.toggle('warn', entry.warn);
+}
+
 /**
  * Toggle the local-log detail panel under a five_hour/seven_day bar.
  *
@@ -596,6 +750,10 @@ function openDetail(key, div) {
     expandedDetail.add(key);
     div.classList.add('expanded');
     div.setAttribute('aria-expanded', 'true');
+    if (div.dataset.detailSeconds) {
+        renderCodexDetail(div);
+        return;
+    }
     renderDetailLoading(div);
 
     if (!window.pywebview?.api?.session_detail) {
@@ -613,6 +771,27 @@ function openDetail(key, div) {
     }).catch(() => {
         if (!expandedDetail.has(key)) return;
         renderDetailUnavailable(div);
+    });
+}
+
+function renderCodexDetail(div) {
+    const seconds = Number(div.dataset.detailSeconds);
+    const usage = codexData?.windows?.find(window => window.seconds === seconds);
+    if (!codexData?.available || !usage) {
+        const panel = detailPanel(div);
+        panel.classList.add('error');
+        panel.textContent = translations.codex_unavailable;
+        return;
+    }
+    const period = seconds === 18000 ? translations.codex_five_hours : translations.codex_seven_days;
+    const note = `${period}. ${translations.codex_source}`;
+    renderDetail(div, {
+        tokens: usage.tokens.toLocaleString(),
+        models: usage.models.map(model => ({
+            model: model.model, tokens: model.tokens.toLocaleString(),
+            pct: usage.tokens > 0 ? (model.tokens / usage.tokens * 100).toFixed(1) : '0.0',
+        })),
+        source: codexData.partial ? `${note} ${translations.codex_partial}` : note,
     });
 }
 
@@ -679,10 +858,12 @@ function renderDetail(div, result) {
         tokenLine.appendChild(est);
     }
 
-    const messageLine = document.createElement('span');
-    messageLine.textContent = `${translations.detail_messages} ${result.messages}`;
-
-    counts.append(tokenLine, messageLine);
+    counts.appendChild(tokenLine);
+    if (result.messages !== undefined) {
+        const messageLine = document.createElement('span');
+        messageLine.textContent = `${translations.detail_messages} ${result.messages}`;
+        counts.appendChild(messageLine);
+    }
     panel.appendChild(counts);
 
     if (result.models.length) {
@@ -699,14 +880,14 @@ function renderDetail(div, result) {
         panel.appendChild(list);
     }
 
-    panel.appendChild(createSourceNote());
+    panel.appendChild(createSourceNote(result.source));
 }
 
 /** Footnote naming where these numbers come from, and what they exclude. */
-function createSourceNote() {
+function createSourceNote(source) {
     const note = document.createElement('div');
     note.className = 'detail-source';
-    note.textContent = translations.detail_source;
+    note.textContent = source || translations.detail_source;
     return note;
 }
 

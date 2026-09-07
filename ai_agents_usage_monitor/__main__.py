@@ -1,4 +1,4 @@
-"""Entry point for ``python -m usage_monitor_for_claude``."""
+"""Entry point for ``python -m ai_agents_usage_monitor``."""
 from __future__ import annotations
 
 import ctypes
@@ -9,7 +9,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from usage_monitor_for_claude.instance_id import parse_config_dir
+from ai_agents_usage_monitor.instance_id import parse_config_dir
 
 _verbose = '--verbose' in sys.argv
 
@@ -23,7 +23,7 @@ if _config_dir is not None:
     if not _config_path.is_dir():
         ctypes.windll.user32.MessageBoxW(
             0, f'--config-dir directory does not exist:\n{_config_dir}',
-            'Usage Monitor for Claude - Error', 0x10,
+            'AI Agents Usage Monitor - Error', 0x10,
         )
         sys.exit(1)
     os.environ['CLAUDE_CONFIG_DIR'] = str(_config_path.resolve())
@@ -31,7 +31,7 @@ if _config_dir is not None:
 # In frozen builds (console=False), stdout/stderr go nowhere.
 # --verbose attaches a console so diagnostics are visible.
 if _verbose and getattr(sys, 'frozen', False):
-    from usage_monitor_for_claude.verbose import setup_console
+    from ai_agents_usage_monitor.verbose import setup_console
     setup_console()
 
 # Per-Monitor V2 must be set before pywebview's legacy SetProcessDPIAware() call,
@@ -45,14 +45,14 @@ except AttributeError:
     pass
 
 if _verbose:
-    from usage_monitor_for_claude.verbose import print_startup_diagnostics
+    from ai_agents_usage_monitor.verbose import print_startup_diagnostics
     print_startup_diagnostics()
 
 import webview  # type: ignore[import-untyped]  # no type stubs available
 
-from usage_monitor_for_claude.app import UsageMonitorForClaude, crash_log
-from usage_monitor_for_claude.notification_identity import register_notification_identity
-from usage_monitor_for_claude.single_instance import ensure_single_instance, release_instance_lock
+from ai_agents_usage_monitor.app import AIAgentsUsageMonitor, crash_log
+from ai_agents_usage_monitor.notification_identity import register_notification_identity
+from ai_agents_usage_monitor.single_instance import ensure_single_instance, release_instance_lock
 
 if _verbose:
     logging.basicConfig(
@@ -74,12 +74,12 @@ def _run_app() -> None:
     """Run the tray application in a background thread (called by webview)."""
     try:
         if _verbose:
-            from usage_monitor_for_claude.verbose import print_runtime_diagnostics
+            from ai_agents_usage_monitor.verbose import print_runtime_diagnostics
             print_runtime_diagnostics()
 
-        _verbose_step('UsageMonitorForClaude()...')
-        app = UsageMonitorForClaude()
-        _verbose_step('UsageMonitorForClaude()... OK')
+        _verbose_step('AIAgentsUsageMonitor()...')
+        app = AIAgentsUsageMonitor()
+        _verbose_step('AIAgentsUsageMonitor()... OK')
 
         _verbose_step('app.run...')
         app.run()
@@ -142,7 +142,7 @@ try:
             )
         else:
             subprocess.Popen(
-                [sys.executable, '-m', 'usage_monitor_for_claude', *passthrough_args],
+                [sys.executable, '-m', 'ai_agents_usage_monitor', *passthrough_args],
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
 except Exception:

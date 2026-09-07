@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import traceback
 from pathlib import Path
 
@@ -22,8 +23,15 @@ from . import __version__
 
 __all__ = ['run_event_command']
 
+# How long after launch a non-zero exit still counts as "this command is
+# broken".  A wrong path or a bad argument fails within a moment; anything
+# later is the launched program's own lifetime, not a configuration error.
+_STARTUP_FAILURE_WINDOW = 5.0
 
-def run_event_command(commands: list[str], env_vars: dict[str, str], capture_output: bool = False) -> None:
+
+def run_event_command(
+    commands: list[str], env_vars: dict[str, str], capture_output: bool = False, *, report_late_failures: bool = True,
+) -> None:
     """Launch shell commands with event-specific environment variables.
 
     Each command runs asynchronously (fire-and-forget).  Exceptions from
@@ -46,6 +54,14 @@ def run_event_command(commands: list[str], env_vars: dict[str, str], capture_out
         The wait happens on a background thread, so the call stays
         non-blocking even for a command that keeps running (e.g. a launched
         app).
+    report_late_failures : bool
+        When False, only a failure within ``_STARTUP_FAILURE_WINDOW`` seconds
+        of launch raises the message box.  Set it for a command whose job is
+        to start a program the user then keeps open: that program exiting
+        non-zero later - crashed, killed, or replaced by a second instance -
+        is not a broken configuration, and a dialog appearing hours after the
+        click has no visible connection to it.  Ignored without
+        ``capture_output``.
     """
     if not commands:
         return
@@ -63,7 +79,7 @@ def run_event_command(commands: list[str], env_vars: dict[str, str], capture_out
     for command in commands:
         try:
             if capture_output:
-                _launch_and_report(command, env, working_dir)
+                _launch_and_report(command, env, working_dir, report_late_failures=report_late_failures)
             else:
                 subprocess.Popen(
                     command, shell=True, env=env, cwd=working_dir,
@@ -74,13 +90,16 @@ def run_event_command(commands: list[str], env_vars: dict[str, str], capture_out
             traceback.print_exc()
 
 
-def _launch_and_report(command: str, env: dict[str, str], working_dir: Path) -> None:
+def _launch_and_report(command: str, env: dict[str, str], working_dir: Path, *, report_late_failures: bool = True) -> None:
     """Launch *command* and print its stdout, stderr, and exit code once it exits.
 
     The process is waited on in a background daemon thread so the caller is
     never blocked, even by a command that keeps running (e.g. a launched app).
-    A non-zero exit code additionally raises an error message box with stderr.
+    A non-zero exit code additionally raises an error message box with stderr,
+    unless *report_late_failures* is False and the command survived past
+    ``_STARTUP_FAILURE_WINDOW``.
     """
+    started = time.monotonic()
     process = subprocess.Popen(
         command, shell=True, env=env, cwd=working_dir,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -100,7 +119,9 @@ def _launch_and_report(command: str, env: dict[str, str], working_dir: Path) -> 
         print(f'  stdout:\n{stdout.rstrip() if stdout.strip() else "    (empty)"}')
         print(f'  stderr:\n{stderr.rstrip() if stderr.strip() else "    (empty)"}')
 
-        if process.returncode != 0:
+        if process.returncode == 0:
+            return
+        if report_late_failures or time.monotonic() - started < _STARTUP_FAILURE_WINDOW:
             _show_error_box(command, process.returncode, stderr)
 
     threading.Thread(target=report, daemon=True).start()
@@ -110,4 +131,4 @@ def _show_error_box(command: str, returncode: int, stderr: str) -> None:
     """Show an error message box reporting a failed command and its stderr."""
     detail = stderr.strip() or '(no error output on stderr)'
     message = f'The event command exited with code {returncode}:\n\n{command}\n\n{detail}'
-    ctypes.windll.user32.MessageBoxW(0, message[:2000], 'Usage Monitor for Claude - Event Command Failed', 0x10)
+    ctypes.windll.user32.MessageBoxW(0, message[:2000], 'AI Agents Usage Monitor - Event Command Failed', 0x10)

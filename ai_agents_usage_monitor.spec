@@ -1,21 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec file for Usage Monitor for Claude.
+PyInstaller spec file for AI Agents Usage Monitor.
 
 Build:
-  pyinstaller usage_monitor_for_claude.spec
+  pyinstaller ai_agents_usage_monitor.spec
 """
 
 a = Analysis(
-    ['usage_monitor_for_claude/__main__.py'],
+    ['ai_agents_usage_monitor/__main__.py'],
     pathex=[],
     binaries=[],
     datas=[
         ('locale/*.json', 'locale'),
-        ('usage_monitor_for_claude/notification_logo.ico', 'usage_monitor_for_claude'),
-        ('usage_monitor_for_claude/popup/popup.html', 'usage_monitor_for_claude/popup'),
-        ('usage_monitor_for_claude/popup/popup.css', 'usage_monitor_for_claude/popup'),
-        ('usage_monitor_for_claude/popup/popup.js', 'usage_monitor_for_claude/popup'),
+        ('ai_agents_usage_monitor/notification_logo.ico', 'ai_agents_usage_monitor'),
+        ('ai_agents_usage_monitor/popup/popup.html', 'ai_agents_usage_monitor/popup'),
+        ('ai_agents_usage_monitor/popup/popup.css', 'ai_agents_usage_monitor/popup'),
+        ('ai_agents_usage_monitor/popup/popup.js', 'ai_agents_usage_monitor/popup'),
     ],
     hiddenimports=[
         'pystray._win32',
@@ -26,6 +26,8 @@ a = Analysis(
         'clr_loader',
         'pythonnet',
         'bottle',
+        'truststore',
+        'truststore._windows',
     ],
     hookspath=[],
     hooksconfig={},
@@ -53,7 +55,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='UsageMonitorForClaude',
+    name='AIAgentsUsageMonitor',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -63,6 +65,6 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    icon='usage_monitor_for_claude.ico',
+    icon='ai_agents_usage_monitor.ico',
     version='version_info.py',
 )

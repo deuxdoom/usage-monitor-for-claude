@@ -22,20 +22,25 @@ from .api import api_headers, read_access_token
 from .autostart import is_autostart_enabled, set_autostart, sync_autostart_path
 from .cache import UsageCache
 from .claude_cli import PROJECT_URL
+from .codex_account import CodexAccount
+from .codex_cli import CodexInstallations
 from .command import run_event_command
 from .idle import get_idle_seconds, is_workstation_locked
 from .instance_id import effective_config_dir, is_default_config_dir
 from .settings import (
     ALERT_EXTRA_USAGE_SPENT, ALERT_TIME_AWARE, ALERT_TIME_AWARE_BELOW, ICON_FIELDS, IDLE_PAUSE, NOTIFY_CLAUDE_UPDATE,
-    ON_DOUBLE_CLICK_COMMAND, ON_RESET_COMMAND, ON_STARTUP_COMMAND, ON_THRESHOLD_COMMAND,
-    POLL_ERROR, POLL_FAST, POLL_FAST_EXTRA, POLL_INTERVAL, get_alert_thresholds,
+    ON_RESET_COMMAND, ON_STARTUP_COMMAND, ON_THRESHOLD_COMMAND, QUICK_ACTION_COMMAND,
+    POLL_ERROR, POLL_FAST, POLL_FAST_EXTRA, POLL_INTERVAL, TRAY_PROVIDER, get_alert_thresholds,
 )
-from .formatting import elapsed_pct, field_period, format_credits, format_tooltip, parse_field_name, popup_label
+from .formatting import (
+    codex_reset_iso, duration_label, elapsed_pct, field_period, format_codex_tooltip, format_credits,
+    format_tooltip, parse_field_name, popup_label,
+)
 from .i18n import T
 from .popup import UsagePopup
 from .tray_icon import create_icon_image, create_status_image, taskbar_uses_light_theme, watch_theme_change
 
-__all__ = ['UsageMonitorForClaude', 'crash_log']
+__all__ = ['AIAgentsUsageMonitor', 'crash_log']
 
 # Seconds after a reset at which to place the confirming poll.  A small buffer
 # absorbs minor timing differences (clocks, caches, server-side propagation).
@@ -103,13 +108,15 @@ def _align_to_reset(interval: int, next_reset: float | None) -> tuple[int, bool]
     return interval, False                     # reset still far - keep the normal cadence
 
 
-class UsageMonitorForClaude:
+class AIAgentsUsageMonitor:
     """System tray application displaying Claude usage."""
 
     def __init__(self) -> None:
         """Set up the tray icon with context menu and polling state."""
         self.running = True
         self.cache = UsageCache()
+        self.codex_account = CodexAccount()
+        self.codex_installations = CodexInstallations()
 
         # Last raw API response (may contain 'error') - for icon and polling decisions
         self._last_response: dict[str, Any] = {}
@@ -150,6 +157,12 @@ class UsageMonitorForClaude:
             icon=create_icon_image(0, 0, self._light_taskbar),
             title=self._tooltip_prefix + T['loading'],
             menu=pystray.Menu(
+                # Names the app at the top of the menu. Disabled so it reads as a
+                # heading and cannot be clicked, and without an action so it stays
+                # inert; `default` remains on "show usage", which is what a left
+                # click on the tray icon has to keep firing.
+                pystray.MenuItem(T['app_name'], None, enabled=False),
+                pystray.Menu.SEPARATOR,
                 pystray.MenuItem(T['menu_show'], self.on_show_popup, default=True),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem(
@@ -163,11 +176,11 @@ class UsageMonitorForClaude:
                     pystray.MenuItem(T['test_threshold_5h'], self.on_test_threshold_5h, enabled=bool(ON_THRESHOLD_COMMAND)),
                     pystray.MenuItem(T['test_threshold_7d'], self.on_test_threshold_7d, enabled=bool(ON_THRESHOLD_COMMAND)),
                     pystray.MenuItem(T['test_startup'], self.on_test_startup, enabled=bool(ON_STARTUP_COMMAND)),
-                    pystray.MenuItem(T['test_double_click'], self.on_test_double_click, enabled=bool(ON_DOUBLE_CLICK_COMMAND)),
+                    pystray.MenuItem(T['test_quick_action'], self.on_test_quick_action, enabled=bool(QUICK_ACTION_COMMAND)),
                 # Hidden rather than greyed out when no event command is
                 # configured: for the majority of users the submenu can never
                 # do anything, so it is only clutter in the context menu.
-                ), visible=bool(ON_RESET_COMMAND or ON_STARTUP_COMMAND or ON_THRESHOLD_COMMAND or ON_DOUBLE_CLICK_COMMAND)),
+                ), visible=bool(ON_RESET_COMMAND or ON_STARTUP_COMMAND or ON_THRESHOLD_COMMAND or QUICK_ACTION_COMMAND)),
                 pystray.MenuItem(T['restart'], self.on_restart),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem(T['menu_project'], self.on_open_project),
@@ -184,7 +197,7 @@ class UsageMonitorForClaude:
         self._click_lock = threading.Lock()
         self._single_click_timer: threading.Timer | None = None
         self._swallow_next_up = False
-        if ON_DOUBLE_CLICK_COMMAND:
+        if QUICK_ACTION_COMMAND:
             self._double_click_seconds = ctypes.windll.user32.GetDoubleClickTime() / 1000.0
             self._install_double_click_handler()
 
@@ -266,9 +279,9 @@ class UsageMonitorForClaude:
             'USAGE_MONITOR_RESETS_AT_SEVEN_DAY': _future_iso(days=3),
         }, capture_output=True)
 
-    def on_test_double_click(self, icon: Any = None, item: Any = None) -> None:
-        run_event_command(ON_DOUBLE_CLICK_COMMAND, {
-            'USAGE_MONITOR_EVENT': 'double_click',
+    def on_test_quick_action(self, icon: Any = None, item: Any = None) -> None:
+        run_event_command(QUICK_ACTION_COMMAND, {
+            'USAGE_MONITOR_EVENT': 'quick_action',
             'USAGE_MONITOR_UTILIZATION_FIVE_HOUR': '30',
             'USAGE_MONITOR_RESETS_AT_FIVE_HOUR': _future_iso(hours=3),
             'USAGE_MONITOR_UTILIZATION_SEVEN_DAY': '55',
@@ -388,6 +401,10 @@ class UsageMonitorForClaude:
 
     def _render_tray(self) -> None:
         """Re-render tray icon and tooltip from current state."""
+        if TRAY_PROVIDER == 'codex':
+            self._render_codex_tray(self.codex_account.snapshot())
+            return
+
         data = self._last_response
         if 'error' in data:
             self.icon.icon = create_status_image('C!' if data.get('auth_error') else '!', self._light_taskbar)
@@ -422,6 +439,32 @@ class UsageMonitorForClaude:
             )
         self.icon.title = self._tooltip_prefix + format_tooltip(data)
 
+    def _render_codex_tray(self, snapshot: dict[str, Any]) -> None:
+        """Draw the tray icon and tooltip from the Codex account snapshot.
+
+        Codex reports its windows as a list ordered by length, so the shortest
+        one takes the top row and the longest the bottom - the same reading the
+        Claude default (session above weekly) gives.  ``icon_fields`` is not
+        consulted: it names Claude API fields, which have no Codex counterpart.
+
+        Parameters
+        ----------
+        snapshot : dict
+            A ``CodexAccount.snapshot()`` result.
+        """
+        windows = snapshot.get('windows') or []
+        if snapshot.get('error') or not windows:
+            self.icon.icon = create_status_image('!', self._light_taskbar)
+        else:
+            top, bottom = windows[0], windows[-1]
+            self.icon.icon = create_icon_image(
+                top['used'], bottom['used'], self._light_taskbar,
+                time_pct_top=elapsed_pct(codex_reset_iso(top['resets_at']), top['seconds']),
+                time_pct_bottom=elapsed_pct(codex_reset_iso(bottom['resets_at']), bottom['seconds']),
+                extra_usage_available=False,
+            )
+        self.icon.title = self._tooltip_prefix + format_codex_tooltip(snapshot)
+
     def _on_theme_changed(self) -> None:
         """Re-render the tray icon when the Windows theme changes."""
         light = taskbar_uses_light_theme()
@@ -448,6 +491,15 @@ class UsageMonitorForClaude:
             account has no polling history that the backoff needs to
             protect.
         """
+        # The tray follows Codex, so its quotas must advance on the poll beat even
+        # when the Claude fetch below is still inside its cooldown and returns
+        # nothing.  CodexAccount.snapshot() carries its own once-a-minute limit
+        # and backoff, so calling it every poll costs nothing extra.
+        if TRAY_PROVIDER == 'codex':
+            codex_snapshot = self.codex_account.snapshot()
+            self._render_codex_tray(codex_snapshot)
+            self._check_codex_threshold_alerts(codex_snapshot)
+
         result = self.cache.update(force=force, bypass_rate_limit=bypass_rate_limit)
         if result.data is None:
             return
@@ -591,7 +643,25 @@ class UsageMonitorForClaude:
         for message, title in pending.values():
             self.icon.notify(message, title)
 
-    def _check_threshold_alerts(self, data: dict[str, Any]) -> None:
+    def _check_codex_threshold_alerts(self, snapshot: dict[str, Any]) -> None:
+        """Run the threshold alerts against the Codex quota windows.
+
+        Codex windows carry their length in ``seconds`` instead of encoding it
+        in the field name, so the period and the label are passed in rather
+        than derived from the key.  Everything else - which threshold was last
+        notified, the time-aware suppression, the reset on a usage drop - is
+        the shared machinery, so both providers behave identically.
+        """
+        windows = snapshot.get('windows') or []
+        data = {
+            window['key']: {'utilization': window['used'], 'resets_at': codex_reset_iso(window['resets_at'])}
+            for window in windows
+        }
+        periods = {window['key']: window['seconds'] for window in windows}
+
+        self._check_threshold_alerts(data, periods=periods)
+
+    def _check_threshold_alerts(self, data: dict[str, Any], periods: dict[str, int] | None = None) -> None:
         """Show a notification when usage crosses a configured threshold.
 
         Dynamically detects all quota fields in the API response.  For
@@ -600,6 +670,16 @@ class UsageMonitorForClaude:
         single notification with the current usage percentage.  When usage
         drops (e.g. after reset), tracking resets so thresholds can
         re-trigger in the next cycle.
+
+        Parameters
+        ----------
+        data : dict
+            Quota entries keyed by field, each with ``utilization`` and
+            ``resets_at``.
+        periods : dict or None
+            Window length in seconds per field, for quotas that do not encode
+            it in their name (Codex).  None means derive both the period and
+            the label from the field name, which is what Claude fields do.
         """
         for variant_key, entry in data.items():
             if variant_key == 'extra_usage':
@@ -617,7 +697,7 @@ class UsageMonitorForClaude:
             last_notified = self._notified_thresholds.get(variant_key, 0)
 
             if ALERT_TIME_AWARE and highest_exceeded > last_notified and highest_exceeded < ALERT_TIME_AWARE_BELOW:
-                period = field_period(variant_key)
+                period = periods.get(variant_key) if periods is not None else field_period(variant_key)
                 if period:
                     time_pct = elapsed_pct(entry.get('resets_at'), period)
                     if time_pct is not None and pct <= time_pct:
@@ -626,7 +706,7 @@ class UsageMonitorForClaude:
 
             if highest_exceeded > last_notified:
                 title = T['notify_threshold_title']
-                label = popup_label(variant_key)
+                label = duration_label(periods[variant_key]) if periods is not None else popup_label(variant_key)
                 message = T['notify_threshold_generic'].format(label=label, pct=f'{pct:.0f}')
                 self._notify_or_defer(f'threshold_{variant_key}', message, title)
                 self._run_threshold_command(variant_key, pct, highest_exceeded, entry, title, message)
@@ -634,7 +714,8 @@ class UsageMonitorForClaude:
             elif highest_exceeded < last_notified:
                 self._notified_thresholds[variant_key] = highest_exceeded
 
-        self._check_extra_usage_alerts(data)
+        if periods is None:
+            self._check_extra_usage_alerts(data)
 
     def _check_extra_usage_alerts(self, data: dict[str, Any]) -> None:
         """Show a notification when extra usage crosses a configured threshold.
@@ -761,11 +842,13 @@ class UsageMonitorForClaude:
         stderr in an error dialog (``capture_output``) instead of failing
         silently - unlike the automatic reset/threshold/startup commands.
         """
-        if not ON_DOUBLE_CLICK_COMMAND:
+        if not QUICK_ACTION_COMMAND:
             return
 
-        env_vars = {'USAGE_MONITOR_EVENT': 'double_click', **self._quota_snapshot_env(self._last_response)}
-        run_event_command(ON_DOUBLE_CLICK_COMMAND, env_vars, capture_output=True)
+        env_vars = {'USAGE_MONITOR_EVENT': 'quick_action', **self._quota_snapshot_env(self._last_response)}
+        # The quick action typically starts a program the user then keeps open, so a
+        # non-zero exit long afterwards is that program's own business, not a wrong path.
+        run_event_command(QUICK_ACTION_COMMAND, env_vars, capture_output=True, report_late_failures=False)
 
     def _run_reset_command(
         self, variant: str, pct: float, prev_pct: float, *, data: dict[str, Any], entry: dict[str, Any],
@@ -783,7 +866,7 @@ class UsageMonitorForClaude:
             'USAGE_MONITOR_PREV_UTILIZATION': str(round(prev_pct)),
             'USAGE_MONITOR_UTILIZATION_FIVE_HOUR': str(round(pct_5h)),
             'USAGE_MONITOR_UTILIZATION_SEVEN_DAY': str(round(pct_7d)),
-            'USAGE_MONITOR_RESETS_AT': entry.get('resets_at', ''),
+            'USAGE_MONITOR_RESETS_AT': entry.get('resets_at') or '',
             'USAGE_MONITOR_TITLE': T['notify_reset_title'],
             'USAGE_MONITOR_MESSAGE': T['notify_reset'],
         })
@@ -815,7 +898,7 @@ class UsageMonitorForClaude:
             env_vars['USAGE_MONITOR_UTILIZATION'] = str(round(pct))
         env_vars.update({
             'USAGE_MONITOR_THRESHOLD': str(round(threshold)),
-            'USAGE_MONITOR_RESETS_AT': entry.get('resets_at', ''),
+            'USAGE_MONITOR_RESETS_AT': entry.get('resets_at') or '',
             'USAGE_MONITOR_TITLE': title,
             'USAGE_MONITOR_MESSAGE': message,
         })
@@ -1080,7 +1163,7 @@ class UsageMonitorForClaude:
             if getattr(sys, 'frozen', False):
                 sync_autostart_path()
             if not api_headers():
-                icon.notify(f"{T['warn_no_token']}\n{T['warn_login']}", T['popup_title'])
+                icon.notify(f"{T['warn_no_token']}\n{T['warn_login']}", T['app_name'])
             threading.Thread(target=watch_theme_change, args=(self._on_theme_changed,), daemon=True).start()
             self.poll_loop()
         except Exception:
@@ -1092,4 +1175,4 @@ class UsageMonitorForClaude:
 
 def crash_log(msg: str) -> None:
     """Show a crash message box (for windowless EXE builds)."""
-    ctypes.windll.user32.MessageBoxW(0, msg[:2000], 'Usage Monitor for Claude - Error', 0x10)
+    ctypes.windll.user32.MessageBoxW(0, msg[:2000], 'AI Agents Usage Monitor - Error', 0x10)

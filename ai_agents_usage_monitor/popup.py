@@ -15,7 +15,7 @@ import logging
 import threading
 import time
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -25,9 +25,11 @@ from . import __version__
 from . import session_logs
 from .api import CLAUDE_CONFIG_DIR
 from .claude_cli import CHANGELOG_URL, find_installations
+from .codex_cli import CODEX_CHANGELOG_URL
+from .codex_usage import CodexUsage
 from .formatting import (
-    divider_positions, elapsed_pct, expand_popup_fields, field_countdown_only, field_period,
-    format_count, format_credits, popup_label, time_until,
+    codex_reset_iso, divider_positions, duration_label, elapsed_pct, expand_popup_fields,
+    field_countdown_only, field_period, format_count, format_credits, popup_label, time_until,
 )
 from .i18n import T
 from .settings import BAR_BG, BAR_DIVIDER, BAR_FG, BAR_FG_WARN, BAR_MARKER, BG, COMPACT_HIDE, FG, FG_DIM, FG_HEADING, FG_LINK, POPUP_FIELDS, POPUP_MARGIN
@@ -65,7 +67,7 @@ class _MONITORINFO(ctypes.Structure):
 __all__ = ['UsagePopup']
 
 if TYPE_CHECKING:
-    from .app import UsageMonitorForClaude
+    from .app import AIAgentsUsageMonitor
     from .cache import CacheSnapshot
 
 
@@ -192,6 +194,7 @@ def _snapshot_to_dict(
                 'pct_text': f'{pct:.0f}%',
                 'fill_pct': max(0.0, min(1.0, pct / 100)),
                 'warn': warn,
+                'pace_text': _pace_text(pct, time_pct),
                 'reset_text': time_until(resets_at, countdown_only=field_countdown_only(field)) if resets_at else '',
                 'dividers': divider_positions(resets_at, period) if period else [],
                 'marker_rel': marker_rel,
@@ -257,6 +260,43 @@ def _snapshot_to_dict(
     }
 
 
+def _pace_text(pct: float, time_pct: float | None) -> str:
+    """Describe consumption relative to the elapsed quota window."""
+    if pct >= 100:
+        return T['pace_exhausted']
+    if time_pct is None:
+        return ''
+
+    state = T['pace_ahead'] if pct > time_pct else T['pace_within']
+    return T['pace_elapsed'].format(pct=f'{time_pct:.0f}', state=state)
+
+
+def _codex_account_to_dict(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Format server quota windows with the same markers and reset text as Claude."""
+    usage = []
+    for window in snapshot['windows']:
+        period = window['seconds']
+        day_scoped = period % 86400 == 0
+        reset = codex_reset_iso(window['resets_at'])
+        time_pct = elapsed_pct(reset, period) if reset else None
+        pct = window['used']
+        usage.append({
+            'key': window['key'], 'label': duration_label(period), 'pct_text': f'{pct:.0f}%',
+            'fill_pct': max(0.0, min(1.0, pct / 100)),
+            'warn': pct >= 100 or (time_pct is not None and pct > time_pct),
+            'pace_text': _pace_text(pct, time_pct),
+            'detail_seconds': period if period in (18000, 604800) else None,
+            'reset_text': time_until(reset, countdown_only=not day_scoped) if reset else '',
+            'dividers': divider_positions(reset, period) if reset else [],
+            'marker_rel': max(0.0, min(1.0, time_pct / 100)) if time_pct is not None else None,
+        })
+    return {
+        'profile': snapshot['profile'], 'usage': usage,
+        'status': {'last_success_time': snapshot['updated_at'], 'next_poll_time': snapshot['next_read'],
+                   'error': T[snapshot['error']] if snapshot['error'] else None},
+    }
+
+
 def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None) -> dict[str, Any]:
     """Build the config object passed to JS ``init()`` after the page loads."""
     return {
@@ -265,7 +305,7 @@ def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None) -> di
             'bar_bg': BAR_BG, 'bar_fg': BAR_FG, 'bar_fg_warn': BAR_FG_WARN, 'bar_divider': BAR_DIVIDER, 'bar_marker': BAR_MARKER,
         },
         't': {
-            'title': T['popup_title'], 'account': T['account'], 'email': T['email'], 'plan': T['plan'],
+            'title': T['app_name'], 'account': T['account'], 'email': T['email'], 'plan': T['plan'],
             'usage': T['usage'], 'extra_usage': T['extra_usage'], 'name': T['name'],
             'reveal_email': T['reveal_email'], 'hide_email': T['hide_email'],
             'claude_code': T['claude_code'], 'changelog': T['changelog'],
@@ -274,6 +314,7 @@ def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None) -> di
             'detail_estimated': T['detail_estimated'], 'detail_models': T['detail_models'],
             'detail_loading': T['detail_loading'], 'detail_unavailable': T['detail_unavailable'],
             'detail_no_usage': T['detail_no_usage'], 'detail_source': T['detail_source'],
+            **{key: value for key, value in T.items() if key.startswith('codex_')},
             'status_updated_s': T['status_updated_s'], 'status_updated': T['status_updated'],
             'status_next_update': T['status_next_update'], 'status_refreshing': T['status_refreshing'],
             'duration_hm': T['duration_hm'], 'duration_m': T['duration_m'], 'duration_ms': T['duration_ms'], 'duration_s': T['duration_s'],
@@ -297,14 +338,20 @@ class _PopupApi:
     def close(self) -> None:
         self._popup._close()
 
-    def open_url(self) -> None:
-        webbrowser.open(CHANGELOG_URL)
+    def open_url(self, provider: str = 'claude') -> None:
+        webbrowser.open(CODEX_CHANGELOG_URL if provider == 'codex' else CHANGELOG_URL)
 
     def refresh(self) -> bool:
         return self._popup._manual_refresh()
 
     def session_detail(self, field: str) -> dict[str, Any]:
         return self._popup._session_detail(field)
+
+    def codex_usage(self) -> dict[str, Any]:
+        local = self._popup._codex_usage.snapshot()
+        account = self._popup.app.codex_account.snapshot()
+        installations = self._popup.app.codex_installations.read()
+        return {**local, 'account': _codex_account_to_dict(account), 'installations': installations}
 
     def set_pinned(self, pinned: bool) -> bool:
         return self._popup._set_pinned(pinned)
@@ -350,7 +397,7 @@ class UsagePopup:
     _CHECK_MS = 2000
     _REFRESH_MIN_INTERVAL = 5.0
 
-    def __init__(self, app: UsageMonitorForClaude) -> None:
+    def __init__(self, app: AIAgentsUsageMonitor) -> None:
         """Create and display a popup window with usage details.
 
         Blocks the calling thread until the window is closed.
@@ -358,10 +405,11 @@ class UsagePopup:
 
         Parameters
         ----------
-        app : UsageMonitorForClaude
+        app : AIAgentsUsageMonitor
             Parent application providing ``cache`` for data access.
         """
         self.app = app
+        self._codex_usage = CodexUsage()
         self._running = True
         self._pinned = False
         self._moved_while_pinned = False

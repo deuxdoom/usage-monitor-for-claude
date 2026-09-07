@@ -2,8 +2,8 @@
 
 VSVersionInfo(
     ffi=FixedFileInfo(
-        filevers=(1, 80, 0, 0),
-        prodvers=(1, 80, 0, 0),
+        filevers=(1, 90, 0, 0),
+        prodvers=(1, 90, 0, 0),
         mask=0x3F,
         flags=0x0,
         OS=0x40004,          # VOS_NT_WINDOWS32
@@ -16,12 +16,12 @@ VSVersionInfo(
                 '041204B0',  # Lang: Korean, Charset: Unicode
                 [
                     StringStruct('CompanyName', 'deuxdoom'),
-                    StringStruct('FileDescription', 'Usage Monitor for Claude'),
-                    StringStruct('FileVersion', '1.80.0.0'),
-                    StringStruct('InternalName', 'UsageMonitorForClaude'),
-                    StringStruct('OriginalFilename', 'UsageMonitorForClaude.exe'),
-                    StringStruct('ProductName', 'Usage Monitor for Claude'),
-                    StringStruct('ProductVersion', '1.80.0.0'),
+                    StringStruct('FileDescription', 'AI Agents Usage Monitor'),
+                    StringStruct('FileVersion', '1.90.0.0'),
+                    StringStruct('InternalName', 'AIAgentsUsageMonitor'),
+                    StringStruct('OriginalFilename', 'AIAgentsUsageMonitor.exe'),
+                    StringStruct('ProductName', 'AI Agents Usage Monitor'),
+                    StringStruct('ProductVersion', '1.90.0.0'),
                 ],
             ),
         ]),
