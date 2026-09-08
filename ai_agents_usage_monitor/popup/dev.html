@@ -276,11 +276,22 @@ function resolveCodex(loc) {
         marker_rel: entry.marker_rel,
     }));
 
+    // The app sends the chosen refresh interval with every read; the preview
+    // pins it to the default so the page's own timer and countdown agree.
+    const refreshSeconds = 60;
+
+    // _PopupApi labels each local window before sending it, so the page never
+    // matches window lengths itself.
+    const windows = CODEX.windows.map((window) => ({
+        ...window,
+        period_text: window.seconds % 86400 === 0 ? loc.codex_seven_days : loc.codex_five_hours,
+    }));
+
     return {
-        windows: CODEX.windows, updated_at: now(), partial: false, available: true,
-        installations: CODEX.installations,
+        windows, updated_at: now(), partial: false, available: true,
+        installations: CODEX.installations, refresh_seconds: refreshSeconds,
         account: { profile: CODEX.profile, usage,
-                   status: { last_success_time: now(), next_poll_time: now() + 60, error: null } },
+                   status: { last_success_time: now(), next_poll_time: now() + refreshSeconds, error: null } },
     };
 }
 

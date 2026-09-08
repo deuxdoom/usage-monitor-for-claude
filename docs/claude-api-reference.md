@@ -1,6 +1,21 @@
-# API Reference
+# Claude API Reference
 
-Example responses from the Anthropic OAuth API endpoints used by the app. These serve as implementation reference - field names, data types, and structure.
+Example responses from the Anthropic OAuth endpoints the app reads. These serve as implementation
+reference - field names, data types, and structure.
+
+The Codex side of the same question is documented in
+[codex-api-reference.md](codex-api-reference.md).
+
+## Where each piece comes from
+
+| Source | Answers | Module |
+|---|---|---|
+| `/api/oauth/usage` | How much of each quota window is used, and when it resets | `claude_api.py` |
+| `/api/oauth/profile` | Which account and plan is signed in | `claude_api.py` |
+| `~/.claude/projects/**/*.jsonl` | Per-model token counts the endpoints do not disclose | `claude_sessions.py` |
+
+The credentials come from `~/.claude/.credentials.json` and are used only in the Authorization
+header. `claude_api.py` is the only module that touches them.
 
 > [!NOTE]
 > These are real-world examples with anonymized data, captured in March 2026. Fields may change without notice as these are undocumented internal endpoints. If your API response contains fields not listed here, please open an issue with an anonymized example so we can keep this reference up to date.

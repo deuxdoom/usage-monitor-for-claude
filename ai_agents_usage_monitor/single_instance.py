@@ -18,7 +18,7 @@ from . import __version__
 from .i18n import T
 from .instance_id import config_dir_suffix
 
-__all__ = ['ensure_single_instance', 'release_instance_lock']
+__all__ = ['ensure_single_instance']
 
 _MUTEX_BASE_NAME = 'UsageMonitorForClaude_SingleInstance'
 _PID_MAPPING_BASE_NAME = 'UsageMonitorForClaude_HolderPID'
@@ -70,8 +70,8 @@ _kernel32.TerminateProcess.restype = ctypes.wintypes.BOOL
 _kernel32.WaitForSingleObject.argtypes = [ctypes.wintypes.HANDLE, ctypes.wintypes.DWORD]
 _kernel32.WaitForSingleObject.restype = ctypes.wintypes.DWORD
 
-# Handles kept alive for the process lifetime; released on exit or
-# explicitly via release_instance_lock().
+# Handles kept alive for the process lifetime; Windows releases them
+# when the process exits.
 _mutex_handle: int | None = None
 _pid_mapping_handle: int | None = None
 
@@ -247,16 +247,3 @@ def ensure_single_instance() -> bool:
 
     _store_holder_info()
     return True
-
-
-def release_instance_lock() -> None:
-    """Release the mutex and shared memory so a new instance can start."""
-    global _mutex_handle, _pid_mapping_handle
-
-    if _mutex_handle:
-        _kernel32.CloseHandle(_mutex_handle)
-        _mutex_handle = None
-
-    if _pid_mapping_handle:
-        _kernel32.CloseHandle(_pid_mapping_handle)
-        _pid_mapping_handle = None

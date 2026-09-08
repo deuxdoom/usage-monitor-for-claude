@@ -1,6 +1,9 @@
 {
     "app_name": "AI Agents Usage Monitor",
     "menu_show": "使用状況を表示",
+    "menu_tray_provider": "トレイの表示対象",
+    "menu_refresh_interval": "更新間隔",
+    "refresh_minutes": "{n}分",
     "tooltip_title": "Claude使用状況",
     "tooltip_title_codex": "Codex使用状況",
     "account": "アカウント",
@@ -16,7 +19,6 @@
     "unit_days": "{n}日",
     "quit": "終了",
     "autostart": "ログイン時に開始",
-    "restart": "再起動",
     "menu_project": "GitHubのプロジェクト",
     "test_commands": "イベントコマンドをテスト",
     "test_reset_5h": "リセット (5時間)",

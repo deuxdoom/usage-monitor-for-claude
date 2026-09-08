@@ -1,5 +1,6 @@
-"""Codex Account
-=============
+"""
+Codex API Client
+=================
 
 Read account and quota data through the installed Codex app-server protocol.
 Authentication is owned by Codex; this module never reads credentials.
@@ -16,11 +17,11 @@ from pathlib import Path
 from typing import Any
 
 from .codex_cli import find_binary as _find_binary
+from .settings import MAX_BACKOFF
 
 __all__ = ['CodexAccount']
 
 _TIMEOUT = 20
-_INTERVAL = 60
 
 
 class CodexAccount:
@@ -28,12 +29,35 @@ class CodexAccount:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._next_read = 0.0
+        self._last_read: float | None = None
         self._failures = 0
         self._snapshot: dict[str, Any] = {}
 
-    def snapshot(self) -> dict[str, Any]:
-        """Fetch at most once per minute, backing off after failed requests.
+    @property
+    def cached(self) -> dict[str, Any]:
+        """The last snapshot, without starting a read.
+
+        Deliberately takes no lock: the attribute is only ever rebound to a
+        finished dict, so a reader sees either the previous snapshot or the
+        new one.  Waiting on the lock would block the caller for as long as a
+        running app-server read takes, which is the opposite of what a
+        cache-only accessor is for.
+        """
+        return self._snapshot
+
+    def snapshot(self, interval: int) -> dict[str, Any]:
+        """Fetch at most once per ``interval``, backing off after failed requests.
+
+        The cadence is the caller's to decide - it is the refresh interval the
+        user chose - so this module holds no interval of its own.  The wait is
+        measured from the last read rather than stored as a deadline, which is
+        what lets a shortened interval apply on the next call instead of only
+        after the previous, longer wait has run out.
+
+        Parameters
+        ----------
+        interval : int
+            Seconds between successful reads.
 
         Returns
         -------
@@ -42,8 +66,15 @@ class CodexAccount:
             Failed reads clear prior values to avoid presenting a stale account.
         """
         with self._lock:
-            if time.monotonic() < self._next_read:
-                return self._snapshot
+            if self._last_read is not None:
+                remaining = self._delay(interval) - (time.monotonic() - self._last_read)
+                if remaining > 0:
+                    # Recompute the deadline against the interval in force now.
+                    # Handing back the stored one reports a moment the previous,
+                    # longer interval implied; once that moment is past, the popup
+                    # has nothing left to count down to and freezes on
+                    # "updated N minutes ago" until the next read lands.
+                    return {**self._snapshot, 'next_read': time.time() + remaining}
             error = None
             account = None
             windows = []
@@ -58,13 +89,16 @@ class CodexAccount:
                 error = exc.key
             except (OSError, ValueError, subprocess.SubprocessError):
                 error = 'codex_account_error'
+            self._last_read = time.monotonic()
             self._failures = min(self._failures + 1, 4) if error else 0
-            delay = min(_INTERVAL * 2 ** self._failures, 900)
             now = time.time()
-            self._next_read = time.monotonic() + delay
             self._snapshot = {'profile': account, 'windows': windows, 'error': error,
-                              'updated_at': now, 'next_read': now + delay}
+                              'updated_at': now, 'next_read': now + self._delay(interval)}
             return self._snapshot
+
+    def _delay(self, interval: int) -> int:
+        """Seconds to wait before the next read, doubling per consecutive failure."""
+        return min(interval * 2 ** self._failures, MAX_BACKOFF)
 
 
 class _ReadError(Exception):

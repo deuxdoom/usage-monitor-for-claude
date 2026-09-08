@@ -1,5 +1,6 @@
-"""Codex Local Usage
-=================
+"""
+Codex Session Rollouts
+=======================
 
 Read token counters from local Codex rollouts without accessing credentials.
 Only numeric usage, model names and timestamps are retained in memory.
@@ -17,6 +18,10 @@ from typing import Any
 
 __all__ = ['CodexUsage']
 
+# The local summary windows.  This module is where their lengths are
+# decided; the popup matches its server bars against whatever comes back
+# in the snapshot rather than repeating these numbers.
+_FIVE_HOURS = 5 * 3600
 _WEEK = 7 * 86400
 
 
@@ -79,7 +84,7 @@ class CodexUsage:
             for state in self._files.values():
                 entries.update(state.entries)
             windows = []
-            for seconds in (5 * 3600, _WEEK):
+            for seconds in (_FIVE_HOURS, _WEEK):
                 models: dict[str, int] = {}
                 for timestamp, model, tokens, cumulative in entries:
                     if now - seconds <= timestamp <= now:

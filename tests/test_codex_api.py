@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from ai_agents_usage_monitor.codex_account import (
+from ai_agents_usage_monitor.codex_api import (
     CodexAccount, _fetch, _plan_label, _ReadError, _read_responses, _request, _windows,
 )
 
@@ -40,47 +40,133 @@ class TestWindows(unittest.TestCase):
 class TestAccountCache(unittest.TestCase):
     def setUp(self):
         self.client = CodexAccount()
-        self.clock = patch('ai_agents_usage_monitor.codex_account.time.monotonic', return_value=100).start()
-        patch('ai_agents_usage_monitor.codex_account._find_binary', return_value=Path('codex.exe')).start()
-        self.fetch = patch('ai_agents_usage_monitor.codex_account._fetch', return_value=({'plan': 'Plus'}, [_limit()])).start()
+        self.clock = patch('ai_agents_usage_monitor.codex_api.time.monotonic', return_value=100).start()
+        patch('ai_agents_usage_monitor.codex_api._find_binary', return_value=Path('codex.exe')).start()
+        self.fetch = patch('ai_agents_usage_monitor.codex_api._fetch', return_value=({'plan': 'Plus'}, [_limit()])).start()
         self.addCleanup(patch.stopall)
 
     def test_one_minute_cache_and_account_switch(self):
-        self.client.snapshot()
+        self.client.snapshot(60)
         self.clock.return_value = 159
-        self.client.snapshot()
+        self.client.snapshot(60)
         self.assertEqual(self.fetch.call_count, 1)
         self.fetch.return_value = ({'plan': 'Pro'}, [_limit()])
         self.clock.return_value = 160
-        self.assertEqual(self.client.snapshot()['profile']['plan'], 'Pro')
+        self.assertEqual(self.client.snapshot(60)['profile']['plan'], 'Pro')
 
     def test_errors_clear_previous_account_and_back_off(self):
-        self.client.snapshot()
+        self.client.snapshot(60)
         self.fetch.side_effect = _ReadError('codex_account_error')
         self.clock.return_value = 160
-        failed = self.client.snapshot()
+        failed = self.client.snapshot(60)
         self.assertIsNone(failed['profile'])
         self.assertEqual(failed['windows'], [])
         self.assertEqual(failed['next_read'] - failed['updated_at'], 120)
         self.clock.return_value = 279
-        self.client.snapshot()
+        self.client.snapshot(60)
         self.assertEqual(self.fetch.call_count, 2)
         self.clock.return_value = 280
-        failed = self.client.snapshot()
+        failed = self.client.snapshot(60)
         self.assertEqual(failed['next_read'] - failed['updated_at'], 240)
         self.fetch.side_effect = None
         self.clock.return_value = 520
-        recovered = self.client.snapshot()
+        recovered = self.client.snapshot(60)
         self.assertIsNone(recovered['error'])
         self.assertEqual(recovered['next_read'] - recovered['updated_at'], 60)
 
     def test_missing_cli_does_not_start_process(self):
-        with patch('ai_agents_usage_monitor.codex_account._find_binary', return_value=None):
-            self.assertEqual(self.client.snapshot()['error'], 'codex_cli_missing')
+        with patch('ai_agents_usage_monitor.codex_api._find_binary', return_value=None):
+            self.assertEqual(self.client.snapshot(60)['error'], 'codex_cli_missing')
         self.fetch.assert_not_called()
 
+    def test_read_follows_the_interval_it_is_given(self):
+        """A three-minute cadence reads every three minutes, not every minute."""
+        self.client.snapshot(180)
+        self.clock.return_value = 279
+        self.client.snapshot(180)
+        self.assertEqual(self.fetch.call_count, 1)
+
+        self.clock.return_value = 280
+        self.client.snapshot(180)
+        self.assertEqual(self.fetch.call_count, 2)
+
+    def test_reported_next_read_follows_the_interval(self):
+        """The popup countdown reflects the chosen cadence, not a fixed minute."""
+        snapshot = self.client.snapshot(300)
+
+        self.assertEqual(snapshot['next_read'] - snapshot['updated_at'], 300)
+
+    def test_a_shortened_interval_applies_without_waiting_out_the_old_one(self):
+        """Switching from five minutes to one must not hold the old wait.
+
+        The gate measures from the last read, so the pending five-minute wait
+        is not a deadline that outlives the choice that created it.
+        """
+        self.client.snapshot(300)
+        self.clock.return_value = 160
+
+        self.client.snapshot(60)
+
+        self.assertEqual(self.fetch.call_count, 2)
+
+    def test_backoff_doubles_from_the_chosen_interval(self):
+        """A failure under a slow cadence backs off from that cadence."""
+        self.client.snapshot(180)
+        self.fetch.side_effect = _ReadError('codex_account_error')
+        self.clock.return_value = 280
+
+        failed = self.client.snapshot(180)
+
+        self.assertEqual(failed['next_read'] - failed['updated_at'], 360)
+
+    def test_backoff_ceiling_is_the_shared_setting(self):
+        """Codex caps its backoff with the same max_backoff the Claude path uses.
+
+        A private ceiling here would quietly apply the user's setting to one
+        provider only - the class of bug this argument exists to prevent.
+        """
+        from ai_agents_usage_monitor.settings import MAX_BACKOFF
+
+        self.fetch.side_effect = _ReadError('codex_account_error')
+        clock = 100
+        for _ in range(6):
+            clock += MAX_BACKOFF
+            self.clock.return_value = clock
+            failed = self.client.snapshot(300)
+
+        self.assertEqual(failed['next_read'] - failed['updated_at'], MAX_BACKOFF)
+
+    def test_a_cached_read_never_reports_a_deadline_already_past(self):
+        """The popup counts down to next_read, so a stale one freezes the view.
+
+        Handing back the deadline the previous, shorter interval implied leaves
+        the popup with nothing to count down to: it drops the countdown and
+        sits on "updated N minutes ago" until the next read lands.
+        """
+        import time as real_time
+
+        self.client.snapshot(60)
+        self.clock.return_value = 250          # past the 60s deadline, inside the 300s one
+
+        snapshot = self.client.snapshot(300)
+
+        self.assertEqual(self.fetch.call_count, 1)
+        self.assertGreater(snapshot['next_read'], real_time.time())
+
+    def test_a_cached_deadline_is_measured_from_the_last_read(self):
+        """The reported wait is what actually remains under the current interval."""
+        import time as real_time
+
+        self.client.snapshot(60)
+        self.clock.return_value = 130          # 30 seconds after the read
+
+        before = real_time.time()
+        snapshot = self.client.snapshot(300)
+
+        self.assertAlmostEqual(snapshot['next_read'] - before, 270, delta=2)
+
     def test_concurrent_reads_share_one_fetch(self):
-        threads = [threading.Thread(target=self.client.snapshot) for _ in range(3)]
+        threads = [threading.Thread(target=self.client.snapshot, args=(60,)) for _ in range(3)]
         for thread in threads:
             thread.start()
         for thread in threads:
@@ -115,8 +201,8 @@ class TestProtocol(unittest.TestCase):
         process.poll.return_value = None
         account = {'type': 'chatgpt', 'email': 'test@example.test', 'planType': 'plus'}
         results = [{}, {'account': account}, {'rateLimits': {'primary': _limit()}}, {'account': account}]
-        with patch('ai_agents_usage_monitor.codex_account.subprocess.Popen', return_value=process) as popen:
-            with patch('ai_agents_usage_monitor.codex_account._request', side_effect=results) as request:
+        with patch('ai_agents_usage_monitor.codex_api.subprocess.Popen', return_value=process) as popen:
+            with patch('ai_agents_usage_monitor.codex_api._request', side_effect=results) as request:
                 profile, windows = _fetch(Path('codex.exe'))
         self.assertEqual(profile['plan'], 'ChatGPT Plus')
         self.assertEqual(windows[0]['seconds'], 18000)
@@ -142,15 +228,15 @@ class TestProtocol(unittest.TestCase):
     def test_login_modes_and_changed_identity(self):
         for account, error in ((None, 'codex_login_required'), ({'type': 'apiKey'}, 'codex_chatgpt_required')):
             process = MagicMock(stdout=io.BytesIO(), stdin=io.BytesIO())
-            with patch('ai_agents_usage_monitor.codex_account.subprocess.Popen', return_value=process):
-                with patch('ai_agents_usage_monitor.codex_account._request', side_effect=[{}, {'account': account}]):
+            with patch('ai_agents_usage_monitor.codex_api.subprocess.Popen', return_value=process):
+                with patch('ai_agents_usage_monitor.codex_api._request', side_effect=[{}, {'account': account}]):
                     with self.assertRaisesRegex(_ReadError, error):
                         _fetch(Path('codex.exe'))
             self.assertTrue(process.stdout.closed)
         process = MagicMock(stdout=io.BytesIO(), stdin=io.BytesIO())
-        with patch('ai_agents_usage_monitor.codex_account.subprocess.Popen', return_value=process):
+        with patch('ai_agents_usage_monitor.codex_api.subprocess.Popen', return_value=process):
             results = [{}, {'account': {'type': 'chatgpt', 'email': 'first@example.test'}},
                        {'rateLimits': {'primary': _limit()}}, {'account': {'type': 'chatgpt', 'email': 'second@example.test'}}]
-            with patch('ai_agents_usage_monitor.codex_account._request', side_effect=results):
+            with patch('ai_agents_usage_monitor.codex_api._request', side_effect=results):
                 with self.assertRaisesRegex(_ReadError, 'codex_account_error'):
                     _fetch(Path('codex.exe'))

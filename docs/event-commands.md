@@ -4,7 +4,7 @@ Run a custom shell command when a quota resets, a usage threshold is crossed, th
 
 ## Settings
 
-Add these keys to your [`usage-monitor-settings.json`](configuration.md). After saving, use the **Restart** option in the tray context menu to apply the changes.
+Add these keys to your [`usage-monitor-settings.json`](configuration.md). After saving, quit from the tray context menu and start the app again to apply the changes.
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -44,7 +44,7 @@ The poll cadence is aligned to the expected reset time, so a reset command fires
 
 The tray icon you already watch for your limits can double as a shortcut. A double-click runs `quick_action_command` while a single click still opens the usage popup, so anything you reach for often - a terminal, a dashboard, a script - is one gesture away.
 
-Relative paths resolve against the folder holding `AIAgentsUsageMonitor.exe`, so a program kept next to it needs no full path. Add the setting and restart the app via the tray context menu:
+Relative paths resolve against the folder holding `AIAgentsUsageMonitor.exe`, so a program kept next to it needs no full path. Add the setting, then quit from the tray context menu and start the app again:
 
 ```json
 {
@@ -228,7 +228,7 @@ Fires when usage crosses a configured alert threshold.
 
 ### `on_startup_command`
 
-Fires once after the first successful API update following app start (also after using the **Restart** menu option). Receives the full quota state so the command can decide what to do based on which sessions are active. Skipped when the first call fails (auth error, offline) - retries on the next successful poll.
+Fires once after the first successful API update following app start. Receives the full quota state so the command can decide what to do based on which sessions are active. Skipped when the first call fails (auth error, offline) - retries on the next successful poll.
 
 | Variable | Example | Description |
 |---|---|---|

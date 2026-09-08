@@ -1,10 +1,26 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html { overflow: hidden; }
 
+/* Pixel face for the whole popup, Latin and Hangul alike.
+ *
+ * Galmuri11 carries all 11,172 precomposed Hangul syllables together with Latin
+ * and symbols in one 492 KB file, so both scripts share a look instead of the
+ * Korean text falling back to a system face and reading as a different font
+ * beside the English. Whatever the font does not carry falls through to the
+ * system stack on its own, so no unicode-range is needed and nothing renders
+ * as tofu.
+ *
+ * SIL Open Font License 1.1, (c) 2019-2023 Minseo Lee - see Galmuri11-OFL.txt.
+ */
+@font-face {
+    font-family: 'Galmuri11';
+    src: url('Galmuri11.woff2') format('woff2');
+}
+
 body {
     background: var(--bg);
     color: var(--fg);
-    font-family: system-ui, sans-serif;
+    font-family: 'Galmuri11', system-ui, sans-serif;
     font-size: 13px;
     line-height: 1.3;
     display: flex;

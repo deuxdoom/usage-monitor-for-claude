@@ -14,12 +14,12 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-from ai_agents_usage_monitor.cache import CacheSnapshot
+from ai_agents_usage_monitor.claude_cache import CacheSnapshot
 from ai_agents_usage_monitor.popup import (
     UsagePopup, _PopupApi, _BASELINE_DPI, _MONITORINFO, _SWP_NOACTIVATE, _SWP_NOSIZE, _SWP_NOZORDER,
-    _codex_account_to_dict, _init_config, _snapshot_to_dict, _usage_entries,
+    _codex_account_to_dict, _codex_local_windows, _init_config, _snapshot_to_dict, _usage_entries,
 )
-from ai_agents_usage_monitor.session_logs import ModelUsage, WindowStats
+from ai_agents_usage_monitor.claude_sessions import ModelUsage, WindowStats
 
 
 def _snap(
@@ -41,7 +41,104 @@ def _snap(
 # _usage_entries
 # ---------------------------------------------------------------------------
 
+# The window lengths CodexUsage produces, which the bridge passes to
+# _codex_account_to_dict so a server bar only offers a detail it can fill.
+_LOCAL_PERIODS = {18000, 604800}
+
+
 class TestCodexAccountFormatting(unittest.TestCase):
+    def test_codex_read_and_page_timer_share_the_chosen_interval(self):
+        """The page refreshes on the cadence the tray menu selected.
+
+        The account cooldown and the page's own timer are driven by the same
+        value, read once, so a menu change between the two cannot leave the
+        page polling faster than the data behind it can move.
+        """
+        popup = MagicMock()
+        popup.app._poll_interval = 300
+        popup._codex_usage.snapshot.return_value = {'windows': [], 'updated_at': 1000.0}
+        popup.app.codex_account.snapshot.return_value = {
+            'profile': None, 'windows': [], 'error': None, 'updated_at': 1000.0, 'next_read': 1300.0,
+        }
+        popup.app.codex_installations.read.return_value = []
+
+        result = _PopupApi(popup).codex_usage()
+
+        self.assertEqual(result['refresh_seconds'], 300)
+        self.assertEqual(popup.app.codex_account.snapshot.call_args.args[0], 300)
+
+    def test_a_server_bar_only_offers_a_detail_the_local_reader_can_fill(self):
+        """A window with no local counterpart must not expand into nothing."""
+        snapshot = {'profile': None, 'windows': [
+            {'key': 'codex_primary', 'seconds': 18000, 'used': 10, 'resets_at': None},
+            {'key': 'codex_odd', 'seconds': 3600, 'used': 10, 'resets_at': None}],
+            'updated_at': 1, 'next_read': 61, 'error': None}
+
+        details = [bar['detail_seconds'] for bar in _codex_account_to_dict(snapshot, {18000}, None)['usage']]
+
+        self.assertEqual(details, [18000, None])
+
+    def test_changing_the_local_windows_moves_the_detail_with_them(self):
+        """The two sides agree by construction, not by repeating the same numbers.
+
+        Neither the popup nor the local reader names the periods, so a change
+        to what CodexUsage produces carries the expandable detail along
+        instead of leaving the popup matching lengths that no longer exist.
+        """
+        snapshot = {'profile': None, 'windows': [
+            {'key': 'codex_primary', 'seconds': 3600, 'used': 10, 'resets_at': None}],
+            'updated_at': 1, 'next_read': 61, 'error': None}
+
+        without = _codex_account_to_dict(snapshot, _LOCAL_PERIODS, None)['usage'][0]
+        with_local = _codex_account_to_dict(snapshot, {3600}, None)['usage'][0]
+
+        self.assertIsNone(without['detail_seconds'])
+        self.assertEqual(with_local['detail_seconds'], 3600)
+
+    def test_local_windows_are_labelled_before_they_reach_the_page(self):
+        """The page renders the text it is handed rather than matching lengths."""
+        from ai_agents_usage_monitor.i18n import T
+
+        labelled = _codex_local_windows({'windows': [{'seconds': 18000}, {'seconds': 604800}]})
+
+        self.assertEqual([window['period_text'] for window in labelled],
+                         [T['codex_five_hours'], T['codex_seven_days']])
+
+    def test_both_views_count_down_to_the_same_poll_beat(self):
+        """The Codex view shows the app's beat, not a deadline of its own.
+
+        A Codex-only deadline starts whenever the user first opened that tab,
+        so the two views would count down to different moments and a cadence
+        change would reach them at different times.
+        """
+        popup = MagicMock()
+        popup.app._poll_interval = 180
+        popup.app._next_poll_time = 5000.0
+        popup._codex_usage.snapshot.return_value = {'windows': [], 'updated_at': 4820.0}
+        popup.app.codex_account.snapshot.return_value = {
+            'profile': None, 'windows': [], 'error': None, 'updated_at': 4820.0, 'next_read': 4880.0,
+        }
+        popup.app.codex_installations.read.return_value = []
+
+        result = _PopupApi(popup).codex_usage()
+
+        self.assertEqual(result['account']['status']['next_poll_time'], 5000.0)
+
+    def test_codex_uses_its_own_deadline_before_a_beat_exists(self):
+        """Before the first cadence poll is scheduled there is nothing else to show."""
+        popup = MagicMock()
+        popup.app._poll_interval = 60
+        popup.app._next_poll_time = None
+        popup._codex_usage.snapshot.return_value = {'windows': [], 'updated_at': 4820.0}
+        popup.app.codex_account.snapshot.return_value = {
+            'profile': None, 'windows': [], 'error': None, 'updated_at': 4820.0, 'next_read': 4880.0,
+        }
+        popup.app.codex_installations.read.return_value = []
+
+        result = _PopupApi(popup).codex_usage()
+
+        self.assertEqual(result['account']['status']['next_poll_time'], 4880.0)
+
     def test_link_targets_are_fixed_per_provider(self):
         api = _PopupApi(MagicMock())
         with patch('ai_agents_usage_monitor.popup.webbrowser.open') as open_link:
@@ -56,7 +153,7 @@ class TestCodexAccountFormatting(unittest.TestCase):
             {'key': 'codex_primary', 'seconds': 604800, 'used': 6, 'resets_at': None},
             {'key': 'codex_short', 'seconds': 900, 'used': 6, 'resets_at': None}],
             'updated_at': 1, 'next_read': 61, 'error': None}
-        self.assertEqual([bar['detail_seconds'] for bar in _codex_account_to_dict(snapshot)['usage']], [18000, 604800, None])
+        self.assertEqual([bar['detail_seconds'] for bar in _codex_account_to_dict(snapshot, _LOCAL_PERIODS, None)['usage']], [18000, 604800, None])
 
     def test_time_budget_colors_for_both_windows(self):
         for period in (18000, 604800):
@@ -67,7 +164,7 @@ class TestCodexAccountFormatting(unittest.TestCase):
                         {'key': 'codex_window', 'seconds': period, 'used': used, 'resets_at': 1900000000}],
                         'updated_at': 1, 'next_read': 61, 'error': None}
                     with patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=elapsed):
-                        bar = _codex_account_to_dict(snapshot)['usage'][0]
+                        bar = _codex_account_to_dict(snapshot, _LOCAL_PERIODS, None)['usage'][0]
                     self.assertEqual(bar['warn'], warning)
                     self.assertEqual(bar['fill_pct'], used / 100)
                     self.assertEqual(bar['marker_rel'], elapsed / 100 if elapsed is not None else None)
@@ -78,8 +175,8 @@ class TestCodexAccountFormatting(unittest.TestCase):
             {'key': 'codex_primary', 'seconds': 18000, 'used': 50, 'resets_at': 1900000000}],
             'updated_at': 1, 'next_read': 61, 'error': None}
         with patch('ai_agents_usage_monitor.popup.elapsed_pct', side_effect=[49, 50]):
-            before = _codex_account_to_dict(snapshot)['usage'][0]
-            after = _codex_account_to_dict(snapshot)['usage'][0]
+            before = _codex_account_to_dict(snapshot, _LOCAL_PERIODS, None)['usage'][0]
+            after = _codex_account_to_dict(snapshot, _LOCAL_PERIODS, None)['usage'][0]
         self.assertTrue(before['warn'])
         self.assertFalse(after['warn'])
         self.assertNotEqual(before['pace_text'], after['pace_text'])
@@ -92,7 +189,7 @@ class TestCodexAccountFormatting(unittest.TestCase):
             'updated_at': 1899999900, 'next_read': 1899999960, 'error': None,
         }
         with patch('ai_agents_usage_monitor.popup.time_until', return_value='reset') as countdown:
-            result = _codex_account_to_dict(snapshot)
+            result = _codex_account_to_dict(snapshot, _LOCAL_PERIODS, None)
         self.assertEqual([entry['fill_pct'] for entry in result['usage']], [0.35, 0.06])
         self.assertEqual([call.kwargs['countdown_only'] for call in countdown.call_args_list], [True, False])
         self.assertEqual(result['profile'], snapshot['profile'])
@@ -101,7 +198,7 @@ class TestCodexAccountFormatting(unittest.TestCase):
     def test_unknown_reset_does_not_invent_markers(self):
         result = _codex_account_to_dict({'profile': None, 'windows': [
             {'key': 'codex_primary', 'seconds': 3600, 'used': 101, 'resets_at': None}],
-            'updated_at': 1, 'next_read': 61, 'error': None})
+            'updated_at': 1, 'next_read': 61, 'error': None}, _LOCAL_PERIODS, None)
         bar = result['usage'][0]
         self.assertEqual(bar['fill_pct'], 1)
         self.assertTrue(bar['warn'])
@@ -738,14 +835,14 @@ class TestSessionDetail(unittest.TestCase):
         popup = self._popup({'five_hour': None})
         self.assertTrue(popup._session_detail('five_hour')['unavailable'])
 
-    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.claude_sessions.usage_in_window')
     def test_scan_failure_is_unavailable_not_raised(self, mock_scan):
         mock_scan.side_effect = RuntimeError('boom')
         popup = self._popup({'five_hour': {'utilization': 40, 'resets_at': '2026-08-13T18:00:00Z'}})
         result = popup._session_detail('five_hour')
         self.assertEqual(result['unavailable'], True)
 
-    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.claude_sessions.usage_in_window')
     def test_window_derived_from_resets_at_and_period(self, mock_scan):
         """The scanned window must be [resets_at - period, resets_at)."""
         mock_scan.return_value = WindowStats(total_tokens=0, message_count=0, models=[])
@@ -758,7 +855,7 @@ class TestSessionDetail(unittest.TestCase):
         self.assertAlmostEqual(end, expected_end)
         self.assertAlmostEqual(start, expected_end - 5 * 3600)
 
-    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.claude_sessions.usage_in_window')
     def test_z_suffix_resets_at_parsed(self, mock_scan):
         mock_scan.return_value = WindowStats(total_tokens=0, message_count=0, models=[])
         popup = self._popup({'seven_day': {'utilization': 20, 'resets_at': '2026-08-17T18:00:00Z'}})
@@ -770,7 +867,7 @@ class TestSessionDetail(unittest.TestCase):
         self.assertAlmostEqual(end, expected_end)
 
     @patch('ai_agents_usage_monitor.popup.time.time', return_value=1_800_000_000.0)
-    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.claude_sessions.usage_in_window')
     def test_null_resets_at_falls_back_to_rolling_window_ending_now(self, mock_scan, _mock_time):
         """An untouched period (see field_inactive) has no resets_at to anchor on."""
         mock_scan.return_value = WindowStats(total_tokens=0, message_count=0, models=[])
@@ -782,7 +879,7 @@ class TestSessionDetail(unittest.TestCase):
         self.assertEqual(end, 1_800_000_000.0)
         self.assertEqual(start, 1_800_000_000.0 - 5 * 3600)
 
-    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.claude_sessions.usage_in_window')
     def test_tokens_and_messages_formatted_with_grouping(self, mock_scan):
         mock_scan.return_value = WindowStats(total_tokens=353830, message_count=1033, models=[])
         popup = self._popup({'five_hour': {'utilization': 40, 'resets_at': '2026-08-13T18:00:00Z'}})
@@ -793,7 +890,7 @@ class TestSessionDetail(unittest.TestCase):
         self.assertEqual(result['tokens'], '353,830')
         self.assertEqual(result['messages'], '1,033')
 
-    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.claude_sessions.usage_in_window')
     def test_estimated_total_derived_from_utilization(self, mock_scan):
         mock_scan.return_value = WindowStats(total_tokens=400, message_count=1, models=[])
         popup = self._popup({'five_hour': {'utilization': 40, 'resets_at': '2026-08-13T18:00:00Z'}})
@@ -803,7 +900,7 @@ class TestSessionDetail(unittest.TestCase):
         # 400 tokens at 40% utilization implies a full period of ~1,000.
         self.assertEqual(result['estimated_total'], '1,000')
 
-    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.claude_sessions.usage_in_window')
     def test_estimated_total_omitted_below_minimum_utilization(self, mock_scan):
         """Dividing by a near-zero percentage would amplify noise into a huge, meaningless number."""
         mock_scan.return_value = WindowStats(total_tokens=400, message_count=1, models=[])
@@ -813,7 +910,7 @@ class TestSessionDetail(unittest.TestCase):
 
         self.assertIsNone(result['estimated_total'])
 
-    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.claude_sessions.usage_in_window')
     def test_estimated_total_omitted_with_no_local_tokens(self, mock_scan):
         """Nothing to divide when the local scan itself found no tokens for the window."""
         mock_scan.return_value = WindowStats(total_tokens=0, message_count=0, models=[])
@@ -823,7 +920,7 @@ class TestSessionDetail(unittest.TestCase):
 
         self.assertIsNone(result['estimated_total'])
 
-    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.claude_sessions.usage_in_window')
     def test_models_formatted_and_ordered(self, mock_scan):
         mock_scan.return_value = WindowStats(
             total_tokens=400, message_count=2,
@@ -841,7 +938,7 @@ class TestSessionDetail(unittest.TestCase):
             {'model': 'claude-sonnet-4-6', 'tokens': '100', 'pct': '25.0'},
         ])
 
-    @patch('ai_agents_usage_monitor.popup.session_logs.usage_in_window')
+    @patch('ai_agents_usage_monitor.popup.claude_sessions.usage_in_window')
     def test_zero_usage_window_still_available_not_unavailable(self, mock_scan):
         """A genuinely empty window is a real result, distinct from a failed lookup."""
         mock_scan.return_value = WindowStats(total_tokens=0, message_count=0, models=[])

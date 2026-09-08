@@ -1,6 +1,6 @@
 """
-API Client
-===========
+Claude API Client
+==================
 
 Reads Claude Code OAuth credentials and communicates with the
 Anthropic API.  This is the only module that handles credentials.

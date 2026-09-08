@@ -14,9 +14,10 @@ from unittest.mock import MagicMock, patch
 import pystray
 
 from ai_agents_usage_monitor.app import (
-    POLL_FAST, RESET_BUFFER, WM_LBUTTONDBLCLK, WM_LBUTTONUP, AIAgentsUsageMonitor, _align_to_reset,
+    POLL_FAST, REFRESH_INTERVALS, RESET_BUFFER, WM_LBUTTONDBLCLK, WM_LBUTTONUP, AIAgentsUsageMonitor,
+    _align_to_reset,
 )
-from ai_agents_usage_monitor.cache import UpdateResult
+from ai_agents_usage_monitor.claude_cache import UpdateResult
 from ai_agents_usage_monitor.claude_cli import RefreshResult
 from ai_agents_usage_monitor.formatting import duration_label
 from ai_agents_usage_monitor.i18n import T
@@ -49,6 +50,11 @@ def _make_app(thresholds: list[float] | None = None) -> AIAgentsUsageMonitor:
         patch('ai_agents_usage_monitor.app.get_idle_seconds', return_value=0.0),
         patch('ai_agents_usage_monitor.app.ICON_FIELDS', ['five_hour', 'seven_day']),
     ]
+    # Pinned for the same reason as ICON_FIELDS: the seed comes from the
+    # settings file, and a machine running the suite may have chosen Codex
+    # or a poll_interval other than the shipped 60.
+    app._tray_provider = 'claude'
+    app._poll_interval = 60
     for active_patch in app._patches:
         active_patch.start()
     return app
@@ -1311,6 +1317,9 @@ class TestCalculatePollInterval(unittest.TestCase):
 
     def setUp(self):
         self.app = _make_app()
+        # The class-level patch does not reach setUp, where the app reads
+        # POLL_INTERVAL into its runtime cadence, so pin that field as well.
+        self.app._poll_interval = 180
 
     def tearDown(self):
         _cleanup(self.app)
@@ -1447,6 +1456,9 @@ class TestResetAlignment(unittest.TestCase):
 
     def setUp(self):
         self.app = _make_app()
+        # The class-level patch does not reach setUp, where the app reads
+        # POLL_INTERVAL into its runtime cadence, so pin that field as well.
+        self.app._poll_interval = 180
 
     def tearDown(self):
         _cleanup(self.app)
@@ -1675,7 +1687,8 @@ class TestTrayProvider(unittest.TestCase):
         self.addCleanup(_cleanup, app)
         app.codex_account = MagicMock()
         app.codex_account.snapshot.return_value = _codex_snapshot()
-        with patch('ai_agents_usage_monitor.app.TRAY_PROVIDER', 'codex'),              patch('ai_agents_usage_monitor.app.create_icon_image') as icon_image:
+        app._tray_provider = 'codex'
+        with patch('ai_agents_usage_monitor.app.create_icon_image') as icon_image:
             app._render_tray()
         self.assertEqual(icon_image.call_args.args[:2], (97, 15))
         self.assertIn('97%', app.icon.title)
@@ -1683,7 +1696,8 @@ class TestTrayProvider(unittest.TestCase):
     def test_codex_read_failure_shows_the_error_glyph(self):
         app = _make_app()
         self.addCleanup(_cleanup, app)
-        with patch('ai_agents_usage_monitor.app.TRAY_PROVIDER', 'codex'),              patch('ai_agents_usage_monitor.app.create_status_image') as status_image,              patch('ai_agents_usage_monitor.app.create_icon_image') as icon_image:
+        app._tray_provider = 'codex'
+        with patch('ai_agents_usage_monitor.app.create_status_image') as status_image,              patch('ai_agents_usage_monitor.app.create_icon_image') as icon_image:
             app._render_codex_tray(_codex_snapshot(error='codex_cli_missing'))
         status_image.assert_called_once()
         icon_image.assert_not_called()
@@ -1721,31 +1735,105 @@ class TestTrayProvider(unittest.TestCase):
         app.codex_account.snapshot.return_value = _codex_snapshot()
         app.cache = MagicMock()
         app.cache.update.return_value = UpdateResult(data=None)
-        with patch('ai_agents_usage_monitor.app.TRAY_PROVIDER', 'codex'),              patch('ai_agents_usage_monitor.app.create_icon_image'):
+        app._tray_provider = 'codex'
+        with patch('ai_agents_usage_monitor.app.create_icon_image'):
             app.update()
         app.codex_account.snapshot.assert_called_once()
+
+    def test_the_startup_default_comes_from_the_settings_file(self):
+        with patch('ai_agents_usage_monitor.app.pystray'),              patch('ai_agents_usage_monitor.app.create_icon_image'),              patch('ai_agents_usage_monitor.app.taskbar_uses_light_theme', return_value=False),              patch('ai_agents_usage_monitor.app.TRAY_PROVIDER', 'codex'):
+            app = AIAgentsUsageMonitor()
+        self.assertEqual(app._tray_provider, 'codex')
+
+    def test_the_menu_switch_hands_the_redraw_to_a_worker_thread(self):
+        """A Codex read starts the app-server, so it must not run on the tray thread."""
+        app = _make_app()
+        self.addCleanup(_cleanup, app)
+        with patch('ai_agents_usage_monitor.app.threading.Thread') as thread:
+            app.on_tray_codex()
+        self.assertEqual(app._tray_provider, 'codex')
+        self.assertEqual(thread.call_args.kwargs['args'], ('codex',))
+
+    def test_selecting_the_provider_already_shown_changes_nothing(self):
+        app = _make_app()
+        self.addCleanup(_cleanup, app)
+        with patch('ai_agents_usage_monitor.app.threading.Thread') as thread:
+            app.on_tray_claude()
+        thread.assert_not_called()
+
+    def test_switching_to_codex_paints_its_icon_and_runs_its_alerts(self):
+        app = _make_app(thresholds=[80])
+        self.addCleanup(_cleanup, app)
+        app._first_update_done = True
+        app.codex_account = MagicMock()
+        app.codex_account.snapshot.return_value = _codex_snapshot(primary=97)
+        app._tray_provider = 'codex'
+        with patch('ai_agents_usage_monitor.app.create_icon_image') as icon_image,              patch.object(app, '_notify_or_defer') as notify:
+            app._apply_tray_provider('codex')
+        self.assertEqual(icon_image.call_args.args[0], 97)
+        notify.assert_called_once()
+
+    def test_a_switch_back_during_a_codex_read_keeps_the_claude_icon(self):
+        """The read outlives the switch that started it; the current choice owns the icon."""
+        app = _make_app()
+        self.addCleanup(_cleanup, app)
+        app.codex_account = MagicMock()
+
+        def switch_back_mid_read(_interval):
+            app._tray_provider = 'claude'
+            return _codex_snapshot()
+
+        app.codex_account.snapshot.side_effect = switch_back_mid_read
+        app._tray_provider = 'codex'
+        with patch('ai_agents_usage_monitor.app.create_icon_image') as icon_image:
+            app._apply_tray_provider('codex')
+        icon_image.assert_not_called()
+
+    def test_switching_to_claude_repaints_from_the_data_already_held(self):
+        app = _make_app()
+        self.addCleanup(_cleanup, app)
+        app._last_response = {'five_hour': {'utilization': 42, 'resets_at': ''}}
+        with patch('ai_agents_usage_monitor.app.create_icon_image') as icon_image,              patch.object(app, 'update') as update:
+            app._apply_tray_provider('claude')
+        self.assertEqual(icon_image.call_args.args[0], 42)
+        update.assert_not_called()
+
+    def test_switching_to_claude_before_the_first_fetch_asks_for_one(self):
+        """No successful fetch yet also means no cache cooldown to wait out."""
+        app = _make_app()
+        self.addCleanup(_cleanup, app)
+        app._last_response = {}
+        with patch.object(app, 'update') as update, patch.object(app, '_render_tray') as render:
+            app._apply_tray_provider('claude')
+        update.assert_called_once()
+        render.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
 # Tray context menu
 # ---------------------------------------------------------------------------
 
+def _build_tray_menu() -> tuple[AIAgentsUsageMonitor, list]:
+    """Construct the app and return it with its menu items, separators dropped."""
+    captured = {}
+
+    def capture_icon(*_args, **kwargs):
+        captured['menu'] = kwargs['menu']
+        return MagicMock()
+
+    # Only Icon is replaced: MenuItem and Menu stay real so the built menu
+    # can be walked the way pystray itself walks it.
+    with patch('ai_agents_usage_monitor.app.pystray.Icon', side_effect=capture_icon),          patch('ai_agents_usage_monitor.app.create_icon_image'),          patch('ai_agents_usage_monitor.app.taskbar_uses_light_theme', return_value=False),          patch('ai_agents_usage_monitor.app.QUICK_ACTION_COMMAND', ''):
+        app = AIAgentsUsageMonitor()
+
+    return app, [item for item in captured['menu'] if item is not pystray.Menu.SEPARATOR]
+
+
 class TestTrayMenuHeading(unittest.TestCase):
     """The menu names the app before its actions, without becoming clickable."""
 
     def _build_menu(self):
-        captured = {}
-
-        def capture_icon(*_args, **kwargs):
-            captured['menu'] = kwargs['menu']
-            return MagicMock()
-
-        # Only Icon is replaced: MenuItem and Menu stay real so the built menu
-        # can be walked the way pystray itself walks it.
-        with patch('ai_agents_usage_monitor.app.pystray.Icon', side_effect=capture_icon),              patch('ai_agents_usage_monitor.app.create_icon_image'),              patch('ai_agents_usage_monitor.app.taskbar_uses_light_theme', return_value=False),              patch('ai_agents_usage_monitor.app.QUICK_ACTION_COMMAND', ''):
-            AIAgentsUsageMonitor()
-
-        return [item for item in captured['menu'] if item is not pystray.Menu.SEPARATOR]
+        return _build_tray_menu()[1]
 
     def test_app_name_heads_the_menu_and_cannot_be_clicked(self):
         first = self._build_menu()[0]
@@ -1756,6 +1844,36 @@ class TestTrayMenuHeading(unittest.TestCase):
         """The default item is what a tray left click fires - the heading must not steal it."""
         defaults = [item.text for item in self._build_menu() if item.default]
         self.assertEqual(defaults, [T['menu_show']])
+
+
+class TestTrayProviderMenu(unittest.TestCase):
+    """The provider submenu marks the agent in use and switches to the other one."""
+
+    def _provider_items(self):
+        app, items = _build_tray_menu()
+        submenu = next(item for item in items if item.text == T['menu_tray_provider'])
+
+        return app, list(submenu.submenu)
+
+    def test_both_agents_are_offered_as_radio_entries(self):
+        _app, entries = self._provider_items()
+        self.assertEqual([entry.text for entry in entries], ['Claude', 'Codex'])
+        self.assertTrue(all(entry.radio for entry in entries))
+
+    def test_the_mark_follows_the_provider_in_use(self):
+        app, entries = self._provider_items()
+        claude, codex = entries
+        self.assertTrue(claude.checked)
+        self.assertFalse(codex.checked)
+        app._tray_provider = 'codex'
+        self.assertFalse(claude.checked)
+        self.assertTrue(codex.checked)
+
+    def test_clicking_an_entry_switches_the_provider(self):
+        app, entries = self._provider_items()
+        with patch('ai_agents_usage_monitor.app.threading.Thread'):
+            entries[1](app.icon)
+        self.assertEqual(app._tray_provider, 'codex')
 
 
 # ---------------------------------------------------------------------------
@@ -3573,6 +3691,217 @@ class TestInstallDoubleClickHandler(unittest.TestCase):
         self.assertEqual(fake_icon._message_handlers[0x40B], self.app._on_tray_message)
         self.assertIs(fake_icon._message_handlers[0x0002], other_handler)
         self.assertIs(self.app._pystray_on_notify, original_notify)
+
+
+# ---------------------------------------------------------------------------
+# Refresh interval (tray menu)
+# ---------------------------------------------------------------------------
+
+class TestRefreshIntervalChoice(unittest.TestCase):
+    """Tests for the tray menu's refresh interval, which lasts one run only."""
+
+    def setUp(self):
+        self.app = _make_app()
+
+    def tearDown(self):
+        _cleanup(self.app)
+
+    def test_each_start_begins_at_the_settings_cadence(self):
+        """The choice is never stored, so a fresh app is back on POLL_INTERVAL."""
+        with patch('ai_agents_usage_monitor.app.POLL_INTERVAL', 180),              patch('ai_agents_usage_monitor.app.pystray'),              patch('ai_agents_usage_monitor.app.create_icon_image'),              patch('ai_agents_usage_monitor.app.taskbar_uses_light_theme', return_value=False):
+            fresh = AIAgentsUsageMonitor()
+
+        self.assertEqual(fresh._poll_interval, 180)
+
+    def test_menu_handlers_select_the_offered_intervals(self):
+        """Each of the three menu entries sets its own cadence."""
+        for handler, expected in (
+            (self.app.on_refresh_1min, 60),
+            (self.app.on_refresh_3min, 180),
+            (self.app.on_refresh_5min, 300),
+        ):
+            handler()
+            self.assertEqual(self.app._poll_interval, expected)
+
+    def test_no_offered_interval_undercuts_the_cache_cooldown(self):
+        """A menu choice may only slow the cadence, never outpace POLL_FAST.
+
+        Polling below the cooldown would change nothing (the fetch is skipped)
+        while still consuming the danger-window budget before a reset.
+        """
+        self.assertGreaterEqual(min(REFRESH_INTERVALS), POLL_FAST)
+
+    def test_rejects_an_interval_the_menu_does_not_offer(self):
+        """Only the three offered values are accepted."""
+        with self.assertRaises(AssertionError):
+            self.app._set_poll_interval(30)
+
+    def test_chosen_interval_drives_the_normal_cadence(self):
+        """A five-minute choice is what the next ordinary poll waits out."""
+        self.app._last_response = {'five_hour': {'utilization': 50.0}}
+        self.app._set_poll_interval(300)
+
+        with patch.object(self.app, '_seconds_until_next_reset', return_value=None):
+            self.assertEqual(self.app._calculate_poll_interval(), 300)
+
+    def test_post_reset_follow_up_keeps_its_own_pace(self):
+        """The confirming poll after a reset stays on POLL_FAST, however slow
+        the chosen cadence is - the reset is a fact about the data, not a
+        preference about how often to look."""
+        self.app._last_response = {'five_hour': {'utilization': 50.0}}
+        self.app._set_poll_interval(300)
+        self.app._fast_polls_remaining = 3
+
+        with patch.object(self.app, '_seconds_until_next_reset', return_value=None):
+            self.assertEqual(self.app._calculate_poll_interval(), POLL_FAST)
+
+    def test_imminent_reset_still_aligns_under_a_slow_cadence(self):
+        """Choosing five minutes must not delay a reset that is 100s away."""
+        self.app._last_response = {'five_hour': {'utilization': 50.0}}
+        self.app._set_poll_interval(300)
+
+        with patch.object(self.app, '_seconds_until_next_reset', return_value=100.0):
+            interval = self.app._calculate_poll_interval()
+
+        self.assertEqual(interval, 100 + RESET_BUFFER)
+
+
+class TestPollLoopRefreshIntervalChange(unittest.TestCase):
+    """Tests that a menu change reaches a wait that is already in progress."""
+
+    def setUp(self):
+        self.app = _make_app()
+        self.app.cache = MagicMock()
+        self.app.cache.last_success_time = 1000.0
+
+    def tearDown(self):
+        _cleanup(self.app)
+
+    def _run_one_wait(self, started_at: int, on_tick, next_reset: float | None = None) -> None:
+        """Drive poll_loop through a single wait tick, then stop the loop.
+
+        Parameters
+        ----------
+        started_at : int
+            Interval _calculate_poll_interval reports for this wait.
+        on_tick : callable
+            Runs inside the tick, before the loop reacts to it.
+        next_reset : float or None
+            Seconds until the nearest reset, as seen during the wait.
+        """
+        def tick(_seconds):
+            on_tick()
+            self.app.running = False
+
+        with patch('ai_agents_usage_monitor.app.time.time', return_value=1000.0),              patch('ai_agents_usage_monitor.app.time.sleep', side_effect=tick),              patch('ai_agents_usage_monitor.app.read_access_token', return_value=None),              patch.object(self.app, 'update'),              patch.object(self.app, '_calculate_poll_interval', return_value=started_at),              patch.object(self.app, '_seconds_until_next_reset', return_value=next_reset):
+            self.app.poll_loop()
+
+    def test_shortening_the_interval_pulls_the_next_poll_forward(self):
+        """Going from five minutes to one must not wait out the old five."""
+        self.app._set_poll_interval(300)
+
+        self._run_one_wait(300, lambda: self.app._set_poll_interval(60))
+
+        # Anchored on the last successful fetch (1000) plus the new interval,
+        # instead of the 1300 the five-minute wait had scheduled.
+        self.assertEqual(self.app._next_poll_time, 1060.0)
+
+    def test_lengthening_the_interval_pushes_the_next_poll_back(self):
+        """The change applies in both directions."""
+        self.app._set_poll_interval(60)
+
+        self._run_one_wait(60, lambda: self.app._set_poll_interval(300))
+
+        self.assertEqual(self.app._next_poll_time, 1300.0)
+
+    def test_a_change_cannot_drop_a_poll_into_the_danger_window(self):
+        """Shortening the cadence near a reset realigns to just after it.
+
+        A poll inside the last POLL_FAST - RESET_BUFFER seconds before a reset
+        consumes the cooldown, which would force the confirming poll to
+        overshoot the reset by up to a full cooldown.
+        """
+        self.app._set_poll_interval(300)
+
+        self._run_one_wait(300, lambda: self.app._set_poll_interval(60), next_reset=80.0)
+
+        # 1060 would land inside the danger window (1025-1080), so the poll is
+        # moved to the reset-aligned slot at reset + RESET_BUFFER.
+        self.assertEqual(self.app._next_poll_time, 1085.0)
+
+    def test_an_error_retry_keeps_its_own_timing(self):
+        """A wait that is not running out the chosen cadence ignores the menu.
+
+        The error cadence answers a failed fetch, so a preference about how
+        often to look must not stretch or shrink it.
+        """
+        self.app._set_poll_interval(60)
+
+        self._run_one_wait(30, lambda: self.app._set_poll_interval(300))
+
+        self.assertEqual(self.app._next_poll_time, 1030.0)
+
+
+# ---------------------------------------------------------------------------
+# Reset alignment across providers
+# ---------------------------------------------------------------------------
+
+class TestResetAlignmentCoversWhatIsPolled(unittest.TestCase):
+    """Tests that the cadence aligns to the resets the poll actually fetches.
+
+    The Codex quotas are read on the poll beat only while the tray follows
+    Codex.  Alignment has to match that: covering a reset the poll never
+    fetches spends the cadence on data that cannot move, and omitting one it
+    does fetch leaves that provider confirming its reset late.
+    """
+
+    def setUp(self):
+        self.app = _make_app()
+        self.app.codex_account = MagicMock()
+        # 100 seconds out, and sooner than the Claude reset below.
+        self.app.codex_account.cached = {'windows': [{'resets_at': 1_000_000_100.0}]}
+        self.app._last_response = {
+            'five_hour': {'utilization': 10.0, 'resets_at': '2001-09-09T01:53:20+00:00'},
+        }
+
+    def tearDown(self):
+        _cleanup(self.app)
+
+    def _seconds_until(self) -> float | None:
+        # 2001-09-09T01:46:40Z is epoch 1_000_000_000, so the Claude reset above
+        # is 400 seconds out and the Codex one 100.
+        frozen = datetime(2001, 9, 9, 1, 46, 40, tzinfo=timezone.utc)
+        with patch('ai_agents_usage_monitor.app.datetime') as mock_datetime:
+            mock_datetime.now.return_value = frozen
+            mock_datetime.fromisoformat = datetime.fromisoformat
+            return self.app._seconds_until_next_reset()
+
+    def test_codex_resets_are_ignored_while_the_tray_follows_claude(self):
+        """Nothing polls the Codex quotas then, so aligning to them wastes a poll."""
+        self.app._tray_provider = 'claude'
+
+        self.assertEqual(self._seconds_until(), 400)
+
+    def test_codex_resets_align_the_cadence_while_the_tray_follows_codex(self):
+        """update() fetches them on the same beat, so the sooner one wins."""
+        self.app._tray_provider = 'codex'
+
+        self.assertEqual(self._seconds_until(), 100)
+
+    def test_alignment_reads_the_codex_cache_without_starting_a_read(self):
+        """The scheduler must never launch the app-server to decide a wait."""
+        self.app._tray_provider = 'codex'
+
+        self._seconds_until()
+
+        self.app.codex_account.snapshot.assert_not_called()
+
+    def test_a_codex_window_without_a_reset_time_is_skipped(self):
+        """An inactive window carries no reset and must not break alignment."""
+        self.app._tray_provider = 'codex'
+        self.app.codex_account.cached = {'windows': [{'resets_at': None}]}
+
+        self.assertEqual(self._seconds_until(), 400)
 
 
 if __name__ == '__main__':

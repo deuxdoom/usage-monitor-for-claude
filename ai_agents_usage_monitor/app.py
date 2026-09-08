@@ -18,13 +18,14 @@ from typing import Any
 
 import pystray  # type: ignore[import-untyped]  # no type stubs available
 
-from .api import api_headers, read_access_token
+from .claude_api import api_headers, read_access_token
 from .autostart import is_autostart_enabled, set_autostart, sync_autostart_path
-from .cache import UsageCache
+from .claude_cache import UsageCache
 from .claude_cli import PROJECT_URL
-from .codex_account import CodexAccount
+from .codex_api import CodexAccount
 from .codex_cli import CodexInstallations
 from .command import run_event_command
+from .events import quick_action_env, reset_env, startup_env, threshold_env
 from .idle import get_idle_seconds, is_workstation_locked
 from .instance_id import effective_config_dir, is_default_config_dir
 from .settings import (
@@ -38,13 +39,19 @@ from .formatting import (
 )
 from .i18n import T
 from .popup import UsagePopup
+from .scheduling import RESET_BUFFER, align_to_reset, clamp_to_reset, earliest_reset, reset_aligned_target, tracked_reset_times
 from .tray_icon import create_icon_image, create_status_image, taskbar_uses_light_theme, watch_theme_change
+from .tray_menu import build_menu
 
 __all__ = ['AIAgentsUsageMonitor', 'crash_log']
 
-# Seconds after a reset at which to place the confirming poll.  A small buffer
-# absorbs minor timing differences (clocks, caches, server-side propagation).
-RESET_BUFFER = 5
+# Refresh intervals offered by the tray menu.  One minute leads because it is
+# the app's rule; the slower two exist for a user who deliberately wants fewer
+# requests.  The choice lasts for the running app only - nothing is written to
+# disk, so every start begins at POLL_INTERVAL again.  Only the cadence changes:
+# POLL_FAST stays at its own value, so the cache cooldown and the reset-aligned
+# confirming poll are as exact under a five-minute cadence as under one minute.
+REFRESH_INTERVALS = (60, 180, 300)
 
 # Win32 tray mouse messages, delivered by the shell as the WM_NOTIFY lParam.
 # pystray natively acts only on WM_LBUTTONUP; WM_LBUTTONDBLCLK drives the
@@ -61,13 +68,8 @@ def _future_iso(**kwargs: float) -> str:
 def _align_to_reset(interval: int, next_reset: float | None) -> tuple[int, bool]:
     """Shift the next poll so the confirming poll lands just after the reset.
 
-    Every returned interval stays at or above ``POLL_FAST`` (the cache
-    cooldown), so the reset is caught without polling faster.  The poll before
-    the reset is pulled forward to ``POLL_FAST - RESET_BUFFER`` seconds before
-    it (the danger-window start); from there the confirming poll lands
-    ``RESET_BUFFER`` seconds after the reset.  When the current poll is
-    already too close to pull the previous one forward without breaking the
-    cooldown, the confirming poll is committed directly.
+    Binds this app's cadence values to the rule in ``scheduling``, which takes
+    them as arguments so it can be read on its own.
 
     Parameters
     ----------
@@ -81,31 +83,7 @@ def _align_to_reset(interval: int, next_reset: float | None) -> tuple[int, bool]
     tuple[int, bool]
         The (possibly adjusted) interval and whether alignment engaged.
     """
-    if next_reset is None or next_reset <= 0:
-        return interval, False
-
-    danger = POLL_FAST - RESET_BUFFER          # last window where a poll can no longer be exact
-    post = int(next_reset) + RESET_BUFFER      # offset that lands the poll just after the reset
-
-    if next_reset <= danger:
-        # Already inside that last window: the confirming poll can only land
-        # POLL_FAST after this one (small, unavoidable overshoot).
-        return POLL_FAST, True
-
-    if post <= interval * 1.5:
-        # Reset near enough: commit the confirming poll to just after it.
-        return post, True
-
-    if next_reset < interval + danger:
-        # A normal interval would drop the next poll into that last window,
-        # from where the confirming poll would overshoot.  Pull it forward to
-        # the window start (POLL_FAST - RESET_BUFFER before the reset); if
-        # that is too close to keep POLL_FAST spacing, commit to the
-        # confirming poll directly.
-        pre = int(next_reset) - danger
-        return (pre if pre >= POLL_FAST else post), True
-
-    return interval, False                     # reset still far - keep the normal cadence
+    return align_to_reset(interval, next_reset, POLL_FAST, RESET_BUFFER)
 
 
 class AIAgentsUsageMonitor:
@@ -146,7 +124,14 @@ class AIAgentsUsageMonitor:
         # Theme state
         self._light_taskbar = taskbar_uses_light_theme()
 
-        self.restart_requested = False
+        # Which agent the tray icon, its tooltip and the threshold alerts follow.
+        # The tray menu switches it for this run only; the settings file keeps
+        # deciding what the next start follows, so the app still writes nothing.
+        self._tray_provider = TRAY_PROVIDER
+
+        # How often the cadence poll runs.  The tray menu switches it for this
+        # run only, so the next start is back to the settings file's value.
+        self._poll_interval = POLL_INTERVAL
 
         # Non-default config dirs get a tooltip prefix so multiple
         # instances (one per Claude account) can be told apart.
@@ -156,37 +141,7 @@ class AIAgentsUsageMonitor:
             'usage_monitor',
             icon=create_icon_image(0, 0, self._light_taskbar),
             title=self._tooltip_prefix + T['loading'],
-            menu=pystray.Menu(
-                # Names the app at the top of the menu. Disabled so it reads as a
-                # heading and cannot be clicked, and without an action so it stays
-                # inert; `default` remains on "show usage", which is what a left
-                # click on the tray icon has to keep firing.
-                pystray.MenuItem(T['app_name'], None, enabled=False),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem(T['menu_show'], self.on_show_popup, default=True),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem(
-                    T['autostart'], self.on_toggle_autostart,
-                    checked=lambda item: is_autostart_enabled(),
-                    visible=getattr(sys, 'frozen', False),
-                ),
-                pystray.MenuItem(T['test_commands'], pystray.Menu(
-                    pystray.MenuItem(T['test_reset_5h'], self.on_test_reset_5h, enabled=bool(ON_RESET_COMMAND)),
-                    pystray.MenuItem(T['test_reset_7d'], self.on_test_reset_7d, enabled=bool(ON_RESET_COMMAND)),
-                    pystray.MenuItem(T['test_threshold_5h'], self.on_test_threshold_5h, enabled=bool(ON_THRESHOLD_COMMAND)),
-                    pystray.MenuItem(T['test_threshold_7d'], self.on_test_threshold_7d, enabled=bool(ON_THRESHOLD_COMMAND)),
-                    pystray.MenuItem(T['test_startup'], self.on_test_startup, enabled=bool(ON_STARTUP_COMMAND)),
-                    pystray.MenuItem(T['test_quick_action'], self.on_test_quick_action, enabled=bool(QUICK_ACTION_COMMAND)),
-                # Hidden rather than greyed out when no event command is
-                # configured: for the majority of users the submenu can never
-                # do anything, so it is only clutter in the context menu.
-                ), visible=bool(ON_RESET_COMMAND or ON_STARTUP_COMMAND or ON_THRESHOLD_COMMAND or QUICK_ACTION_COMMAND)),
-                pystray.MenuItem(T['restart'], self.on_restart),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem(T['menu_project'], self.on_open_project),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem(T['quit'], self.on_quit),
-            ),
+            menu=build_menu(self),
         )
 
         # Double-click support.  pystray fires the default action (the popup) on
@@ -212,12 +167,61 @@ class AIAgentsUsageMonitor:
             self._popup_open = True
         threading.Thread(target=self._open_popup, daemon=True).start()
 
+    def on_tray_claude(self, icon: Any = None, item: Any = None) -> None:
+        self._set_tray_provider('claude')
+
+    def on_tray_codex(self, icon: Any = None, item: Any = None) -> None:
+        self._set_tray_provider('codex')
+
+    def _set_tray_provider(self, provider: str) -> None:
+        """Point the tray icon, its tooltip and the threshold alerts at one agent.
+
+        The choice applies to the running app only - ``tray_provider`` in the
+        settings file still decides what the next start follows - so switching
+        costs nothing on disk.  The redraw is handed to a worker thread because
+        a Codex read starts the app-server and can take seconds, which would
+        freeze the menu it was clicked from.
+
+        Parameters
+        ----------
+        provider : str
+            Either ``'claude'`` or ``'codex'``.
+        """
+        assert provider in ('claude', 'codex')
+        if provider == self._tray_provider:
+            return
+
+        self._tray_provider = provider
+        threading.Thread(target=self._apply_tray_provider, args=(provider,), daemon=True).start()
+
+    def on_refresh_1min(self, icon: Any = None, item: Any = None) -> None:
+        self._set_poll_interval(60)
+
+    def on_refresh_3min(self, icon: Any = None, item: Any = None) -> None:
+        self._set_poll_interval(180)
+
+    def on_refresh_5min(self, icon: Any = None, item: Any = None) -> None:
+        self._set_poll_interval(300)
+
+    def _set_poll_interval(self, seconds: int) -> None:
+        """Change how often the cadence poll runs, for this run only.
+
+        The poll loop is waiting out the previous interval, so it re-anchors
+        its target on the new value rather than being interrupted here: a
+        shorter choice therefore takes effect within a second instead of after
+        the old, longer wait has run out.
+
+        Parameters
+        ----------
+        seconds : int
+            One of ``REFRESH_INTERVALS``.
+        """
+        assert seconds in REFRESH_INTERVALS
+
+        self._poll_interval = seconds
+
     def on_toggle_autostart(self, icon: Any = None, item: Any = None) -> None:
         set_autostart(not is_autostart_enabled())
-
-    def on_restart(self, icon: Any = None, item: Any = None) -> None:
-        self.restart_requested = True
-        self.on_quit(icon, item)
 
     def on_open_project(self, icon: Any = None, item: Any = None) -> None:
         webbrowser.open(PROJECT_URL)
@@ -401,8 +405,8 @@ class AIAgentsUsageMonitor:
 
     def _render_tray(self) -> None:
         """Re-render tray icon and tooltip from current state."""
-        if TRAY_PROVIDER == 'codex':
-            self._render_codex_tray(self.codex_account.snapshot())
+        if self._tray_provider == 'codex':
+            self._render_codex_tray(self.codex_account.snapshot(self._poll_interval))
             return
 
         data = self._last_response
@@ -465,6 +469,32 @@ class AIAgentsUsageMonitor:
             )
         self.icon.title = self._tooltip_prefix + format_codex_tooltip(snapshot)
 
+    def _apply_tray_provider(self, provider: str) -> None:
+        """Redraw the tray for a freshly selected provider, off the tray thread.
+
+        Claude data is already in hand except before the first successful
+        fetch, and only a successful fetch starts the cache cooldown, so the
+        cold-start branch is free to ask for one right away.
+
+        Parameters
+        ----------
+        provider : str
+            The provider selected in the tray menu.
+        """
+        if provider == 'codex':
+            snapshot = self.codex_account.snapshot(self._poll_interval)
+            # A read can take seconds, long enough for the user to switch back:
+            # whichever provider is selected now owns the icon, not this one.
+            if self._tray_provider != provider:
+                return
+
+            self._render_codex_tray(snapshot)
+            self._check_codex_threshold_alerts(snapshot)
+        elif self._last_response:
+            self._render_tray()
+        else:
+            self.update()
+
     def _on_theme_changed(self) -> None:
         """Re-render the tray icon when the Windows theme changes."""
         light = taskbar_uses_light_theme()
@@ -493,10 +523,11 @@ class AIAgentsUsageMonitor:
         """
         # The tray follows Codex, so its quotas must advance on the poll beat even
         # when the Claude fetch below is still inside its cooldown and returns
-        # nothing.  CodexAccount.snapshot() carries its own once-a-minute limit
-        # and backoff, so calling it every poll costs nothing extra.
-        if TRAY_PROVIDER == 'codex':
-            codex_snapshot = self.codex_account.snapshot()
+        # nothing.  CodexAccount.snapshot() holds its own cooldown on the interval
+        # it is handed and backs off on failure, so calling it every poll costs
+        # nothing extra.
+        if self._tray_provider == 'codex':
+            codex_snapshot = self.codex_account.snapshot(self._poll_interval)
             self._render_codex_tray(codex_snapshot)
             self._check_codex_threshold_alerts(codex_snapshot)
 
@@ -789,144 +820,79 @@ class AIAgentsUsageMonitor:
             self._notified_thresholds['extra_usage_spent'] = highest_exceeded
 
     # Event commands
-
-    def _quota_snapshot_env(self, data: dict[str, Any]) -> dict[str, str]:
-        """Build environment variables describing the current quota state.
-
-        Emits one ``USAGE_MONITOR_UTILIZATION_<FIELD>`` /
-        ``USAGE_MONITOR_RESETS_AT_<FIELD>`` pair per detected quota field, plus
-        ``USAGE_MONITOR_EXTRA_USED`` when paid extra usage is enabled and
-        ``USAGE_MONITOR_EXTRA_LIMIT`` when it also has a monthly limit (an
-        uncapped account has no limit to report).  Shared by the startup and
-        double-click commands.
-        """
-        env_vars: dict[str, str] = {}
-        for key, entry in data.items():
-            if key == 'extra_usage' or not isinstance(entry, dict) or 'utilization' not in entry:
-                continue
-            env_vars[f'USAGE_MONITOR_UTILIZATION_{key.upper()}'] = str(round(entry.get('utilization', 0) or 0))
-            env_vars[f'USAGE_MONITOR_RESETS_AT_{key.upper()}'] = entry.get('resets_at') or ''
-
-        extra = data.get('extra_usage') or {}
-        if extra.get('is_enabled'):
-            limit = extra.get('monthly_limit', 0) or 0
-            used = extra.get('used_credits', 0) or 0
-            currency = extra.get('currency')
-            decimal_places = extra.get('decimal_places')
-            env_vars['USAGE_MONITOR_EXTRA_USED'] = format_credits(used, currency, decimal_places)
-            if limit > 0:
-                env_vars['USAGE_MONITOR_EXTRA_LIMIT'] = format_credits(limit, currency, decimal_places)
-
-        return env_vars
+    #
+    # Each of these is the same shape: the setting decides whether anything
+    # runs, `events` builds what the command is told, and the runner is called
+    # here.  Keeping the settings and the runner on this side is what lets the
+    # environment assembly stay pure and separately readable.
 
     def _run_startup_command(self, data: dict[str, Any]) -> None:
-        """Run the user-configured startup command if set.
-
-        Fires once after the first successful API update.  Receives the
-        full quota state so the command can decide what to do (e.g. only
-        ping Claude when no five-hour session is active).
-        """
+        """Run the startup command once the first update has landed."""
         if not ON_STARTUP_COMMAND:
             return
 
-        env_vars = {'USAGE_MONITOR_EVENT': 'startup', **self._quota_snapshot_env(data)}
-        run_event_command(ON_STARTUP_COMMAND, env_vars)
+        run_event_command(ON_STARTUP_COMMAND, startup_env(data))
 
     def _run_double_click_command(self) -> None:
-        """Run the user-configured double-click command if set.
+        """Run the quick action against the latest quota state.
 
-        Receives the latest quota state (from the most recent successful
-        update) so the command can act on current usage, mirroring the
-        startup command's environment.  A double-click is a user-driven
-        action, so a command that exits with a non-zero code surfaces its
-        stderr in an error dialog (``capture_output``) instead of failing
-        silently - unlike the automatic reset/threshold/startup commands.
+        A quick action is user-driven, so a command that exits non-zero
+        surfaces its stderr in an error dialog (``capture_output``) instead of
+        failing silently - unlike the automatic reset, threshold and startup
+        commands.  It typically starts a program the user then keeps open, so a
+        non-zero exit long afterwards is that program's own business rather
+        than a wrong path (``report_late_failures=False``).
         """
         if not QUICK_ACTION_COMMAND:
             return
 
-        env_vars = {'USAGE_MONITOR_EVENT': 'quick_action', **self._quota_snapshot_env(self._last_response)}
-        # The quick action typically starts a program the user then keeps open, so a
-        # non-zero exit long afterwards is that program's own business, not a wrong path.
-        run_event_command(QUICK_ACTION_COMMAND, env_vars, capture_output=True, report_late_failures=False)
+        run_event_command(QUICK_ACTION_COMMAND, quick_action_env(self._last_response),
+                          capture_output=True, report_late_failures=False)
 
     def _run_reset_command(
         self, variant: str, pct: float, prev_pct: float, *, data: dict[str, Any], entry: dict[str, Any],
     ) -> None:
-        """Run the user-configured reset command if set."""
+        """Run the reset command for a quota that just reset."""
         if not ON_RESET_COMMAND:
             return
 
-        pct_5h = (data.get('five_hour') or {}).get('utilization', 0) or 0
-        pct_7d = (data.get('seven_day') or {}).get('utilization', 0) or 0
-        run_event_command(ON_RESET_COMMAND, {
-            'USAGE_MONITOR_EVENT': 'reset',
-            'USAGE_MONITOR_VARIANT': variant,
-            'USAGE_MONITOR_UTILIZATION': str(round(pct)),
-            'USAGE_MONITOR_PREV_UTILIZATION': str(round(prev_pct)),
-            'USAGE_MONITOR_UTILIZATION_FIVE_HOUR': str(round(pct_5h)),
-            'USAGE_MONITOR_UTILIZATION_SEVEN_DAY': str(round(pct_7d)),
-            'USAGE_MONITOR_RESETS_AT': entry.get('resets_at') or '',
-            'USAGE_MONITOR_TITLE': T['notify_reset_title'],
-            'USAGE_MONITOR_MESSAGE': T['notify_reset'],
-        })
+        run_event_command(ON_RESET_COMMAND, reset_env(variant, pct, prev_pct, data, entry))
 
     def _run_threshold_command(
         self, variant: str, pct: float | None, threshold: float,
         entry: dict[str, Any], title: str, message: str,
         *, extra_used: str = '', extra_limit: str = '',
     ) -> None:
-        """Run the user-configured threshold command if set.
+        """Run the threshold command, unless this is still the first update.
 
-        Skipped on the first update (before ``_first_update_done`` is set)
-        so that already-exceeded thresholds at app startup do not trigger
-        commands.  Notifications still fire - commands react to *events*,
-        not *state*.
-
-        ``pct`` is None for spend-amount alerts, which have no utilization
-        percentage; ``USAGE_MONITOR_UTILIZATION`` is omitted from the
-        environment in that case.
+        Skipped before ``_first_update_done`` so thresholds already exceeded
+        when the app starts do not fire commands.  The notification still goes
+        out - commands react to *events*, not to *state*.
         """
         if not ON_THRESHOLD_COMMAND or not self._first_update_done:
             return
 
-        env_vars = {
-            'USAGE_MONITOR_EVENT': 'threshold',
-            'USAGE_MONITOR_VARIANT': variant,
-        }
-        if pct is not None:
-            env_vars['USAGE_MONITOR_UTILIZATION'] = str(round(pct))
-        env_vars.update({
-            'USAGE_MONITOR_THRESHOLD': str(round(threshold)),
-            'USAGE_MONITOR_RESETS_AT': entry.get('resets_at') or '',
-            'USAGE_MONITOR_TITLE': title,
-            'USAGE_MONITOR_MESSAGE': message,
-        })
-        if extra_used:
-            env_vars['USAGE_MONITOR_EXTRA_USED'] = extra_used
-        if extra_limit:
-            env_vars['USAGE_MONITOR_EXTRA_LIMIT'] = extra_limit
-
+        env_vars = threshold_env(variant, pct, threshold, entry, title, message,
+                                 extra_used=extra_used, extra_limit=extra_limit)
         run_event_command(ON_THRESHOLD_COMMAND, env_vars)
 
     # Polling
 
     def _seconds_until_next_reset(self) -> float | None:
         """Return seconds until the earliest upcoming quota reset, or None."""
-        now = datetime.now(timezone.utc)
-        earliest = None
-        for key, entry in self._last_response.items():
-            if not isinstance(entry, dict) or not entry.get('resets_at'):
-                continue
-            try:
-                reset_time = datetime.fromisoformat(entry['resets_at'])
-                seconds = (reset_time - now).total_seconds()
-                if seconds > 0 and (earliest is None or seconds < earliest):
-                    earliest = seconds
-            except Exception:
-                continue
+        return earliest_reset(self._tracked_reset_times(), datetime.now(timezone.utc))
 
-        return earliest
+    def _tracked_reset_times(self) -> list[str]:
+        """ISO reset times of every quota this poll actually fetches.
+
+        The Codex windows are handed over only while the tray follows Codex,
+        because ``update()`` reads them on the same beat only then.  They come
+        from the cached snapshot: the scheduler must never start an
+        app-server read to decide how long to wait.
+        """
+        codex_windows = self.codex_account.cached.get('windows') if self._tray_provider == 'codex' else None
+
+        return tracked_reset_times(self._last_response, codex_windows, codex_reset_iso)
 
     def _account_switched(self) -> bool:
         """Return whether the current credentials belong to a different account.
@@ -947,22 +913,25 @@ class AIAgentsUsageMonitor:
         return current_uuid is not None and current_uuid != self._prev_account_uuid
 
     def _reset_aligned_poll_target(self, next_reset: float) -> float:
-        """Return the absolute time for a poll landing just after a reset.
-
-        Clamped to the cache cooldown (``last_success_time + POLL_FAST``) so
-        the confirming poll never fires before a fresh fetch is permitted.
+        """Absolute time for a poll landing just after a reset.
 
         Parameters
         ----------
         next_reset : float
             Seconds until the upcoming reset.
         """
-        target = time.time() + next_reset + RESET_BUFFER
-        last = self.cache.last_success_time
-        if last is not None:
-            target = max(target, last + POLL_FAST)
+        return reset_aligned_target(next_reset, self.cache.last_success_time, time.time(), POLL_FAST, RESET_BUFFER)
 
-        return target
+    def _clamp_target_to_reset(self, target: float) -> float:
+        """Pull a poll target back to the reset-aligned slot when it would overshoot.
+
+        Parameters
+        ----------
+        target : float
+            Absolute time the poll is currently scheduled for.
+        """
+        return clamp_to_reset(target, self._seconds_until_next_reset(), self.cache.last_success_time,
+                              time.time(), POLL_FAST, RESET_BUFFER)
 
     def _calculate_poll_interval(self) -> int:
         """Determine the next poll interval based on current state.
@@ -976,13 +945,13 @@ class AIAgentsUsageMonitor:
 
         if data.get('rate_limited'):
             remaining = self.cache.rate_limit_remaining
-            interval = max(math.ceil(remaining), POLL_INTERVAL) if remaining > 0 else POLL_INTERVAL
+            interval = max(math.ceil(remaining), self._poll_interval) if remaining > 0 else self._poll_interval
         elif 'error' in data:
             interval = POLL_ERROR
         elif self._fast_polls_remaining > 0:
             interval = POLL_FAST
         else:
-            interval = POLL_INTERVAL
+            interval = self._poll_interval
 
         # Align the next poll around an imminent reset for faster feedback.
         # The confirming poll is placed just after the reset; a follow-up uses
@@ -1055,6 +1024,12 @@ class AIAgentsUsageMonitor:
             force_next = False
             interval = self._calculate_poll_interval()
 
+            # Only a wait that is running out the chosen cadence follows a menu
+            # change.  An error retry, a fast poll or a reset-aligned slot keeps
+            # the timing it was given: those answer a state of the data, not a
+            # preference about how often to look.
+            cadence_wait = interval == self._poll_interval
+
             target = time.time() + interval
             self._next_poll_time = target
             last_success_seen = self.cache.last_success_time
@@ -1076,6 +1051,16 @@ class AIAgentsUsageMonitor:
                     if self._last_response.get('auth_error'):
                         break
 
+                # The tray menu can change the refresh interval mid-wait.  Re-anchor
+                # the target on the new value so a shorter choice takes effect at
+                # once instead of only after the old, longer wait has run out.
+                if cadence_wait and self._poll_interval != interval:
+                    interval = self._poll_interval
+                    last = self.cache.last_success_time
+                    anchor = last if last is not None else time.time() - interval
+                    target = self._clamp_target_to_reset(anchor + interval)
+                    self._next_poll_time = target
+
                 # Re-anchor the wait target after a backward clock jump -
                 # otherwise the poll would stall until the wall clock catches
                 # up with the pre-jump target, potentially for hours.  The
@@ -1091,19 +1076,9 @@ class AIAgentsUsageMonitor:
                 lst = self.cache.last_success_time
                 if lst is not None and (last_success_seen is None or lst > last_success_seen):
                     last_success_seen = lst
-                    new_target = max(target, lst + interval)
-                    # Never let that push move the poll past a reset-aligned
-                    # slot, nor drop it into the danger window (the last
-                    # POLL_FAST - RESET_BUFFER seconds before the reset): a
-                    # poll there consumes the cooldown, so the confirming poll
-                    # would overshoot the reset by up to a full cooldown.
-                    next_reset = self._seconds_until_next_reset()
-                    if next_reset is not None:
-                        reset_epoch = time.time() + next_reset
-                        aligned = self._reset_aligned_poll_target(next_reset)
-                        if new_target > aligned or reset_epoch - (POLL_FAST - RESET_BUFFER) < new_target < reset_epoch:
-                            new_target = aligned
-                    target = new_target
+                    # Never let that push move the poll past a reset-aligned slot
+                    # nor into the danger window before the reset.
+                    target = self._clamp_target_to_reset(max(target, lst + interval))
                     self._next_poll_time = target
 
                 # Show notifications deferred while the user was away as soon
@@ -1128,7 +1103,7 @@ class AIAgentsUsageMonitor:
                             reset_deadline = time.time() + next_reset + RESET_BUFFER
                             self._idle_reset_pending = True
                         elif self._idle_reset_pending:
-                            reset_deadline = time.time() + POLL_INTERVAL
+                            reset_deadline = time.time() + self._poll_interval
 
                     self._wait_for_popup(until=reset_deadline)
 

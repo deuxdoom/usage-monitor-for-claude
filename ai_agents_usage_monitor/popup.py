@@ -15,18 +15,18 @@ import logging
 import threading
 import time
 import webbrowser
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import webview  # type: ignore[import-untyped]  # no type stubs available
 
 from . import __version__
-from . import session_logs
-from .api import CLAUDE_CONFIG_DIR
+from . import claude_sessions
+from .claude_api import CLAUDE_CONFIG_DIR
 from .claude_cli import CHANGELOG_URL, find_installations
 from .codex_cli import CODEX_CHANGELOG_URL
-from .codex_usage import CodexUsage
+from .codex_sessions import CodexUsage
 from .formatting import (
     codex_reset_iso, divider_positions, duration_label, elapsed_pct, expand_popup_fields,
     field_countdown_only, field_period, format_count, format_credits, popup_label, time_until,
@@ -68,7 +68,7 @@ __all__ = ['UsagePopup']
 
 if TYPE_CHECKING:
     from .app import AIAgentsUsageMonitor
-    from .cache import CacheSnapshot
+    from .claude_cache import CacheSnapshot
 
 
 # ---------------------------------------------------------------------------
@@ -271,8 +271,46 @@ def _pace_text(pct: float, time_pct: float | None) -> str:
     return T['pace_elapsed'].format(pct=f'{time_pct:.0f}', state=state)
 
 
-def _codex_account_to_dict(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """Format server quota windows with the same markers and reset text as Claude."""
+def _codex_local_windows(local: dict[str, Any]) -> list[dict[str, Any]]:
+    """Label each local summary window for the detail panel.
+
+    Which window a label belongs to is decided here, beside the rest of the
+    Codex formatting, so the page renders the text it is handed instead of
+    matching window lengths of its own.
+
+    Parameters
+    ----------
+    local : dict
+        A ``CodexUsage.snapshot()`` result.
+    """
+    windows = []
+    for window in local.get('windows') or []:
+        day_scoped = window['seconds'] % 86400 == 0
+        windows.append({**window, 'period_text': T['codex_seven_days'] if day_scoped else T['codex_five_hours']})
+    return windows
+
+
+def _codex_account_to_dict(snapshot: dict[str, Any], local_periods: set[int],
+                          next_poll_time: float | None) -> dict[str, Any]:
+    """Format server quota windows with the same markers and reset text as Claude.
+
+    Parameters
+    ----------
+    snapshot : dict
+        A ``CodexAccount.snapshot()`` result.
+    local_periods : set of int
+        Window lengths the local rollout reader actually produced.  A server
+        window offers its expandable token detail only when a local window of
+        the same length exists, so the two sides stay in step without either
+        naming the periods - changing the local windows moves the detail with
+        them instead of silently leaving a bar that expands into nothing.
+    next_poll_time : float or None
+        The app's own poll beat, which both provider views count down to.  A
+        Codex-only deadline would tick to a different moment depending on when
+        the user first opened the tab, so the two views are handed the same one.
+        None falls back to the read's own deadline, which is all there is
+        before the first cadence poll has been scheduled.
+    """
     usage = []
     for window in snapshot['windows']:
         period = window['seconds']
@@ -285,14 +323,15 @@ def _codex_account_to_dict(snapshot: dict[str, Any]) -> dict[str, Any]:
             'fill_pct': max(0.0, min(1.0, pct / 100)),
             'warn': pct >= 100 or (time_pct is not None and pct > time_pct),
             'pace_text': _pace_text(pct, time_pct),
-            'detail_seconds': period if period in (18000, 604800) else None,
+            'detail_seconds': period if period in local_periods else None,
             'reset_text': time_until(reset, countdown_only=not day_scoped) if reset else '',
             'dividers': divider_positions(reset, period) if reset else [],
             'marker_rel': max(0.0, min(1.0, time_pct / 100)) if time_pct is not None else None,
         })
     return {
         'profile': snapshot['profile'], 'usage': usage,
-        'status': {'last_success_time': snapshot['updated_at'], 'next_poll_time': snapshot['next_read'],
+        'status': {'last_success_time': snapshot['updated_at'],
+                   'next_poll_time': next_poll_time if next_poll_time is not None else snapshot['next_read'],
                    'error': T[snapshot['error']] if snapshot['error'] else None},
     }
 
@@ -348,10 +387,19 @@ class _PopupApi:
         return self._popup._session_detail(field)
 
     def codex_usage(self) -> dict[str, Any]:
+        # Read the cadence once: it drives the account cooldown and the page's
+        # own refresh timer, which must not disagree if the tray menu changes
+        # it between the two.
+        interval = self._popup.app._poll_interval
         local = self._popup._codex_usage.snapshot()
-        account = self._popup.app.codex_account.snapshot()
+        account = self._popup.app.codex_account.snapshot(interval)
         installations = self._popup.app.codex_installations.read()
-        return {**local, 'account': _codex_account_to_dict(account), 'installations': installations}
+        windows = _codex_local_windows(local)
+        local_periods = {window['seconds'] for window in windows}
+        account_dict = _codex_account_to_dict(account, local_periods, self._popup.app._next_poll_time)
+
+        return {**local, 'windows': windows, 'account': account_dict,
+                'installations': installations, 'refresh_seconds': interval}
 
     def set_pinned(self, pinned: bool) -> bool:
         return self._popup._set_pinned(pinned)
@@ -777,7 +825,7 @@ class UsagePopup:
         start = end - period
 
         try:
-            stats = session_logs.usage_in_window(CLAUDE_CONFIG_DIR / 'projects', start, end)
+            stats = claude_sessions.usage_in_window(CLAUDE_CONFIG_DIR / 'projects', start, end)
         except Exception:
             logger.debug('session_detail: local log scan failed', exc_info=True)
             return unavailable

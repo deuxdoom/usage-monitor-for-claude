@@ -1,6 +1,6 @@
 """
-Usage Cache
-============
+Claude Usage Cache
+===================
 
 Thread-safe cache for API data - single source of truth for all usage
 state.  All API refresh requests go through ``UsageCache.update()``,
@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from .api import fetch_profile, fetch_usage, read_access_token
+from .claude_api import fetch_profile, fetch_usage, read_access_token
 from .claude_cli import RefreshResult, refresh_token
 from .settings import MAX_BACKOFF, POLL_FAST, POLL_INTERVAL
 

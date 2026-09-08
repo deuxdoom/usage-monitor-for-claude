@@ -1,6 +1,9 @@
 {
     "app_name": "AI 에이전트 사용량 모니터",
     "menu_show": "사용량 보기",
+    "menu_tray_provider": "트레이 표시 대상",
+    "menu_refresh_interval": "새로고침 주기",
+    "refresh_minutes": "{n}분",
     "tooltip_title": "클로드 사용량",
     "tooltip_title_codex": "코덱스 사용량",
     "account": "계정",
@@ -16,7 +19,6 @@
     "unit_days": "{n}일",
     "quit": "종료",
     "autostart": "로그인 시 실행",
-    "restart": "다시 시작",
     "menu_project": "GitHub 프로젝트",
     "test_commands": "이벤트 명령 테스트",
     "test_reset_5h": "리셋 (5시간)",

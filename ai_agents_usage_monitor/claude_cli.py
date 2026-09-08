@@ -1,6 +1,6 @@
 """
-Claude CLI
-===========
+Claude Installations
+=====================
 
 Discovers Claude Code installations on the system and provides
 token refresh via the ``claude update`` command.  Does not handle

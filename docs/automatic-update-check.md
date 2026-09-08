@@ -77,9 +77,9 @@ Add the script to your [`usage-monitor-settings.json`](configuration.md). Choose
 > }
 > ```
 
-### 3. Restart the app
+### 3. Start the app again
 
-Use the **Restart** option in the tray context menu to load the new settings.
+Quit from the tray context menu and start the app again to load the new settings.
 
 ## How it works
 

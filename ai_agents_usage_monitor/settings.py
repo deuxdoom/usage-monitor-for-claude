@@ -360,6 +360,8 @@ ICON_DARK = _icon_colors('icon_dark', {
 # 'codex' additionally makes the app read Codex quotas on the poll beat, not
 # only while the popup's Codex view is open - see docs/configuration.md.
 # Anything else falls back to 'claude' rather than leaving the tray blank.
+# This is the startup default: the tray menu switches providers for the running
+# app, and that choice is deliberately not written back here.
 TRAY_PROVIDER: str = _S.get('tray_provider', 'claude')
 if TRAY_PROVIDER not in ('claude', 'codex'):
     TRAY_PROVIDER = 'claude'

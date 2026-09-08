@@ -1,5 +1,6 @@
-"""Codex Installations
-===================
+"""
+Codex Installations
+====================
 
 Discover native Codex binaries and read CLI and IDE extension versions.
 """

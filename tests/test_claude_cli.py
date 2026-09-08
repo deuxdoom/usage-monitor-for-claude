@@ -15,13 +15,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 from ai_agents_usage_monitor import claude_cli
-from ai_agents_usage_monitor.claude_cli import (
-    ClaudeInstallation,
-    RefreshResult,
-    cli_version,
-    find_installations,
-    refresh_token,
-)
+from ai_agents_usage_monitor.claude_cli import cli_version, find_installations, refresh_token
 
 
 # ---------------------------------------------------------------------------

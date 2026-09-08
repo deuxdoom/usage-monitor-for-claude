@@ -12,7 +12,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from ai_agents_usage_monitor.codex_usage import CodexUsage
+from ai_agents_usage_monitor.codex_sessions import CodexUsage
 
 
 class TestCodexUsage(unittest.TestCase):
@@ -23,8 +23,8 @@ class TestCodexUsage(unittest.TestCase):
         self.path = self.root / 'sessions' / 'test.jsonl'
         self.path.parent.mkdir()
         self.now = datetime.now(timezone.utc).timestamp()
-        self.clock = patch('ai_agents_usage_monitor.codex_usage.time.time', return_value=self.now).start()
-        self.monotonic = patch('ai_agents_usage_monitor.codex_usage.time.monotonic', return_value=100).start()
+        self.clock = patch('ai_agents_usage_monitor.codex_sessions.time.time', return_value=self.now).start()
+        self.monotonic = patch('ai_agents_usage_monitor.codex_sessions.time.monotonic', return_value=100).start()
         self.addCleanup(patch.stopall)
         self.reader = CodexUsage(self.root)
 

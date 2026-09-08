@@ -81,7 +81,14 @@ async function refreshCodex() {
         endCodexPending();
         if (selectedProvider === 'codex') {
             renderCodex(failed ? translations.codex_unavailable : null);
-            codexTimerId = setTimeout(refreshCodex, 60000);
+            // Schedule against the app's own poll beat, so this view refreshes on the
+            // same moment the Claude view does no matter when the tab was opened.
+            // Capped at a minute so a cadence change made from the tray menu is
+            // picked up promptly; a call landing inside the cooldown costs nothing,
+            // because the backend answers it from cache.
+            const nextPoll = codexData?.account?.status?.next_poll_time;
+            const seconds = nextPoll ? nextPoll - Date.now() / 1000 : (codexData?.refresh_seconds || 60);
+            codexTimerId = setTimeout(refreshCodex, Math.min(Math.max(seconds, 1), 60) * 1000);
         }
     }
 }
@@ -97,7 +104,7 @@ function renderCodex(error) {
     }
     const status = codexData.account?.status || {
         last_success_time: codexData.updated_at,
-        next_poll_time: codexData.updated_at + 60,
+        next_poll_time: codexData.updated_at + (codexData.refresh_seconds || 60),
     };
     updateStatus({...status, error: status.error || (codexData.partial ? translations.codex_partial : null)});
 }
@@ -783,8 +790,7 @@ function renderCodexDetail(div) {
         panel.textContent = translations.codex_unavailable;
         return;
     }
-    const period = seconds === 18000 ? translations.codex_five_hours : translations.codex_seven_days;
-    const note = `${period}. ${translations.codex_source}`;
+    const note = `${usage.period_text}. ${translations.codex_source}`;
     renderDetail(div, {
         tokens: usage.tokens.toLocaleString(),
         models: usage.models.map(model => ({

@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This changelog covers 1.30.0 onwards, the point from which this project builds independently.
 
 
+## [2.0.0] - 2026-09-08
+
+### Added
+
+- 트레이 아이콘과 툴팁, 임계값 알림이 Claude와 Codex 중 어느 쪽을 따를지 트레이 우클릭 메뉴의 "트레이 표시 대상"에서 바로 고를 수 있습니다. 설정 파일을 만들 필요가 없습니다. 이 선택은 앱을 종료할 때까지만 유지되며, 다음 실행이 무엇으로 시작할지는 `tray_provider` 설정이 그대로 결정합니다
+- 사용량을 얼마나 자주 갱신할지 1분, 3분, 5분 중에서 트레이 우클릭 메뉴의 "새로고침 주기"로 고를 수 있습니다. 파일에 저장하지 않으므로 앱을 다시 켜면 기본값인 1분으로 돌아옵니다. 느려지는 것은 평상시 갱신뿐입니다. 캐시 쿨다운(`poll_fast`)은 60초로 고정되어 있어, 어느 주기를 고르더라도 한도가 초기화되는 순간의 확인 조회와 알림 시점은 그대로 정확합니다
+
+### Changed
+
+- 팝업 글꼴이 픽셀 서체(Galmuri11)로 바뀌었습니다. 영문과 한글을 한 서체가 함께 담고 있어 두 문자가 같은 인상으로 읽힙니다. 서체 파일은 앱에 포함되어 있으므로 따로 설치할 것이 없고, 서체에 없는 문자는 기존 시스템 글꼴로 자연스럽게 대체됩니다. SIL Open Font License 1.1로 배포되는 글꼴이며 고지는 `LICENSE`에 있습니다
+- 실행 파일 크기가 약 25.7MB에서 15.8MB로 줄었습니다. Pillow가 타입 힌트에서만 참조하는 NumPy를 PyInstaller가 따라가면서 NumPy와 그에 딸린 OpenBLAS(약 20MB)까지 통째로 넣고 있었습니다. 이 앱은 `Image`, `ImageDraw`, `ImageFont`만 사용하고 NumPy가 필요한 API는 쓰지 않으므로 빌드에서 제외했습니다. 위의 글꼴을 포함하고도 이전보다 약 10MB 작습니다
+
+### Fixed
+
+- 트레이가 Codex를 따르도록 설정한 경우, Codex 한도가 초기화되는 순간을 제때 확인합니다. 이전에는 조회 시점을 Claude의 초기화 시각에만 맞추고 있어서, Codex 창이 초기화된 뒤에도 갱신 주기 하나만큼 이전 수치를 그대로 보여줄 수 있었습니다
+- 팝업의 Claude 탭과 Codex 탭이 같은 갱신 시각을 카운트다운합니다. 이전에는 Codex 쪽이 사용자가 그 탭을 처음 연 시점부터 시작하는 별도의 시계를 따르고 있어서, 탭을 언제 눌렀느냐에 따라 두 화면의 남은 시간이 서로 달랐고 새로고침 주기를 바꿔도 양쪽에 같은 시점으로 반영되지 않았습니다
+- `max_backoff` 설정이 Codex 읽기 실패 후의 대기 시간에도 적용됩니다. 이전에는 Claude 쪽에만 적용되어, 설정값과 무관하게 Codex는 15분 상한으로 고정되어 있었습니다
+
+### Removed
+
+- 트레이 메뉴의 "다시 시작" 항목을 없앴습니다. 이 항목은 `usage-monitor-settings.json`을 편집한 뒤 다시 읽어들이기 위한 통로였는데, 일상적으로 바꿀 만한 설정은 이제 트레이 메뉴에서 직접 고를 수 있습니다. 설정 파일을 수정한 뒤 적용하려면 트레이 메뉴에서 종료한 다음 다시 실행하면 됩니다
+
+[Show all code changes](https://github.com/deuxdoom/usage-monitor-for-claude/compare/v1.90.0...v2.0.0)
+
+
 ## [1.90.0] - 2026-09-07
 
 The quick-action rename, the autostart wording, the late-failure dialog, the event-command reset fix and the two TLS changes below were found in, and adapted from, upstream [usage-monitor-for-claude v1.22.0](https://github.com/jens-duttke/usage-monitor-for-claude/releases/tag/v1.22.0) - thanks to [@jens-duttke](https://github.com/jens-duttke). The Codex view and the rename to AI Agents Usage Monitor are this fork's own work.

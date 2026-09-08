@@ -2,8 +2,8 @@
 Single-Instance Tests
 ======================
 
-Unit tests for the single-instance guard: shared memory round-trip,
-ensure_single_instance control flow, and release_instance_lock.
+Unit tests for the single-instance guard: shared memory round-trip
+and ensure_single_instance control flow.
 """
 from __future__ import annotations
 
@@ -412,46 +412,6 @@ class TestObjectNames(unittest.TestCase):
 
         self.assertNotEqual(names_a[0], names_b[0])
         self.assertNotEqual(names_a[1], names_b[1])
-
-
-# ---------------------------------------------------------------------------
-# release_instance_lock
-# ---------------------------------------------------------------------------
-
-class TestReleaseInstanceLock(unittest.TestCase):
-    """Tests for release_instance_lock()."""
-
-    def setUp(self):
-        _reset_globals()
-
-    def tearDown(self):
-        _reset_globals()
-
-    def test_release_closes_both_handles(self):
-        """Both mutex and mapping handles are closed and set to None."""
-        import ai_agents_usage_monitor.single_instance as si
-        mock_kernel32 = MagicMock()
-
-        si._mutex_handle = 100
-        si._pid_mapping_handle = 200
-
-        with patch(f'{MODULE}._kernel32', mock_kernel32):
-            si.release_instance_lock()
-
-        self.assertIsNone(si._mutex_handle)
-        self.assertIsNone(si._pid_mapping_handle)
-        self.assertEqual(mock_kernel32.CloseHandle.call_count, 2)
-
-    def test_release_with_no_handles_is_safe(self):
-        """Calling release when no handles are held does not crash."""
-        import ai_agents_usage_monitor.single_instance as si
-
-        si._mutex_handle = None
-        si._pid_mapping_handle = None
-        si.release_instance_lock()
-
-        self.assertIsNone(si._mutex_handle)
-        self.assertIsNone(si._pid_mapping_handle)
 
 
 if __name__ == '__main__':

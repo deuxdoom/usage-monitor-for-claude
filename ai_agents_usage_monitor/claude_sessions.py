@@ -1,4 +1,8 @@
-"""Supplementary usage detail read from local Claude Code session transcripts.
+"""
+Claude Session Transcripts
+===========================
+
+Supplementary usage detail read from local Claude Code session transcripts.
 
 The ``/api/oauth/usage`` endpoint only reports a percentage and a reset time
 for the five-hour and seven-day limits - it does not disclose token counts,

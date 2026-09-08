@@ -4,7 +4,6 @@ from __future__ import annotations
 import ctypes
 import logging
 import os
-import subprocess
 import sys
 import traceback
 from pathlib import Path
@@ -52,7 +51,7 @@ import webview  # type: ignore[import-untyped]  # no type stubs available
 
 from ai_agents_usage_monitor.app import AIAgentsUsageMonitor, crash_log
 from ai_agents_usage_monitor.notification_identity import register_notification_identity
-from ai_agents_usage_monitor.single_instance import ensure_single_instance, release_instance_lock
+from ai_agents_usage_monitor.single_instance import ensure_single_instance
 
 if _verbose:
     logging.basicConfig(
@@ -60,8 +59,6 @@ if _verbose:
         format='%(asctime)s %(levelname)-5s %(name)s: %(message)s',
         datefmt='%H:%M:%S',
     )
-
-_result: dict = {}
 
 
 def _verbose_step(label: str) -> None:
@@ -83,7 +80,6 @@ def _run_app() -> None:
 
         _verbose_step('app.run...')
         app.run()
-        _result['app'] = app
     except Exception:
         _verbose_step(f'CRASH: {traceback.format_exc()}')
         crash_log(traceback.format_exc())
@@ -119,31 +115,5 @@ try:
     _verbose_step('webview.start...')
     webview.start(func=_run_app)
     _verbose_step('webview.start returned')
-
-    app = _result.get('app')
-    if app and app.restart_requested:
-        release_instance_lock()
-
-        passthrough_args = []
-        if _config_dir is not None:
-            passthrough_args.append(f'--config-dir={os.environ["CLAUDE_CONFIG_DIR"]}')
-        if _verbose:
-            passthrough_args.append('--verbose')
-
-        if getattr(sys, 'frozen', False):
-            # Clear PyInstaller's internal env vars so the new
-            # instance extracts to a fresh temp directory instead
-            # of reusing the current (soon-to-be-deleted) one.
-            env = {k: v for k, v in os.environ.items() if not k.startswith(('_PYI_', '_MEI'))}
-            subprocess.Popen(
-                [sys.executable, *passthrough_args],
-                env=env,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            )
-        else:
-            subprocess.Popen(
-                [sys.executable, '-m', 'ai_agents_usage_monitor', *passthrough_args],
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            )
 except Exception:
     crash_log(traceback.format_exc())

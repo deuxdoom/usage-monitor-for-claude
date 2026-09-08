@@ -1,29 +1,5 @@
 # Configuration
 
-The popup header switches between Claude and Codex. Codex displays the signed-in ChatGPT
-account, plan and server quota windows using the installed native Codex CLI or IDE extension's
-app-server. Install Codex and sign in with ChatGPT first; API-key-only accounts do not supply
-these subscription quota graphs. The reported window durations and reset times determine the
-labels, bars and time markers. A failed read clears previous account values and retries with
-exponential backoff (120 seconds up to 15 minutes). Normal reads run every minute while the
-Codex view is open; reopening the popup or manual refresh respects the same cooldown/backoff.
-
-Both tabs start with token details collapsed. Click a five-hour or seven-day Codex bar (or press
-Enter/Space) to expand its local token totals and model breakdown independently. Open details
-refresh with new data. Both footers list the CLI and installed IDE extension versions and name
-which extension each row is - `VS Code (Claude)` and `VS Code (Codex)` are the extension
-versions, not the editor version - and the Codex `Changelog` link opens the official
-openai/codex release notes. The first switch to Codex keeps the view already on screen until
-the read lands, then swaps it in one pass, so the popup changes height only once.
-
-Separate local token totals read `sessions` and `archived_sessions` under `CODEX_HOME`
-(default `~/.codex`). Set `CODEX_HOME` before launching the monitor to use a different Windows
-Codex home for both the account reader and local logs. This is independent of Claude's
-`--config-dir`, API polling and account selection. Local totals can span multiple Codex accounts;
-they are not the account quota numerator. Cached input is included; reasoning is part of output.
-The selection lasts until the popup closes. Tray icons, alerts and event commands track Claude.
-The Codex child process may write its own logs, databases and refreshed credentials; see PRIVACY.md.
-
 All settings work out of the box - no configuration file is needed. To customize behavior, create a file called `usage-monitor-settings.json` with only the keys you want to change:
 
 ```json
@@ -40,7 +16,7 @@ The app searches for this file in these locations (first match wins):
 2. **Next to the EXE** (or project root when running from source)
 3. **`~/.claude/usage-monitor-settings.json`**
 
-The app never creates or modifies this file. To start, create an empty file and add keys as needed. Settings are read at startup - after editing the file, use the **Restart** option in the tray context menu to apply changes.
+The app never creates or modifies this file. To start, create an empty file and add keys as needed. Settings are read at startup - after editing the file, quit from the tray context menu and start the app again to apply changes.
 
 ## Alert thresholds
 
@@ -235,7 +211,7 @@ The tray icon displays two small progress bars. By default, these show the sessi
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `tray_provider` | `"claude"` | Which agent the tray icon, its tooltip and the threshold alerts follow: `"claude"` or `"codex"`. `"codex"` also makes the app read Codex quotas on the poll beat instead of only while the popup's Codex view is open, so the Codex app-server runs in the background as well. `icon_fields` and `tooltip_fields` name Claude API fields and are ignored under `"codex"`, which always draws its shortest window on top and its longest below. The popup shows both agents either way |
+| `tray_provider` | `"claude"` | Which agent the tray icon, its tooltip and the threshold alerts follow: `"claude"` or `"codex"`. `"codex"` also makes the app read Codex quotas on the poll beat instead of only while the popup's Codex view is open, so the Codex app-server runs in the background as well. `icon_fields` and `tooltip_fields` name Claude API fields and are ignored under `"codex"`, which always draws its shortest window on top and its longest below. The popup shows both agents either way. The tray menu's "Tray icon tracks" submenu switches agents while the app runs, so this setting is what each start begins with rather than the only way to choose |
 | `icon_fields` | `["five_hour", "seven_day"]` | Which two usage fields to show as icon bars. The first entry is the top bar (also determines the icon text), the second is the bottom bar |
 | `icon_style` | `"number+bars"` | Icon layout: `"number+bars"` shows the first field's percentage above two progress bars; `"numbers"` shows both fields as two stacked percentages without bars |
 
@@ -293,17 +269,17 @@ Run a shell command when a usage event occurs. See [Event Commands](event-comman
 
 ## Polling intervals
 
-**This app refreshes once a minute.** Polling stops while nothing is on screen - see `idle_pause` below - but whenever it is running, that is the cadence. Raise both values together if you would rather trade freshness for fewer API calls.
+**This app refreshes once a minute.** Polling stops while nothing is on screen - see `idle_pause` below - but whenever it is running, that is the cadence. The tray menu's "Refresh interval" submenu offers one, three and five minutes for a session where you would rather trade freshness for fewer API calls, and nothing is written to disk, so every start is back on `poll_interval`. Raising both values below changes what that start begins with.
 
 The countdowns themselves never depend on these values. The popup's reset countdowns, elapsed-time markers and bar dividers are redrawn every minute from your own clock, so they keep moving whatever you set here - lowering these will not make a countdown tick faster, only spend more API calls.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `poll_interval` | `60` | Seconds between API updates |
+| `poll_interval` | `60` | Seconds between API updates. The tray menu's "Refresh interval" submenu switches between one, three and five minutes while the app runs, so this setting is what each start begins with rather than the only way to choose. A menu choice moves the cadence alone: `poll_fast` still floors how often a fetch can be sent, so the confirming poll after a quota reset is as exact at five minutes as at one |
 | `poll_fast` | `60` | Seconds when usage is actively increasing. Doubles as the cache cooldown, so a scheduled poll is never sent more often than this, whatever `poll_interval` says. Only the popup's refresh button and the refetch after an account switch skip it |
 | `poll_fast_extra` | `2` | Extra fast polls after usage stops increasing |
 | `poll_error` | `30` | Seconds after a transient error (5xx, network). Rate-limit errors (429) use exponential backoff instead |
-| `max_backoff` | `900` | Maximum backoff in seconds for rate-limit errors (15 min). The backoff starts at twice `poll_interval` and doubles with each further 429, or follows the server's `Retry-After` when it sends one |
+| `max_backoff` | `900` | Maximum backoff in seconds for rate-limit errors (15 min). The backoff starts at twice `poll_interval` and doubles with each further 429, or follows the server's `Retry-After` when it sends one. It caps the Codex side as well, where a failed read backs off from the current refresh interval and doubles per consecutive failure |
 | `idle_pause` | `300` | Seconds the popup has to stay closed before polling pauses, and seconds of user inactivity after which notifications are held back until the user returns (0 = disable both). Notifications are also held while the workstation is locked. A paused poll loop resumes when the popup is opened, and is interrupted at a quota reset when `on_reset_command` is configured |
 
 ## Language

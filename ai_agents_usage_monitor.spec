@@ -16,6 +16,8 @@ a = Analysis(
         ('ai_agents_usage_monitor/popup/popup.html', 'ai_agents_usage_monitor/popup'),
         ('ai_agents_usage_monitor/popup/popup.css', 'ai_agents_usage_monitor/popup'),
         ('ai_agents_usage_monitor/popup/popup.js', 'ai_agents_usage_monitor/popup'),
+        ('ai_agents_usage_monitor/popup/Galmuri11.woff2', 'ai_agents_usage_monitor/popup'),
+        ('ai_agents_usage_monitor/popup/Galmuri11-OFL.txt', 'ai_agents_usage_monitor/popup'),
     ],
     hiddenimports=[
         'pystray._win32',
@@ -43,6 +45,11 @@ a = Analysis(
         'multiprocessing',
         'xml', 'tomllib',
         'sqlite3',
+        # Pillow only references numpy in type hints; nothing here calls an API
+        # that needs it (no fromarray/frombuffer - just Image, ImageDraw and
+        # ImageFont). Following that hint pulled in numpy and its bundled
+        # OpenBLAS, which alone was ~20 MB of the frozen binary.
+        'numpy', 'scipy',
     ],
     noarchive=False,
 )
