@@ -18,9 +18,11 @@ dist/
 .vscode/
 .idea/
 
-# Claude Code
-.claude/settings.json
-.claude/settings.local.json
+# Claude Code - agent instructions and local settings, tracked outside this repository
+.claude/
+
+# GitHub repository metadata - kept local only
+.github/
 
 # Codex-facing mirror of .claude/CLAUDE.md and .claude/commands/ - local only
 .agents/
