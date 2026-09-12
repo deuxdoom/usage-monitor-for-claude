@@ -18,6 +18,7 @@ a = Analysis(
         ('ai_agents_usage_monitor/popup/popup.js', 'ai_agents_usage_monitor/popup'),
         ('ai_agents_usage_monitor/popup/Galmuri11.woff2', 'ai_agents_usage_monitor/popup'),
         ('ai_agents_usage_monitor/popup/Galmuri11-OFL.txt', 'ai_agents_usage_monitor/popup'),
+        ('ai_agents_usage_monitor/popup/FluentUI-MIT.txt', 'ai_agents_usage_monitor/popup'),
     ],
     hiddenimports=[
         'pystray._win32',

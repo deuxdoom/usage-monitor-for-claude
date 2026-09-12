@@ -5,14 +5,17 @@ Settings
 Centralizes all user-tunable constants.  Structural constants (API URLs,
 registry keys, file paths) remain in their respective modules.
 
-Loads an optional ``usage-monitor-settings.json`` to let users override
-any constant.  Search order:
+Loads an optional ``config.json`` to let users override any constant.
+Directories are searched in this order, and within each one ``config.json``
+is preferred over the pre-2.1.0 ``usage-monitor-settings.json``:
 
-1. ``$CLAUDE_CONFIG_DIR/usage-monitor-settings.json`` (if set and different from ``~/.claude/``)
+1. ``$CLAUDE_CONFIG_DIR/`` (if set and different from ``~/.claude/``)
 2. Next to the executable (frozen) or project root (source)
-3. ``~/.claude/usage-monitor-settings.json``
+3. ``~/.claude/``
 
-The app never creates this file - users place it manually.
+Reading is all this module does.  The tray menu's own choices are written
+back by ``settings_store``, which is the only writer and reuses the search
+order below to decide which file it writes to.
 """
 from __future__ import annotations
 
@@ -27,23 +30,29 @@ from .instance_id import effective_config_dir, is_default_config_dir
 
 __all__ = [
     'ALERT_EXTRA_USAGE_SPENT', 'ALERT_TIME_AWARE', 'ALERT_TIME_AWARE_BELOW',
-    'BAR_BG', 'BAR_DIVIDER', 'BAR_FG', 'BAR_FG_WARN', 'BAR_MARKER', 'BG',
+    'BAR_BG', 'BAR_DIVIDER', 'BAR_FG', 'BAR_FG_ALT', 'BAR_FG_WARN', 'BAR_MARKER', 'BG',
     'CLI_COMMAND', 'COMPACT_HIDE', 'CURRENCY_SYMBOL',
     'FG', 'FG_DIM', 'FG_HEADING', 'FG_LINK',
     'ICON_DARK', 'ICON_FIELDS', 'ICON_LIGHT', 'ICON_STYLE', 'IDLE_PAUSE',
-    'LANGUAGE', 'MAX_BACKOFF', 'NOTIFY_CLAUDE_UPDATE',
+    'LANGUAGE', 'LEGACY_SETTINGS_FILENAME', 'MAX_BACKOFF', 'NOTIFY_CLAUDE_UPDATE',
     'ON_RESET_COMMAND', 'ON_STARTUP_COMMAND', 'ON_THRESHOLD_COMMAND', 'QUICK_ACTION_COMMAND',
     'POLL_ERROR', 'POLL_FAST', 'POLL_FAST_EXTRA', 'POLL_INTERVAL',
-    'POPUP_FIELDS', 'POPUP_HIDE_FIELDS', 'POPUP_HIDE_INACTIVE', 'POPUP_MARGIN',
+    'POPUP_FIELDS', 'POPUP_FONT', 'POPUP_FONTS', 'POPUP_HIDE_FIELDS', 'POPUP_HIDE_INACTIVE',
+    'POPUP_MARGIN', 'POPUP_VIEW', 'POPUP_VIEWS',
     'SETTINGS_FILENAME', 'SETTINGS_PATH', 'TIME_FORMAT', 'TOOLTIP_FIELDS', 'TRAY_PROVIDER',
-    'get_alert_thresholds',
+    'get_alert_thresholds', 'settings_search_paths',
 ]
 
-SETTINGS_FILENAME = 'usage-monitor-settings.json'
+SETTINGS_FILENAME = 'config.json'
+
+# What the settings file was called before 2.1.0.  Still read, so an existing
+# hand-written file keeps working under its old name and the tray menu writes
+# its choices back into that same file rather than starting a second one.
+LEGACY_SETTINGS_FILENAME = 'usage-monitor-settings.json'
 
 # Absolute path of the settings file that was actually read, or None when no
-# file was found.  Only used for diagnostics - the search order means a file
-# in an earlier location silently shadows the others.
+# file was found.  The settings store writes choices back to this file; the
+# search order means a file in an earlier location silently shadows the others.
 SETTINGS_PATH: Path | None = None
 
 _NUMERIC_BOUNDS: dict[str, int] = {
@@ -55,13 +64,22 @@ _NUMERIC_BOUNDS: dict[str, int] = {
     'idle_pause': 0,
     'popup_margin': 0,
 }
-_COLOR_KEYS = frozenset({'bg', 'fg', 'fg_dim', 'fg_heading', 'fg_link', 'bar_bg', 'bar_fg', 'bar_fg_warn', 'bar_divider', 'bar_marker'})
+_COLOR_KEYS = frozenset({
+    'bg', 'fg', 'fg_dim', 'fg_heading', 'fg_link',
+    'bar_bg', 'bar_fg', 'bar_fg_alt', 'bar_fg_warn', 'bar_divider', 'bar_marker',
+})
 _ICON_KEYS = frozenset({'icon_light', 'icon_dark'})
 _THRESHOLD_KEY_PREFIX = 'alert_thresholds_'
 _PERCENT_KEYS = frozenset({'alert_time_aware_below'})
 _STRING_KEYS = frozenset({'currency_symbol', 'language'})
 _VALID_TIME_FORMATS = frozenset({'24h', '12h'})
 _VALID_ICON_STYLES = frozenset({'number+bars', 'numbers'})
+# The popup typefaces and views the app offers, in the order the tray menu
+# and the popup's own mode button present them.  Public because the menu
+# handlers validate against them too: a second copy of either list is how the
+# menu and the file would come to disagree about what a valid choice is.
+POPUP_FONTS = ('system', 'pixel')
+POPUP_VIEWS = ('detail', 'bar')
 _COMMAND_KEYS = frozenset({
     'on_double_click_command', 'on_reset_command', 'on_startup_command', 'on_threshold_command', 'quick_action_command',
 })
@@ -71,25 +89,51 @@ _WILDCARD_STRING_LIST_KEYS = frozenset({'popup_fields'})
 _VALID_BAR_MODES = frozenset({'utilization', 'overage'})
 
 
-def _load_settings() -> dict:
-    """Read the first ``usage-monitor-settings.json`` found, or return ``{}``."""
+def settings_search_paths() -> list[Path]:
+    """Return the settings file locations in the order they are searched.
+
+    The first entry doubles as the file the tray menu's choices are written
+    to when no settings file exists yet, which is why the order is built here
+    rather than inline: reader and writer must not disagree about which file
+    is authoritative.
+
+    Returns
+    -------
+    list[Path]
+        Absolute paths, most specific first.  Existence is not checked.
+    """
     if getattr(sys, 'frozen', False):
         app_dir = Path(sys.executable).parent
     else:
         app_dir = Path(__file__).resolve().parent.parent
 
-    home_claude = Path.home() / '.claude'
-
     # A custom config dir takes precedence over the exe-adjacent file so
     # each instance (one per Claude account) can have its own settings.
-    search_paths = []
+    directories = []
     if not is_default_config_dir():
-        search_paths.append(effective_config_dir() / SETTINGS_FILENAME)
-    search_paths.append(app_dir / SETTINGS_FILENAME)
-    search_paths.append(home_claude / SETTINGS_FILENAME)
+        directories.append(effective_config_dir())
+    directories.append(app_dir)
+    directories.append(Path.home() / '.claude')
 
-    for path in search_paths:
+    paths = []
+    for directory in directories:
+        paths.append(directory / SETTINGS_FILENAME)
+        paths.append(directory / LEGACY_SETTINGS_FILENAME)
+
+    return paths
+
+
+def _load_settings() -> dict:
+    """Read the first settings file found, or return ``{}``."""
+    global SETTINGS_PATH  # noqa: PLW0603 - module-level diagnostic value
+    SETTINGS_PATH = None
+
+    for path in settings_search_paths():
         if path.is_file():
+            # Record every file that wins discovery, including empty or damaged
+            # files.  The writer must target that exact file and refuse damage
+            # rather than creating a higher-priority file beside it.
+            SETTINGS_PATH = path
             try:
                 # utf-8-sig reads BOM-less UTF-8 identically and strips a BOM
                 # when present (written by e.g. PowerShell 5 or legacy Notepad).
@@ -99,8 +143,6 @@ def _load_settings() -> dict:
                 data = json.loads(text)
                 if not isinstance(data, dict):
                     raise ValueError(f'Expected a JSON object, got {type(data).__name__}')
-                global SETTINGS_PATH  # noqa: PLW0603 - module-level diagnostic value
-                SETTINGS_PATH = path
                 return _validate(data, path)
             except (json.JSONDecodeError, ValueError) as exc:
                 ctypes.windll.user32.MessageBoxW(
@@ -187,6 +229,19 @@ def _validate(data: dict, path: Path) -> dict:
         elif key == 'icon_style':
             if value not in _VALID_ICON_STYLES:
                 errors.append(f'  {key}: must be "number+bars" or "numbers", got {value!r}')
+                drop.append(key)
+
+        elif key == 'popup_font':
+            if value == 'mono':
+                data[key] = POPUP_FONTS[0]
+                continue
+            if value not in POPUP_FONTS:
+                errors.append(f'  {key}: must be one of {", ".join(POPUP_FONTS)}, got {value!r}')
+                drop.append(key)
+
+        elif key == 'popup_view':
+            if value not in POPUP_VIEWS:
+                errors.append(f'  {key}: must be one of {", ".join(POPUP_VIEWS)}, got {value!r}')
                 drop.append(key)
 
         elif key in _COMMAND_KEYS:
@@ -338,6 +393,10 @@ FG_HEADING = _S.get('fg_heading', '#ffffff')
 FG_LINK = _S.get('fg_link', '#4a9eff')
 BAR_BG = _S.get('bar_bg', '#333333')
 BAR_FG = _S.get('bar_fg', '#4a9eff')
+# Second bar color, used by the single-row view to tell the weekly quota apart
+# from the session at a glance - the two rows there carry no labels of their
+# own, so the color is what distinguishes them.
+BAR_FG_ALT = _S.get('bar_fg_alt', '#e0a34a')
 BAR_FG_WARN = _S.get('bar_fg_warn', '#e05050')
 BAR_DIVIDER = _S.get('bar_divider', '#000c')
 BAR_MARKER = _S.get('bar_marker', '#fffc')
@@ -360,8 +419,8 @@ ICON_DARK = _icon_colors('icon_dark', {
 # 'codex' additionally makes the app read Codex quotas on the poll beat, not
 # only while the popup's Codex view is open - see docs/configuration.md.
 # Anything else falls back to 'claude' rather than leaving the tray blank.
-# This is the startup default: the tray menu switches providers for the running
-# app, and that choice is deliberately not written back here.
+# This is the startup value: switching providers from the tray menu writes the
+# choice back through settings_store, so the next start follows the same agent.
 TRAY_PROVIDER: str = _S.get('tray_provider', 'claude')
 if TRAY_PROVIDER not in ('claude', 'codex'):
     TRAY_PROVIDER = 'claude'
@@ -398,6 +457,14 @@ POPUP_MARGIN: int = _S.get('popup_margin', 12)
 
 # Sections and usage bars hidden while the popup is pinned (compact view)
 COMPACT_HIDE: list[str] = _S.get('compact_hide', [])
+
+# Detail popup typeface: 'system' is the default sans-serif stack and 'pixel'
+# is the bundled Galmuri11. The bar always uses the system stack.
+POPUP_FONT: str = _S.get('popup_font', POPUP_FONTS[0])
+
+# Which view the popup opens in: 'detail' is the full window, 'bar' the
+# single-row session summary.  Written back by the popup's own mode button.
+POPUP_VIEW: str = _S.get('popup_view', POPUP_VIEWS[0])
 
 # Alert thresholds
 ALERT_TIME_AWARE: bool = _S.get('alert_time_aware', True)

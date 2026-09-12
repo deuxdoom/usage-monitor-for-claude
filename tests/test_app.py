@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pystray
 
+import ai_agents_usage_monitor.app as _app_module
 from ai_agents_usage_monitor.app import (
     POLL_FAST, REFRESH_INTERVALS, RESET_BUFFER, WM_LBUTTONDBLCLK, WM_LBUTTONUP, AIAgentsUsageMonitor,
     _align_to_reset,
@@ -21,6 +22,19 @@ from ai_agents_usage_monitor.claude_cache import UpdateResult
 from ai_agents_usage_monitor.claude_cli import RefreshResult
 from ai_agents_usage_monitor.formatting import duration_label
 from ai_agents_usage_monitor.i18n import T
+
+
+# The tray menu and the popup write their choices back to the settings file,
+# and a source-tree run resolves that file to the repository root.  The writer
+# is neutralized for this whole module so no test leaves a real config.json
+# behind - a stray one would be read by the *next* run, silently changing the
+# settings some unrelated test starts from.  The attribute is replaced outright
+# rather than patched, because other modules in the suite call patch.stopall(),
+# which would put the real writer back for everything that runs after them.  Tests that assert a choice is
+# stored assert against this mock; the writer itself is tested for real, in its
+# own temporary directories, by test_settings_store.
+_save_setting = MagicMock(return_value=True)
+_app_module.save_setting = _save_setting
 
 
 def _make_app(thresholds: list[float] | None = None) -> AIAgentsUsageMonitor:
@@ -42,7 +56,7 @@ def _make_app(thresholds: list[float] | None = None) -> AIAgentsUsageMonitor:
     # defaults keep _is_user_away() False so notification tests are deterministic
     # regardless of the real machine's idle/lock state (idle/lock tests override).
     # ICON_FIELDS is pinned to its default so render tests do not inherit a
-    # usage-monitor-settings.json present on the machine running the suite
+    # config.json present on the machine running the suite
     # (tests for custom fields override it per test).
     app._patches = [
         patch('ai_agents_usage_monitor.app.get_alert_thresholds', return_value=thresholds),
@@ -50,11 +64,13 @@ def _make_app(thresholds: list[float] | None = None) -> AIAgentsUsageMonitor:
         patch('ai_agents_usage_monitor.app.get_idle_seconds', return_value=0.0),
         patch('ai_agents_usage_monitor.app.ICON_FIELDS', ['five_hour', 'seven_day']),
     ]
-    # Pinned for the same reason as ICON_FIELDS: the seed comes from the
-    # settings file, and a machine running the suite may have chosen Codex
-    # or a poll_interval other than the shipped 60.
+    # Pinned for the same reason as ICON_FIELDS: each seed comes from the
+    # settings file, and a machine running the suite may have chosen Codex, a
+    # poll_interval other than the shipped 60, or another popup font - all of
+    # which the app now stores there itself.
     app._tray_provider = 'claude'
     app._poll_interval = 60
+    app._popup_font = 'system'
     for active_patch in app._patches:
         active_patch.start()
     return app
@@ -1785,9 +1801,26 @@ class TestTrayProvider(unittest.TestCase):
 
         app.codex_account.snapshot.side_effect = switch_back_mid_read
         app._tray_provider = 'codex'
+        _save_setting.reset_mock()
         with patch('ai_agents_usage_monitor.app.create_icon_image') as icon_image:
             app._apply_tray_provider('codex')
         icon_image.assert_not_called()
+        _save_setting.assert_not_called()
+
+    def test_a_stale_claude_worker_does_not_overwrite_the_new_codex_choice(self):
+        app = _make_app()
+        self.addCleanup(_cleanup, app)
+        app._last_response = {}
+        app._tray_provider = 'claude'
+        _save_setting.reset_mock()
+
+        def switch_mid_fetch():
+            app._tray_provider = 'codex'
+
+        with patch.object(app, 'update', side_effect=switch_mid_fetch):
+            app._apply_tray_provider('claude')
+
+        _save_setting.assert_not_called()
 
     def test_switching_to_claude_repaints_from_the_data_already_held(self):
         app = _make_app()
@@ -1874,6 +1907,93 @@ class TestTrayProviderMenu(unittest.TestCase):
         with patch('ai_agents_usage_monitor.app.threading.Thread'):
             entries[1](app.icon)
         self.assertEqual(app._tray_provider, 'codex')
+
+    def test_the_choice_is_stored_off_the_menu_thread(self):
+        """An unwritable disk must not freeze the menu the click came from."""
+        app, entries = self._provider_items()
+        _save_setting.reset_mock()
+        with patch('ai_agents_usage_monitor.app.threading.Thread') as thread:
+            entries[1](app.icon)
+        _save_setting.assert_not_called()
+
+        # The worker the click handed the redraw to is what stores it.
+        thread.call_args.kwargs['target'](*thread.call_args.kwargs['args'])
+        _save_setting.assert_any_call('tray_provider', 'codex')
+
+
+class TestFontMenu(unittest.TestCase):
+    """The font submenu marks the face in use and switches the popup to another."""
+
+    def _font_items(self):
+        app, items = _build_tray_menu()
+        submenu = next(item for item in items if item.text == T['menu_font'])
+
+        return app, list(submenu.submenu)
+
+    def test_every_face_is_offered_as_a_radio_entry(self):
+        _app, entries = self._font_items()
+        self.assertEqual([entry.text for entry in entries], [T['font_system'], T['font_pixel']])
+        self.assertTrue(all(entry.radio for entry in entries))
+
+    def test_the_mark_follows_the_face_in_use(self):
+        app, entries = self._font_items()
+        system, pixel = entries
+        self.assertTrue(system.checked)
+        app._popup_font = 'pixel'
+        self.assertTrue(pixel.checked)
+        self.assertFalse(system.checked)
+
+    def test_clicking_an_entry_changes_the_face_and_stores_it(self):
+        app, entries = self._font_items()
+        _save_setting.reset_mock()
+        entries[1](app.icon)
+        self.assertEqual(app._popup_font, 'pixel')
+        _save_setting.assert_called_once_with('popup_font', 'pixel')
+
+    def test_re_picking_the_current_face_changes_nothing(self):
+        """Radio items fire on every click, so the no-op has to be caught here."""
+        app, entries = self._font_items()
+        _save_setting.reset_mock()
+        entries[0](app.icon)
+        _save_setting.assert_not_called()
+
+    def test_an_open_popup_is_restyled_in_place(self):
+        """A pinned popup can be up for days; it must not wait for a reopen."""
+        app, entries = self._font_items()
+        app._popup = MagicMock()
+        entries[1](app.icon)
+        app._popup.apply_font.assert_called_once_with('pixel')
+
+    def test_no_open_popup_is_not_an_error(self):
+        app, entries = self._font_items()
+        app._popup = None
+        entries[1](app.icon)
+        self.assertEqual(app._popup_font, 'pixel')
+
+    def test_an_unknown_face_is_refused(self):
+        app, _entries = self._font_items()
+        with self.assertRaises(AssertionError):
+            app._set_popup_font('comic')
+
+
+class TestRefreshIntervalPersistence(unittest.TestCase):
+    """The cadence chosen from the menu survives a restart."""
+
+    def test_choosing_an_interval_stores_it(self):
+        app = _make_app()
+        _save_setting.reset_mock()
+        app.on_refresh_5min()
+        self.assertEqual(app._poll_interval, 300)
+        _save_setting.assert_called_once_with('poll_interval', 300)
+        _cleanup(app)
+
+    def test_the_stored_key_is_the_one_a_user_sets_by_hand(self):
+        """Storing it anywhere else would leave two keys deciding one cadence."""
+        app = _make_app()
+        _save_setting.reset_mock()
+        app.on_refresh_3min()
+        self.assertEqual(_save_setting.call_args.args[0], 'poll_interval')
+        _cleanup(app)
 
 
 # ---------------------------------------------------------------------------

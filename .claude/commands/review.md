@@ -26,7 +26,7 @@ Run `git diff --staged` and critically review EVERY changed file:
 - No credentials in logs, error messages, or anywhere outside HTTP Authorization headers.
 - All URLs and API endpoints are top-level constants - no dynamic URL construction.
 - No `eval()`, `exec()`, `compile()`, or dynamic imports.
-- No file write operations (the app is read-only).
+- File writes stay in `settings_store.py`, limited to the four stored choices and same-directory temporary replacement files; preserve other keys and never overwrite an unreadable or malformed settings file. Check README.md and PRIVACY.md against the actual write scope.
 - No obfuscation, no base64-encoded strings, no encoded URLs or tokens.
 - Network communication exclusively with `api.anthropic.com`.
 

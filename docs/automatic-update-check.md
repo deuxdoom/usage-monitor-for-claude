@@ -48,7 +48,7 @@ The app automatically sets the `USAGE_MONITOR_VERSION` environment variable for 
 
 ### 2. Configure the event command
 
-Add the script to your [`usage-monitor-settings.json`](configuration.md). Choose when to check based on your preference:
+Add the script to your [`config.json`](configuration.md). Choose when to check based on your preference:
 
 **Check on every quota reset** (session resets roughly every 5 hours):
 

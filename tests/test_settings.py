@@ -240,6 +240,61 @@ class TestLoadSettings(unittest.TestCase):
             mock_ctypes.windll.user32.MessageBoxW.assert_called_once()
 
 
+class TestSettingsFilename(unittest.TestCase):
+    """config.json is the settings file; the pre-2.1.0 name is still honored."""
+
+    def test_the_settings_file_is_named_config_json(self):
+        self.assertEqual(settings_mod.SETTINGS_FILENAME, 'config.json')
+
+    def test_each_directory_offers_the_new_name_before_the_old_one(self):
+        """A user who has both keeps the one they most likely just created."""
+        paths = settings_mod.settings_search_paths()
+        for new, legacy in zip(paths[::2], paths[1::2]):
+            self.assertEqual(new.parent, legacy.parent)
+            self.assertEqual(new.name, settings_mod.SETTINGS_FILENAME)
+            self.assertEqual(legacy.name, settings_mod.LEGACY_SETTINGS_FILENAME)
+
+    def test_an_existing_file_under_the_old_name_still_loads(self):
+        """Renaming the file must not silently discard everyone's settings."""
+        with TemporaryDirectory() as app_tmp, TemporaryDirectory() as home_tmp:
+            settings = {'poll_interval': 180}
+            (Path(app_tmp) / settings_mod.LEGACY_SETTINGS_FILENAME).write_text(json.dumps(settings), encoding='utf-8')
+            self.assertEqual(_load(Path(app_tmp), Path(home_tmp)), settings)
+
+    def test_an_empty_legacy_file_remains_the_writer_target(self):
+        """The writer must not create config.json beside a legacy file it actually read."""
+        with TemporaryDirectory() as app_tmp, TemporaryDirectory() as home_tmp, \
+             patch.object(settings_mod, 'SETTINGS_PATH', None):
+            target = Path(app_tmp) / settings_mod.LEGACY_SETTINGS_FILENAME
+            target.write_text('', encoding='utf-8')
+            self.assertEqual(_load(Path(app_tmp), Path(home_tmp)), {})
+            self.assertEqual(settings_mod.SETTINGS_PATH, target)
+
+    def test_a_damaged_legacy_file_remains_the_writer_target(self):
+        """Remembering the damaged file prevents a new config.json from shadowing it."""
+        with TemporaryDirectory() as app_tmp, TemporaryDirectory() as home_tmp, \
+             patch.object(settings_mod, 'SETTINGS_PATH', None):
+            target = Path(app_tmp) / settings_mod.LEGACY_SETTINGS_FILENAME
+            target.write_text('{broken', encoding='utf-8')
+            self.assertEqual(_load(Path(app_tmp), Path(home_tmp)), {})
+            self.assertEqual(settings_mod.SETTINGS_PATH, target)
+
+    def test_the_new_name_wins_within_one_directory(self):
+        with TemporaryDirectory() as app_tmp, TemporaryDirectory() as home_tmp:
+            (Path(app_tmp) / settings_mod.SETTINGS_FILENAME).write_text('{"bg": "#new"}', encoding='utf-8')
+            (Path(app_tmp) / settings_mod.LEGACY_SETTINGS_FILENAME).write_text('{"bg": "#old"}', encoding='utf-8')
+            self.assertEqual(_load(Path(app_tmp), Path(home_tmp)), {'bg': '#new'})
+
+    def test_a_nearer_directory_wins_over_a_newer_name(self):
+        """Directory order is the stronger rule - an instance's own file still wins."""
+        with TemporaryDirectory() as app_tmp, TemporaryDirectory() as home_tmp:
+            claude_dir = Path(home_tmp) / '.claude'
+            claude_dir.mkdir()
+            (Path(app_tmp) / settings_mod.LEGACY_SETTINGS_FILENAME).write_text('{"bg": "#app"}', encoding='utf-8')
+            (claude_dir / settings_mod.SETTINGS_FILENAME).write_text('{"bg": "#home"}', encoding='utf-8')
+            self.assertEqual(_load(Path(app_tmp), Path(home_tmp)), {'bg': '#app'})
+
+
 class TestSettingsOverrides(unittest.TestCase):
     """Tests that settings values properly override default constants."""
 
@@ -468,6 +523,43 @@ class TestSettingsValidation(unittest.TestCase):
         """Non-string icon_style value is dropped."""
         result, _ = self._run_validate({'icon_style': 2})
         self.assertNotIn('icon_style', result)
+
+    # popup_font / popup_view validation
+
+    def test_popup_font_accepts_every_face_the_menu_offers(self):
+        """The menu and the file have to agree on what a valid font is."""
+        for font in settings_mod.POPUP_FONTS:
+            result, mock = self._run_validate({'popup_font': font})
+            self.assertEqual(result['popup_font'], font)
+            mock.windll.user32.MessageBoxW.assert_not_called()
+
+    def test_popup_font_unknown_value_dropped(self):
+        """An unknown face is dropped so the popup falls back to the default."""
+        result, mock = self._run_validate({'popup_font': 'comic'})
+        self.assertNotIn('popup_font', result)
+        mock.windll.user32.MessageBoxW.assert_called_once()
+
+    def test_previous_mono_choice_falls_back_to_system_without_an_error(self):
+        result, mock = self._run_validate({'popup_font': 'mono'})
+        self.assertEqual(result['popup_font'], 'system')
+        mock.windll.user32.MessageBoxW.assert_not_called()
+
+    def test_popup_view_accepts_both_views(self):
+        for view in settings_mod.POPUP_VIEWS:
+            result, mock = self._run_validate({'popup_view': view})
+            self.assertEqual(result['popup_view'], view)
+            mock.windll.user32.MessageBoxW.assert_not_called()
+
+    def test_popup_view_unknown_value_dropped(self):
+        result, mock = self._run_validate({'popup_view': 'tiny'})
+        self.assertNotIn('popup_view', result)
+        mock.windll.user32.MessageBoxW.assert_called_once()
+
+    def test_bar_fg_alt_is_a_color_key(self):
+        """The second bar color is customizable like every other color."""
+        result, mock = self._run_validate({'bar_fg_alt': '#ff8800'})
+        self.assertEqual(result['bar_fg_alt'], '#ff8800')
+        mock.windll.user32.MessageBoxW.assert_not_called()
 
     # Non-negative numeric validation
 

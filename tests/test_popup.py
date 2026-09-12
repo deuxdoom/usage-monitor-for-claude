@@ -15,11 +15,27 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 from ai_agents_usage_monitor.claude_cache import CacheSnapshot
+import ai_agents_usage_monitor.popup as _popup_module
 from ai_agents_usage_monitor.popup import (
     UsagePopup, _PopupApi, _BASELINE_DPI, _MONITORINFO, _SWP_NOACTIVATE, _SWP_NOSIZE, _SWP_NOZORDER,
     _codex_account_to_dict, _codex_local_windows, _init_config, _snapshot_to_dict, _usage_entries,
 )
 from ai_agents_usage_monitor.claude_sessions import ModelUsage, WindowStats
+from ai_agents_usage_monitor.i18n import LANG_CODE
+from ai_agents_usage_monitor.settings import POPUP_FONT, POPUP_VIEW
+
+
+# The tray menu and the popup write their choices back to the settings file,
+# and a source-tree run resolves that file to the repository root.  The writer
+# is neutralized for this whole module so no test leaves a real config.json
+# behind - a stray one would be read by the *next* run, silently changing the
+# settings some unrelated test starts from.  The attribute is replaced outright
+# rather than patched, because other modules in the suite call patch.stopall(),
+# which would put the real writer back for everything that runs after them.  Tests that assert a choice is
+# stored assert against this mock; the writer itself is tested for real, in its
+# own temporary directories, by test_settings_store.
+_save_setting = MagicMock(return_value=True)
+_popup_module.save_setting = _save_setting
 
 
 def _snap(
@@ -167,8 +183,9 @@ class TestCodexAccountFormatting(unittest.TestCase):
                         bar = _codex_account_to_dict(snapshot, _LOCAL_PERIODS, None)['usage'][0]
                     self.assertEqual(bar['warn'], warning)
                     self.assertEqual(bar['fill_pct'], used / 100)
-                    self.assertEqual(bar['marker_rel'], elapsed / 100 if elapsed is not None else None)
-                    self.assertEqual(bool(bar['pace_text']), elapsed is not None)
+                    active_elapsed = elapsed if used > 0 else None
+                    self.assertEqual(bar['marker_rel'], active_elapsed / 100 if active_elapsed is not None else None)
+                    self.assertEqual(bool(bar['pace_text']), active_elapsed is not None)
 
     def test_time_advancing_turns_red_back_to_blue(self):
         snapshot = {'profile': None, 'windows': [
@@ -204,6 +221,40 @@ class TestCodexAccountFormatting(unittest.TestCase):
         self.assertTrue(bar['warn'])
         self.assertEqual(bar['reset_text'], '')
         self.assertIsNone(bar['marker_rel'])
+
+    def test_unused_window_hides_time_even_when_the_server_supplies_a_reset(self):
+        for period in (18000, 604800, 900):
+            for reset in (None, 1900000000):
+                with self.subTest(period=period, reset=reset):
+                    snapshot = {'profile': None, 'windows': [
+                        {'key': 'codex_unused', 'seconds': period, 'used': 0, 'resets_at': reset}],
+                        'updated_at': 1, 'next_read': 61, 'error': None}
+                    with patch('ai_agents_usage_monitor.popup.time_until') as countdown, \
+                         patch('ai_agents_usage_monitor.popup.elapsed_pct') as elapsed:
+                        bar = _codex_account_to_dict(snapshot, {period}, None)['usage'][0]
+                    self.assertEqual(bar['pct_text'], '0%')
+                    self.assertEqual(bar['fill_pct'], 0)
+                    self.assertEqual(bar['detail_seconds'], period)
+                    self.assertEqual(bar['reset_text'], '')
+                    self.assertEqual(bar['pace_text'], '')
+                    self.assertEqual(bar['dividers'], [])
+                    self.assertIsNone(bar['marker_rel'])
+                    self.assertFalse(bar['warn'])
+                    countdown.assert_not_called()
+                    elapsed.assert_not_called()
+                    self.assertEqual(snapshot['windows'][0]['resets_at'], reset)
+
+    def test_actual_usage_restores_the_server_reset_even_if_rounded_to_zero(self):
+        snapshot = {'profile': None, 'windows': [
+            {'key': 'codex_session', 'seconds': 18000, 'used': 0.1, 'resets_at': 1900000000}],
+            'updated_at': 1, 'next_read': 61, 'error': None}
+        with patch('ai_agents_usage_monitor.popup.time_until', return_value='server reset') as countdown, \
+             patch('ai_agents_usage_monitor.popup.elapsed_pct', return_value=50):
+            bar = _codex_account_to_dict(snapshot, _LOCAL_PERIODS, None)['usage'][0]
+        self.assertEqual(bar['pct_text'], '0%')
+        self.assertEqual(bar['reset_text'], 'server reset')
+        self.assertEqual(bar['marker_rel'], 0.5)
+        countdown.assert_called_once_with(datetime.fromtimestamp(1900000000, timezone.utc).isoformat(), countdown_only=True)
 
 
 class TestUsageEntries(unittest.TestCase):
@@ -737,9 +788,30 @@ class TestInitConfig(unittest.TestCase):
     """Tests for _init_config - builds the JS init() config object."""
 
     def test_top_level_keys(self):
-        """Config has colors, t (translations), app_version, compact_hide, and data."""
+        """Config carries the theme, the strings, the version, and the view's own state."""
         config = _init_config(_snap())
-        self.assertEqual(set(config.keys()), {'colors', 't', 'app_version', 'compact_hide', 'data'})
+        self.assertEqual(
+            set(config.keys()),
+            {'colors', 't', 'app_version', 'compact_hide', 'font', 'view', 'lang_tag', 'time_format', 'data'},
+        )
+
+    def test_font_and_view_default_to_the_stored_settings(self):
+        """With nothing passed, the page opens on what the settings file says."""
+        config = _init_config(_snap())
+        self.assertEqual(config['font'], POPUP_FONT)
+        self.assertEqual(config['view'], POPUP_VIEW)
+
+    def test_font_and_view_are_the_running_app_choices_when_given(self):
+        """The tray menu changes the font mid-run, so the caller's value wins."""
+        config = _init_config(_snap(), font='pixel', view='bar')
+        self.assertEqual(config['font'], 'pixel')
+        self.assertEqual(config['view'], 'bar')
+
+    def test_clock_reads_in_the_app_language(self):
+        """The bar view's clock follows the loaded translations, not the system locale."""
+        config = _init_config(_snap())
+        self.assertEqual(config['lang_tag'], LANG_CODE)
+        self.assertIn(config['time_format'], ('24h', '12h'))
 
     @patch('ai_agents_usage_monitor.popup.COMPACT_HIDE', ['account', 'seven_day_opus'])
     def test_compact_hide_from_settings(self):
@@ -749,7 +821,7 @@ class TestInitConfig(unittest.TestCase):
 
     def test_colors_from_settings(self):
         """Color values come from settings module constants."""
-        from ai_agents_usage_monitor.settings import BAR_BG, BAR_DIVIDER, BAR_FG, BAR_FG_WARN, BAR_MARKER, BG, FG, FG_DIM, FG_HEADING, FG_LINK
+        from ai_agents_usage_monitor.settings import BAR_BG, BAR_DIVIDER, BAR_FG, BAR_FG_ALT, BAR_FG_WARN, BAR_MARKER, BG, FG, FG_DIM, FG_HEADING, FG_LINK
 
         config = _init_config(_snap())
         colors = config['colors']
@@ -760,6 +832,7 @@ class TestInitConfig(unittest.TestCase):
         self.assertEqual(colors['fg_link'], FG_LINK)
         self.assertEqual(colors['bar_bg'], BAR_BG)
         self.assertEqual(colors['bar_fg'], BAR_FG)
+        self.assertEqual(colors['bar_fg_alt'], BAR_FG_ALT)
         self.assertEqual(colors['bar_fg_warn'], BAR_FG_WARN)
         self.assertEqual(colors['bar_divider'], BAR_DIVIDER)
         self.assertEqual(colors['bar_marker'], BAR_MARKER)
@@ -780,6 +853,7 @@ class TestInitConfig(unittest.TestCase):
         self.assertEqual(t['changelog'], T['changelog'])
         self.assertEqual(t['pin_popup'], T['pin_popup'])
         self.assertEqual(t['unpin_popup'], T['unpin_popup'])
+        self.assertEqual(t['close_popup'], T['close_popup'])
         self.assertEqual(t['status_updated_s'], T['status_updated_s'])
         self.assertEqual(t['status_updated'], T['status_updated'])
         self.assertEqual(t['status_refreshing'], T['status_refreshing'])
@@ -961,18 +1035,20 @@ class TestPinState(unittest.TestCase):
     def test_set_pinned_updates_state(self):
         popup = object.__new__(UsagePopup)
         popup._pinned = False
+        popup._view = 'detail'
 
         self.assertTrue(popup._set_pinned(True))
         self.assertTrue(popup._pinned)
 
-        popup._moved_while_pinned = True
+        popup._moved_by_user = True
         self.assertFalse(popup._set_pinned(False))
         self.assertFalse(popup._pinned)
-        self.assertFalse(popup._moved_while_pinned)
+        self.assertFalse(popup._moved_by_user)
 
     def test_begin_drag_ignored_when_unpinned(self):
         popup = object.__new__(UsagePopup)
         popup._pinned = False
+        popup._view = 'detail'
         popup._popup_hwnd = 12345
         popup._dragging = False
 
@@ -1020,7 +1096,7 @@ class TestPinState(unittest.TestCase):
         popup._dragging = True
         popup._popup_hwnd = 12345
         popup._drag_offset = (40, 40)
-        popup._moved_while_pinned = False
+        popup._moved_by_user = False
 
         def fill_cursor(ptr):
             point = ctypes.cast(ptr, ctypes.POINTER(ctypes.wintypes.POINT)).contents
@@ -1034,11 +1110,11 @@ class TestPinState(unittest.TestCase):
         mock_set_pos.assert_called_once_with(
             12345, 0, 660, 580, 0, 0, _SWP_NOSIZE | _SWP_NOZORDER | _SWP_NOACTIVATE,
         )
-        self.assertTrue(popup._moved_while_pinned)
+        self.assertTrue(popup._moved_by_user)
 
     def test_end_drag_reasserts_size_on_dpi_change(self):
         popup = object.__new__(UsagePopup)
-        popup.WIDTH = UsagePopup.WIDTH
+        popup._width = UsagePopup.WIDTH
         popup._popup_hwnd = 12345
         popup._dragging = True
         popup._drag_start_dpi = 96
@@ -1054,7 +1130,7 @@ class TestPinState(unittest.TestCase):
 
     def test_end_drag_keeps_size_without_dpi_change(self):
         popup = object.__new__(UsagePopup)
-        popup.WIDTH = UsagePopup.WIDTH
+        popup._width = UsagePopup.WIDTH
         popup._popup_hwnd = 12345
         popup._dragging = True
         popup._drag_start_dpi = 96
@@ -1071,6 +1147,156 @@ class TestPinState(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # report_height / first show
 # ---------------------------------------------------------------------------
+
+class TestViewMode(unittest.TestCase):
+    """Switching between the detail window and the single-row bar."""
+
+    def _popup(self, view='detail'):
+        popup = object.__new__(UsagePopup)
+        popup.app = MagicMock(_popup_view=view)
+        popup._pinned = False
+        popup._view = 'detail'
+        popup._moved_by_user = False
+        popup._view = view
+        popup._width = UsagePopup.BAR_WIDTH if view == 'bar' else UsagePopup.WIDTH
+        popup._last_height = 480
+        popup._geometry_lock = threading.Lock()
+        popup._window = MagicMock()
+
+        return popup
+
+    def test_the_bar_is_wider_than_the_detail_window(self):
+        """Both agents' sessions side by side do not fit the detail width."""
+        self.assertGreater(UsagePopup.BAR_WIDTH, UsagePopup.WIDTH)
+
+    def test_switching_to_the_bar_applies_its_width(self):
+        popup = self._popup()
+        self.assertTrue(popup._set_view_mode('bar'))
+        self.assertEqual(popup._view, 'bar')
+        self.assertEqual(popup._width, UsagePopup.BAR_WIDTH)
+        self.assertEqual(popup.app._popup_view, 'bar')
+
+    def test_switching_back_restores_the_detail_width(self):
+        popup = self._popup('bar')
+        popup._set_view_mode('detail')
+        self.assertEqual(popup._width, UsagePopup.WIDTH)
+
+    def test_the_height_cache_is_cleared_so_the_new_width_is_applied(self):
+        """The two views can render to the same height, and an equal report is
+        otherwise discarded - which would leave the new layout in the old width."""
+        popup = self._popup()
+        popup._set_view_mode('bar')
+        self.assertEqual(popup._last_height, 0)
+
+    def test_the_choice_is_stored(self):
+        popup = self._popup()
+        _save_setting.reset_mock()
+        popup._set_view_mode('bar')
+        _save_setting.assert_called_once_with('popup_view', 'bar')
+
+    def test_an_unknown_view_is_refused(self):
+        popup = self._popup()
+        with self.assertRaises(AssertionError):
+            popup._set_view_mode('tiny')
+
+    def test_bar_stays_open_without_pinning_and_detail_resumes_dismissal(self):
+        popup = self._popup('bar')
+        self.assertTrue(popup._stays_open())
+        popup._moved_by_user = True
+        popup._set_view_mode('detail')
+        self.assertFalse(popup._stays_open())
+        self.assertFalse(popup._moved_by_user)
+
+    def test_bar_keeps_its_dragged_position_without_pinning(self):
+        popup = self._popup('bar')
+        popup._popup_hwnd = 12345
+        popup._dragging = False
+        with patch('ctypes.windll.user32.GetCursorPos'), \
+             patch('ctypes.windll.user32.GetWindowRect'), \
+             patch('ctypes.windll.user32.GetDpiForWindow', return_value=96), \
+             patch('ctypes.windll.user32.SetWindowPos') as move:
+            self.assertTrue(popup._begin_drag())
+            self.assertTrue(popup._drag())
+            move.assert_called_once()
+            popup._set_pinned(False)
+            self.assertTrue(popup._moved_by_user)
+            popup._resize_and_position(52)
+
+        popup._window.resize.assert_called_once_with(UsagePopup.BAR_WIDTH, 52)
+        popup._window.move.assert_not_called()
+
+    def test_pinned_detail_keeps_the_bar_position_on_return(self):
+        popup = self._popup('bar')
+        popup._pinned = True
+        popup._moved_by_user = True
+        popup._set_view_mode('detail')
+        self.assertTrue(popup._stays_open())
+        self.assertTrue(popup._moved_by_user)
+
+    def test_the_bridge_exposes_it_to_the_page(self):
+        """The page awaits this before re-rendering, so the window resizes once."""
+        popup = self._popup()
+        api = _PopupApi(popup)
+        self.assertTrue(api.set_view_mode('bar'))
+        self.assertEqual(popup._view, 'bar')
+
+    def test_the_window_opens_on_the_running_app_view(self):
+        """A reopened popup keeps the selected view without waiting for a restart."""
+        with patch.object(UsagePopup, '_dismiss_watch', lambda self: None), \
+             patch('ai_agents_usage_monitor.popup.webview') as mock_webview:
+            app = MagicMock(_popup_view='detail')
+            selected_popup = self._popup()
+            selected_popup.app = app
+            selected_popup._set_view_mode('bar')
+            thread = threading.Thread(target=lambda: UsagePopup(app), daemon=True)
+            thread.start()
+            deadline = time.time() + 2.0
+            while not mock_webview.create_window.called and time.time() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(mock_webview.create_window.called)
+            popup = mock_webview.create_window.call_args.kwargs['js_api']._popup
+            self.addCleanup(popup._closed.set)
+
+        self.assertEqual(mock_webview.create_window.call_args.kwargs['width'], UsagePopup.BAR_WIDTH)
+        self.assertEqual(mock_webview.create_window.call_args.kwargs['min_size'], (200, 1))
+
+
+class TestApplyFont(unittest.TestCase):
+    """A font chosen from the tray menu reaches a popup that is already open."""
+
+    def _popup(self):
+        popup = object.__new__(UsagePopup)
+        popup._window = MagicMock()
+
+        return popup
+
+    def test_the_page_is_restyled(self):
+        popup = self._popup()
+        popup.apply_font('pixel')
+        popup._window.evaluate_js.assert_called_once_with('setFont("pixel")')
+
+    def test_a_closing_window_does_not_raise(self):
+        """The window can be torn down between the click and the call."""
+        popup = self._popup()
+        popup._window.evaluate_js.side_effect = RuntimeError('window is gone')
+        popup.apply_font('system')
+
+    def test_the_open_popup_publishes_itself_to_the_app(self):
+        """Without this the tray menu has nothing to restyle."""
+        with patch.object(UsagePopup, '_dismiss_watch', lambda self: None), \
+             patch('ai_agents_usage_monitor.popup.webview') as mock_webview:
+            app = MagicMock()
+            thread = threading.Thread(target=lambda: UsagePopup(app), daemon=True)
+            thread.start()
+            deadline = time.time() + 2.0
+            while not mock_webview.create_window.called and time.time() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(mock_webview.create_window.called)
+            popup = mock_webview.create_window.call_args.kwargs['js_api']._popup
+            self.addCleanup(popup._closed.set)
+
+        self.assertIs(app._popup, popup)
+
 
 class TestReportHeight(unittest.TestCase):
     """Tests for _PopupApi.report_height - the first report must always show the window."""
@@ -1224,6 +1450,7 @@ class TestDismissWatchShutdown(unittest.TestCase):
         popup = object.__new__(UsagePopup)
         popup._running = True
         popup._pinned = pinned
+        popup._view = 'detail'
         popup._shown = True
         popup._popup_hwnd = 0
         popup._pump_tid = 0
@@ -1659,10 +1886,11 @@ class TestResizeAndPosition(unittest.TestCase):
     def _call(self, css_height, dpi):
         """Call _resize_and_position and capture the resize/move arguments."""
         popup = object.__new__(UsagePopup)
-        popup.WIDTH = UsagePopup.WIDTH
+        popup._width = UsagePopup.WIDTH
         popup._popup_hwnd = 12345
         popup._pinned = False
-        popup._moved_while_pinned = False
+        popup._view = 'detail'
+        popup._moved_by_user = False
 
         mock_window = MagicMock()
         popup._window = mock_window
@@ -1724,10 +1952,11 @@ class TestResizeAndPosition(unittest.TestCase):
     def test_falls_back_to_system_dpi_when_window_dpi_unavailable(self):
         """When GetDpiForWindow returns 0, GetDpiForSystem is used as fallback."""
         popup = object.__new__(UsagePopup)
-        popup.WIDTH = UsagePopup.WIDTH
+        popup._width = UsagePopup.WIDTH
         popup._popup_hwnd = 12345
         popup._pinned = False
-        popup._moved_while_pinned = False
+        popup._view = 'detail'
+        popup._moved_by_user = False
 
         mock_window = MagicMock()
         popup._window = mock_window
@@ -1757,10 +1986,10 @@ class TestResizeAndPosition(unittest.TestCase):
     def test_pinned_moved_popup_resizes_without_snapping_to_tray(self):
         """A moved pinned popup keeps its position when content height changes."""
         popup = object.__new__(UsagePopup)
-        popup.WIDTH = UsagePopup.WIDTH
+        popup._width = UsagePopup.WIDTH
         popup._popup_hwnd = 12345
         popup._pinned = True
-        popup._moved_while_pinned = True
+        popup._moved_by_user = True
 
         mock_window = MagicMock()
         popup._window = mock_window

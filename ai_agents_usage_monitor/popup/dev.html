@@ -51,12 +51,17 @@
         width: 340px;
         background: #1e1e1e;
         visibility: hidden;
+        transition: width 0.15s ease;
     }
 </style>
 </head>
 <body>
 <div class="dev-controls">
     <select id="langSelect" title="Language"></select>
+    <select id="fontSelect" title="Popup font (the tray menu's own choice)">
+        <option value="system">Font: system</option>
+        <option value="pixel">Font: pixel (detail only)</option>
+    </select>
     <select id="codexSelect" title="What the Codex read does (reloads the preview)">
         <option value="ok">Codex read: data (1.2s)</option>
         <option value="slow">Codex read: data (4s)</option>
@@ -75,8 +80,13 @@
 <script>
 const COLORS = {
     bg: '#1e1e1e', fg: '#cccccc', fg_dim: '#888888', fg_heading: '#ffffff', fg_link: '#4a9eff',
-    bar_bg: '#333333', bar_fg: '#4a9eff', bar_fg_warn: '#e05050', bar_divider: '#000c', bar_marker: '#fffc',
+    bar_bg: '#333333', bar_fg: '#4a9eff', bar_fg_alt: '#e0a34a', bar_fg_warn: '#e05050',
+    bar_divider: '#000c', bar_marker: '#fffc',
 };
+
+// Widths the app applies per view, mirrored here so the preview's frame
+// changes size the way the real window does. See UsagePopup.WIDTH/BAR_WIDTH.
+const VIEW_WIDTHS = { detail: 340, bar: 360 };
 
 // Available locales (filename code -> display name). Keep in sync with locale/*.json.
 const LANGS = [['en', 'English'], ['ja', 'Japanese'], ['ko', 'Korean']];
@@ -169,6 +179,7 @@ const CODEX = {
 
 const iframe = document.getElementById('popup');
 const langSelect = document.getElementById('langSelect');
+const fontSelect = document.getElementById('fontSelect');
 const codexSelect = document.getElementById('codexSelect');
 const win = () => iframe.contentWindow;
 const now = () => Date.now() / 1000;
@@ -176,13 +187,17 @@ const now = () => Date.now() / 1000;
 let currentLang = 'en';
 let currentLocale = null;
 let currentPreset = 'full';
+// Which view the preview opens in, so the stored-view path is exercised too.
+let currentView = 'detail';
 
 // Map locale JSON keys onto the compact translation object popup.js expects.
 function buildTranslations(loc) {
     return {
         title: loc.app_name, account: loc.account, email: loc.email, plan: loc.plan,
         usage: loc.usage, extra_usage: loc.extra_usage, claude_code: loc.claude_code, changelog: loc.changelog,
-        pin_popup: loc.pin_popup, unpin_popup: loc.unpin_popup, refresh: loc.refresh,
+        pin_popup: loc.pin_popup, unpin_popup: loc.unpin_popup, close_popup: loc.close_popup, refresh: loc.refresh,
+        view_bar: loc.view_bar, view_detail: loc.view_detail,
+        bar_used: loc.bar_used, bar_left: loc.bar_left,
         detail_tokens: loc.detail_tokens, detail_messages: loc.detail_messages,
         detail_estimated: loc.detail_estimated, detail_models: loc.detail_models,
         detail_loading: loc.detail_loading, detail_unavailable: loc.detail_unavailable,
@@ -212,6 +227,13 @@ function localizeLabel(loc, entry) {
     return template.replace('{suffix}', suffix);
 }
 
+// The bar view picks its two rows by window length, so the preview has to
+// carry the same durations the app derives from each field name.
+function periodSeconds(entry) {
+    if (entry.unit === 'hour') return (entry.period || 5) * 3600;
+    return (entry.period || 7) * 86400;
+}
+
 // Map a preset usage entry to its API field key (so compact_hide preview works).
 function fieldKey(entry) {
     if (entry.unit === 'hour') return 'five_hour';
@@ -237,7 +259,9 @@ function resolveData(name, loc) {
     const usage = (preset.usage || []).map((entry) => ({
         key: fieldKey(entry),
         label: localizeLabel(loc, entry),
+        period_seconds: periodSeconds(entry),
         pct_text: entry.pct + '%',
+        left_text: Math.max(0, 100 - entry.pct) + '%',
         fill_pct: entry.pct / 100,
         warn: entry.warn,
         pace_text: localizePace(loc, entry.pct, entry.marker_rel),
@@ -266,14 +290,16 @@ function resolveCodex(loc) {
     const usage = CODEX.usage.map((entry) => ({
         key: 'codex_' + entry.unit,
         label: localizeLabel(loc, entry),
+        period_seconds: entry.seconds,
         pct_text: entry.pct + '%',
+        left_text: Math.max(0, 100 - entry.pct) + '%',
         fill_pct: entry.pct / 100,
         warn: entry.pct >= 100 || entry.pct > entry.marker_rel * 100,
-        pace_text: localizePace(loc, entry.pct, entry.marker_rel),
+        pace_text: entry.pct > 0 ? localizePace(loc, entry.pct, entry.marker_rel) : '',
         detail_seconds: entry.seconds,
-        reset_text: localizeReset(loc, entry.reset),
-        dividers: entry.dividers,
-        marker_rel: entry.marker_rel,
+        reset_text: entry.pct > 0 ? localizeReset(loc, entry.reset) : '',
+        dividers: entry.pct > 0 ? entry.dividers : [],
+        marker_rel: entry.pct > 0 ? entry.marker_rel : null,
     }));
 
     // The app sends the chosen refresh interval with every read; the preview
@@ -341,9 +367,16 @@ async function applyLanguage(code) {
             ), 600));
         },
         set_pinned(pinned) { return Promise.resolve(pinned); },
+        // The app changes the window width here, before the page re-renders,
+        // so the whole switch costs one resize. The frame does the same.
+        set_view_mode(mode) {
+            currentView = mode;
+            iframe.style.width = VIEW_WIDTHS[mode] + 'px';
+            return Promise.resolve(true);
+        },
         begin_drag() { return Promise.resolve(true); },
         drag() { return Promise.resolve(true); },
-        end_drag() {},
+        end_drag() { return Promise.resolve(); },
         report_height(h) {
             iframe.style.height = h + 'px';
             iframe.style.visibility = 'visible';
@@ -360,7 +393,13 @@ async function applyLanguage(code) {
     // Demo set so toggling the pin button previews compact hiding of both
     // whole sections and an individual usage bar.
     const compactHide = ['account', 'extra_usage', 'claude_code', 'status', 'seven_day_opus'];
-    win().init({ colors: COLORS, t: buildTranslations(currentLocale), app_version: '1.13.0', compact_hide: compactHide, data: resolveData(currentPreset, currentLocale) });
+    iframe.style.width = VIEW_WIDTHS[currentView] + 'px';
+    win().init({
+        colors: COLORS, t: buildTranslations(currentLocale), app_version: '2.1.0',
+        compact_hide: compactHide, font: fontSelect.value, view: currentView,
+        lang_tag: currentLang, time_format: '24h',
+        data: resolveData(currentPreset, currentLocale),
+    });
 }
 
 function loadPreset(name) {
@@ -377,6 +416,7 @@ function randomize() {
         const pct = Math.round(Math.random() * 100);
         entry.fill_pct = pct / 100;
         entry.pct_text = pct + '%';
+        entry.left_text = Math.max(0, 100 - pct) + '%';
         entry.warn = entry.marker_rel !== null && pct / 100 > entry.marker_rel;
     }
     if (data.extra) {
@@ -395,6 +435,7 @@ for (const [code, name] of LANGS) {
 }
 langSelect.value = currentLang;
 langSelect.addEventListener('change', () => applyLanguage(langSelect.value));
+fontSelect.addEventListener('change', () => win().setFont(fontSelect.value));
 // popup.js keeps the first Codex response for the life of the page, so reload
 // the frame - the tab switch is only pending once per load.
 codexSelect.addEventListener('change', () => applyLanguage(currentLang));

@@ -128,10 +128,356 @@ def _run_scenario(scenario: str) -> dict:
     with TemporaryDirectory() as tmp:
         script_path = Path(tmp) / 'scenario.js'
         script_path.write_text(script, encoding='utf-8')
-        proc = subprocess.run([_NODE, str(script_path)], capture_output=True, text=True, timeout=30)
+        # Node writes UTF-8 whatever the console code page is, and the popup
+        # renders characters outside it - the em dash standing in for a
+        # quota with no data, for one - so the encoding is named rather
+        # than left to the locale, where it decodes as mojibake or raises.
+        proc = subprocess.run(
+            [_NODE, str(script_path)], capture_output=True, text=True, encoding='utf-8', timeout=30,
+        )
     if proc.returncode != 0:
         raise AssertionError(f'Node scenario failed:\n{proc.stderr}')
     return json.loads(proc.stdout)
+
+
+@unittest.skipUnless(_NODE, 'Node.js not available')
+class TestBarWindows(unittest.TestCase):
+    """Which two quotas the bar view shows, chosen by window length."""
+
+    _PRELUDE = """
+els = { barCards: document.createElement('div') };
+"""
+
+    def _windows(self, entries: str) -> dict:
+        scenario = f"""
+const [session, weekly] = barWindows({entries});
+console.log(JSON.stringify({{
+    session: session ? session.key : null,
+    weekly: weekly ? weekly.key : null,
+}}));
+"""
+        return _run_scenario(self._PRELUDE + scenario)
+
+    def test_the_shortest_window_is_the_session(self):
+        out = self._windows(
+            "[makeEntry({key: 'seven_day', period_seconds: 604800}),"
+            " makeEntry({key: 'five_hour', period_seconds: 18000})]"
+        )
+        self.assertEqual(out['session'], 'five_hour')
+        self.assertEqual(out['weekly'], 'seven_day')
+
+    def test_a_model_scoped_limit_does_not_displace_the_weekly_one(self):
+        """Same-length windows keep the order they arrived in, which puts the
+        plain weekly quota ahead of a model-scoped one."""
+        out = self._windows(
+            "[makeEntry({key: 'five_hour', period_seconds: 18000}),"
+            " makeEntry({key: 'seven_day', period_seconds: 604800}),"
+            " makeEntry({key: 'seven_day_opus', period_seconds: 604800})]"
+        )
+        self.assertEqual(out['weekly'], 'seven_day')
+
+    def test_a_single_quota_leaves_the_second_row_empty(self):
+        out = self._windows("[makeEntry({key: 'five_hour', period_seconds: 18000})]")
+        self.assertEqual(out['session'], 'five_hour')
+        self.assertIsNone(out['weekly'])
+
+    def test_no_data_leaves_both_rows_empty(self):
+        out = self._windows('[]')
+        self.assertIsNone(out['session'])
+        self.assertIsNone(out['weekly'])
+
+    def test_an_entry_without_a_window_length_is_skipped(self):
+        """A quota whose period cannot be derived has no place on a timed row."""
+        out = self._windows(
+            "[makeEntry({key: 'mystery', period_seconds: null}),"
+            " makeEntry({key: 'five_hour', period_seconds: 18000})]"
+        )
+        self.assertEqual(out['session'], 'five_hour')
+        self.assertIsNone(out['weekly'])
+
+
+@unittest.skipUnless(_NODE, 'Node.js not available')
+class TestBarClock(unittest.TestCase):
+    def test_separator_blinks_each_second_without_changing_the_time_text(self):
+        for language in ('en', 'ko', 'ja'):
+            for time_format in ('12h', '24h'):
+                with self.subTest(language=language, time_format=time_format):
+                    result = _run_scenario('''
+els = {clockDate: document.createElement('div'), clockTime: document.createElement('div')};
+const RealDate = Date;
+let instant = new RealDate(2026, 8, 12, 23, 59, 58).getTime();
+Date = class extends RealDate {constructor(...args) {super(...(args.length ? args : [instant]));}};
+''' + f'setupClock({json.dumps(language)}, {json.dumps(time_format)});\n' + '''
+const ticks = [];
+for (let i = 0; i < 3; i++) {
+    renderClock();
+    const separator = els.clockTime.querySelector('.clock-separator');
+    ticks.push({text: els.clockTime.textContent, label: els.clockTime.getAttribute('aria-label'),
+        separator: separator.textContent, off: separator.classList.contains('off'), date: els.clockDate.textContent});
+    instant += 1000;
+}
+console.log(JSON.stringify(ticks));
+''')
+                    self.assertEqual([tick['off'] for tick in result], [False, True, False])
+                    self.assertEqual([tick['separator'] for tick in result], [':', ':', ':'])
+                    self.assertEqual(result[0]['text'], result[1]['text'])
+                    self.assertEqual(result[0]['label'], result[1]['label'])
+                    self.assertIn('11:59' if time_format == '12h' else '23:59', result[0]['text'])
+                    self.assertRegex(result[2]['text'], r'12:00' if time_format == '12h' else r'(?:00|24):00')
+                    self.assertNotEqual(result[0]['date'], result[2]['date'])
+
+
+@unittest.skipUnless(_NODE, 'Node.js not available')
+class TestBarView(unittest.TestCase):
+    """The single-row view: two rows per agent, and the used/remaining toggle."""
+
+    _PRELUDE = """
+els = {
+    barCards: document.createElement('div'),
+    clockDate: document.createElement('div'),
+    clockTime: document.createElement('div'),
+};
+translations = { bar_used: '{label} {pct} used', bar_left: '{label} {pct} left' };
+setupClock('en', '24h');
+lastData = { usage: [
+    makeEntry({key: 'five_hour', label: '5h', period_seconds: 18000, pct_text: '42%', left_text: '58%', fill_pct: 0.42, marker_rel: 0.3}),
+    makeEntry({key: 'seven_day', label: '7d', period_seconds: 604800, pct_text: '65%', left_text: '35%', fill_pct: 0.65, warn: true}),
+] };
+codexData = { account: { usage: [
+    makeEntry({key: 'codex_hour', label: '5h', period_seconds: 18000, pct_text: '12%', left_text: '88%', fill_pct: 0.12}),
+] } };
+"""
+
+    _EPILOGUE = """
+const cards = els.barCards.children;
+console.log(JSON.stringify({
+    names: cards.map((card) => card.querySelector('.bar-card-name').textContent),
+    rows: cards.map((card) => card.querySelectorAll('.bar-row').map((row) => ({
+        pct: row.querySelector('.bar-row-pct').textContent,
+        width: row.querySelector('.bar-fill').style.width,
+        classes: row.className,
+        warn: row.querySelector('.bar-fill').className,
+        title: row.title,
+    }))),
+    clock: els.clockTime.textContent !== '' && els.clockDate.textContent !== '',
+}));
+"""
+
+    def _render(self, extra: str = '') -> dict:
+        return _run_scenario(self._PRELUDE + 'renderBarView();\n' + extra + self._EPILOGUE)
+
+    def test_one_card_per_agent(self):
+        out = self._render()
+        self.assertEqual(out['names'], ['CLAUDE', 'CODEX'])
+
+    def test_each_card_carries_a_session_row_and_a_weekly_row(self):
+        out = self._render()
+        self.assertEqual([len(rows) for rows in out['rows']], [2, 2])
+        self.assertIn('weekly', out['rows'][0][1]['classes'])
+        self.assertNotIn('weekly', out['rows'][0][0]['classes'])
+
+    def test_percentages_read_as_used_by_default(self):
+        out = self._render()
+        self.assertEqual([row['pct'] for row in out['rows'][0]], ['42%', '65%'])
+
+    def test_a_missing_quota_shows_a_dash_and_keeps_its_row(self):
+        """The row holds the card's height so the window does not resize later."""
+        out = self._render()
+        codex_weekly = out['rows'][1][1]
+        self.assertEqual(codex_weekly['pct'], '\u2014')
+        self.assertIn('empty', codex_weekly['classes'])
+
+    def test_the_fill_measures_what_has_been_used(self):
+        out = self._render()
+        self.assertEqual(out['rows'][0][0]['width'], '42%')
+
+    def test_an_over_pace_bar_stays_marked_in_either_row(self):
+        """The warning has to outrank the color the weekly row would otherwise get."""
+        out = self._render()
+        self.assertIn('warn', out['rows'][0][1]['warn'])
+
+    def test_the_clock_is_rendered(self):
+        out = self._render()
+        self.assertTrue(out['clock'])
+
+    def test_clicking_a_card_switches_to_remaining(self):
+        out = self._render('els.barCards.children[0].dispatchEvent("click");\n')
+        self.assertEqual([row['pct'] for row in out['rows'][0]], ['58%', '35%'])
+
+    def test_the_switch_applies_to_every_card_at_once(self):
+        """One number reading as used beside another reading as remaining would
+        be worse than either alone."""
+        out = self._render('els.barCards.children[0].dispatchEvent("click");\n')
+        self.assertEqual(out['rows'][1][0]['pct'], '88%')
+
+    def test_the_fill_still_measures_use_after_the_switch(self):
+        """It is read against the elapsed-time marker, which inverting would strand."""
+        out = self._render('els.barCards.children[0].dispatchEvent("click");\n')
+        self.assertEqual(out['rows'][0][0]['width'], '42%')
+
+    def test_clicking_twice_returns_to_used(self):
+        out = self._render(
+            'els.barCards.children[0].dispatchEvent("click");\n'
+            'els.barCards.children[0].dispatchEvent("click");\n'
+        )
+        self.assertEqual(out['rows'][0][0]['pct'], '42%')
+
+    def test_each_row_says_which_quota_and_which_reading_it_is(self):
+        """The rows carry no labels, so the tooltip is where that is said."""
+        out = self._render()
+        self.assertEqual(out['rows'][0][0]['title'], '5h 42% used')
+
+    def test_the_tooltip_follows_the_switch(self):
+        out = self._render('els.barCards.children[0].dispatchEvent("click");\n')
+        self.assertEqual(out['rows'][0][0]['title'], '5h 58% left')
+
+
+@unittest.skipUnless(_NODE, 'Node.js not available')
+class TestBarUpdates(unittest.TestCase):
+    def test_toggle_and_refresh_keep_the_card_and_fill_elements(self):
+        result = _run_scenario(TestBarView._PRELUDE + '''
+renderBarView();
+const card = els.barCards.children[0], fill = card.querySelector('.bar-fill');
+card.dispatchEvent('keydown', {key: 'Enter', preventDefault() {}});
+lastData.usage[0] = makeEntry({period_seconds: 18000, label: '5h', pct_text: '50%', left_text: '50%', fill_pct: 0.5});
+renderBarView();
+const refreshed = {sameCard: card === els.barCards.children[0], sameFill: fill === card.querySelector('.bar-fill'),
+    width: fill.style.width, pressed: card.getAttribute('aria-pressed'), label: card.getAttribute('aria-label')};
+card.dispatchEvent('keydown', {key: ' ', preventDefault() {}});
+console.log(JSON.stringify({refreshed, pressed: card.getAttribute('aria-pressed')}));
+''')
+        self.assertTrue(result['refreshed']['sameCard'])
+        self.assertTrue(result['refreshed']['sameFill'])
+        self.assertEqual(result['refreshed']['width'], '50%')
+        self.assertEqual(result['refreshed']['pressed'], 'true')
+        self.assertIn('5h 50% left', result['refreshed']['label'])
+        self.assertEqual(result['pressed'], 'false')
+
+    def test_missing_quota_clears_its_fill_marker_and_tooltip(self):
+        result = _run_scenario(TestBarView._PRELUDE + '''
+renderBarView();
+const row = els.barCards.children[0].querySelector('.bar-row');
+lastData.usage = [];
+renderBarView();
+console.log(JSON.stringify({width: row.querySelector('.bar-fill').style.width,
+    marker: row.querySelector('.bar-marker'), dividers: row.querySelectorAll('.bar-divider').length,
+    title: row.title, empty: row.classList.contains('empty')}));
+''')
+        self.assertEqual(result, {'width': '0%', 'marker': None, 'dividers': 0, 'title': '', 'empty': True})
+
+    def test_failed_reads_mark_cached_values_and_recovery_clears_the_warning(self):
+        result = _run_scenario(TestBarView._PRELUDE + '''
+lastData.status = {error: 'Claude error'};
+codexReadError = 'Codex error';
+renderBarView();
+const errors = Array.from(els.barCards.children, card => ({stale: card.classList.contains('stale'), title: card.title}));
+lastData.status.error = null;
+codexReadError = null;
+renderBarView();
+console.log(JSON.stringify({errors, recovered: Array.from(els.barCards.children, card => !card.classList.contains('stale') && card.title === '')}));
+''')
+        self.assertEqual(result['errors'], [{'stale': True, 'title': 'Claude error'}, {'stale': True, 'title': 'Codex error'}])
+        self.assertEqual(result['recovered'], [True, True])
+
+
+@unittest.skipUnless(_NODE, 'Node.js not available')
+class TestPopupDrag(unittest.TestCase):
+    def test_clock_drag_needs_no_pin_in_bar_mode(self):
+        for mode, pinned, expected in [('bar', False, 1), ('detail', False, 0), ('detail', True, 1)]:
+            with self.subTest(mode=mode, pinned=pinned):
+                result = _run_scenario('''
+const header = document.createElement('header'), clock = document.createElement('div');
+const listeners = {};
+document.querySelector = () => header;
+document.getElementById = () => clock;
+document.addEventListener = (name, handler) => {listeners[name] = handler;};
+for (const handle of [header, clock]) {
+    handle.setPointerCapture = () => {};
+    handle.hasPointerCapture = () => false;
+}
+let begins = 0, moves = 0, ends = 0;
+globalThis.pywebview = {api: {
+    begin_drag: async () => {begins++; return true;},
+    drag: async () => {moves++;}, end_drag: async () => {ends++;},
+}};
+''' + f'viewMode = {json.dumps(mode)}; popupPinned = {json.dumps(pinned)};\n' + '''
+setupPopupDrag();
+clock.dispatchEvent('pointerdown', {button: 0, pointerId: 1, target: {closest: () => null}, preventDefault() {}});
+setImmediate(() => {
+    listeners.pointermove({pointerId: 1, buttons: 1});
+    listeners.pointerup({pointerId: 1});
+    console.log(JSON.stringify({begins, moves, ends}));
+});
+''')
+                self.assertEqual(result, {'begins': expected, 'moves': expected, 'ends': expected})
+
+
+@unittest.skipUnless(_NODE, 'Node.js not available')
+class TestViewSwitch(unittest.TestCase):
+    def test_bar_controls_return_to_detail_and_close_through_the_bridge(self):
+        result = _run_scenario('''
+const nodes = {};
+document.getElementById = id => nodes[id] || (nodes[id] = document.createElement('button'));
+translations = {view_bar: 'Bar', view_detail: 'Detail', close_popup: 'Close'};
+let modes = [], closes = 0;
+switchViewMode = mode => modes.push(mode);
+globalThis.pywebview = {api: {close: () => {closes++;}}};
+setupViewButtons();
+setupCloseButtons();
+nodes.barExpandBtn.dispatchEvent('click');
+nodes.barCloseBtn.dispatchEvent('click');
+console.log(JSON.stringify({modes, closes, expand: nodes.barExpandBtn.getAttribute('aria-label'), close: nodes.barCloseBtn.getAttribute('aria-label')}));
+''')
+        self.assertEqual(result, {'modes': ['detail'], 'closes': 1, 'expand': 'Detail', 'close': 'Close'})
+
+    def test_waits_for_the_host_and_ignores_duplicate_clicks(self):
+        result = _run_scenario('''
+let resolveSwitch, calls = 0, renders = [];
+globalThis.pywebview = {api: {set_view_mode: () => {calls++; return new Promise(resolve => {resolveSwitch = resolve;});}}};
+applyViewMode = mode => {viewMode = mode; renders.push(mode);};
+const pending = switchViewMode('bar');
+switchViewMode('bar');
+const before = {calls, renders: [...renders]};
+resolveSwitch(true);
+pending.then(() => console.log(JSON.stringify({before, renders, busy: viewSwitchBusy})));
+''')
+        self.assertEqual(result, {'before': {'calls': 1, 'renders': []}, 'renders': ['bar'], 'busy': False})
+
+    def test_failed_bridge_preserves_the_layout_and_allows_a_retry(self):
+        result = _run_scenario('''
+globalThis.pywebview = {api: {set_view_mode: async () => {throw new Error('closed');}}};
+applyViewMode = mode => {viewMode = mode;};
+switchViewMode('bar').then(async () => {
+    const failed = {mode: viewMode, busy: viewSwitchBusy};
+    pywebview.api.set_view_mode = async () => true;
+    await switchViewMode('bar');
+    console.log(JSON.stringify({failed, mode: viewMode}));
+});
+''')
+        self.assertEqual(result, {'failed': {'mode': 'detail', 'busy': False}, 'mode': 'bar'})
+
+
+@unittest.skipUnless(_NODE, 'Node.js not available')
+class TestCodexNeeded(unittest.TestCase):
+    """Who keeps the Codex reads running."""
+
+    def _needed(self, view: str, provider: str) -> bool:
+        scenario = f"""
+viewMode = '{view}';
+selectedProvider = '{provider}';
+console.log(JSON.stringify({{needed: codexNeeded()}}));
+"""
+        return _run_scenario(scenario)['needed']
+
+    def test_the_codex_tab_needs_them(self):
+        self.assertTrue(self._needed('detail', 'codex'))
+
+    def test_the_bar_needs_them_whichever_tab_is_selected(self):
+        """The bar shows both agents, so the Claude tab being selected is irrelevant."""
+        self.assertTrue(self._needed('bar', 'claude'))
+
+    def test_the_claude_detail_view_does_not(self):
+        self.assertFalse(self._needed('detail', 'claude'))
 
 
 @unittest.skipUnless(_NODE, 'Node.js not available')
@@ -642,6 +988,18 @@ Promise.resolve().then(() => {
 });
 ''')
         self.assertEqual(result, ['bar-header', 'bar-container', 'reset-text', 'usage-detail'])
+
+    def test_reset_text_and_marker_disappear_when_a_codex_window_becomes_unused(self):
+        result = _run_scenario('''
+const active = makeEntry({key: 'codex_primary', reset_text: 'Resets in 4h 59m', pace_text: 'Elapsed 1%', marker_rel: 0.01});
+updateUsageBars([active]);
+const bar = els.usageBars.children[0];
+updateUsageBars([makeEntry({key: 'codex_primary'})]);
+const unused = {reset: bar.querySelector('.reset-text'), pace: bar.querySelector('.pace-text'), marker: bar.querySelector('.bar-marker')};
+updateUsageBars([active]);
+console.log(JSON.stringify({unused, reset: bar.querySelector('.reset-text').textContent, sameBar: bar === els.usageBars.children[0]}));
+''')
+        self.assertEqual(result, {'unused': {'reset': None, 'pace': None, 'marker': None}, 'reset': 'Resets in 4h 59m', 'sameBar': True})
 
 
 @unittest.skipUnless(_NODE, 'Node.js not available')

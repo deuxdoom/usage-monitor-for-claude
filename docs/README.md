@@ -18,7 +18,7 @@ The module names follow the same split: `claude_api.py` / `codex_api.py`, `claud
 
 | Document | What it covers |
 |---|---|
-| [configuration.md](configuration.md) | Every settings-file key, and which ones the tray menu now covers without a file |
+| [configuration.md](configuration.md) | Settings-file locations, every key, and which menu and popup choices are saved automatically |
 | [event-commands.md](event-commands.md) | Running your own command when a quota resets, a threshold is crossed, the app starts, or you double-click the tray icon |
 | [automatic-update-check.md](automatic-update-check.md) | A worked example: a script that tells you when a new release is out |
 
@@ -32,5 +32,5 @@ The module names follow the same split: `claude_api.py` / `codex_api.py`, `claud
 ## Also at the repository root
 
 - [README.md](../README.md) - what the app does and how to start it
-- [PRIVACY.md](../PRIVACY.md) - every read, every network destination, and the two registry values
+- [PRIVACY.md](../PRIVACY.md) - every read, every network destination, saved settings, and registry changes
 - [CHANGELOG.md](../CHANGELOG.md) - what changed in each release

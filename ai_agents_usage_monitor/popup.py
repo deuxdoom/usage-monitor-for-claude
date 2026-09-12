@@ -31,8 +31,12 @@ from .formatting import (
     codex_reset_iso, divider_positions, duration_label, elapsed_pct, expand_popup_fields,
     field_countdown_only, field_period, format_count, format_credits, popup_label, time_until,
 )
-from .i18n import T
-from .settings import BAR_BG, BAR_DIVIDER, BAR_FG, BAR_FG_WARN, BAR_MARKER, BG, COMPACT_HIDE, FG, FG_DIM, FG_HEADING, FG_LINK, POPUP_FIELDS, POPUP_MARGIN
+from .i18n import LANG_CODE, T
+from .settings import (
+    BAR_BG, BAR_DIVIDER, BAR_FG, BAR_FG_ALT, BAR_FG_WARN, BAR_MARKER, BG, COMPACT_HIDE, FG, FG_DIM, FG_HEADING, FG_LINK,
+    POPUP_FIELDS, POPUP_FONT, POPUP_MARGIN, POPUP_VIEW, POPUP_VIEWS, TIME_FORMAT,
+)
+from .settings_store import save_setting
 
 logger = logging.getLogger(__name__)
 
@@ -191,7 +195,9 @@ def _snapshot_to_dict(
             usage.append({
                 'key': field,
                 'label': label,
+                'period_seconds': period,
                 'pct_text': f'{pct:.0f}%',
+                'left_text': f'{max(0.0, 100 - pct):.0f}%',
                 'fill_pct': max(0.0, min(1.0, pct / 100)),
                 'warn': warn,
                 'pace_text': _pace_text(pct, time_pct),
@@ -315,11 +321,13 @@ def _codex_account_to_dict(snapshot: dict[str, Any], local_periods: set[int],
     for window in snapshot['windows']:
         period = window['seconds']
         day_scoped = period % 86400 == 0
-        reset = codex_reset_iso(window['resets_at'])
-        time_pct = elapsed_pct(reset, period) if reset else None
         pct = window['used']
+        # An unused Codex window can carry resetsAt without an active session.
+        reset = codex_reset_iso(window['resets_at']) if pct > 0 else ''
+        time_pct = elapsed_pct(reset, period) if reset else None
         usage.append({
-            'key': window['key'], 'label': duration_label(period), 'pct_text': f'{pct:.0f}%',
+            'key': window['key'], 'label': duration_label(period), 'period_seconds': period,
+            'pct_text': f'{pct:.0f}%', 'left_text': f'{max(0.0, 100 - pct):.0f}%',
             'fill_pct': max(0.0, min(1.0, pct / 100)),
             'warn': pct >= 100 or (time_pct is not None and pct > time_pct),
             'pace_text': _pace_text(pct, time_pct),
@@ -336,19 +344,37 @@ def _codex_account_to_dict(snapshot: dict[str, Any], local_periods: set[int],
     }
 
 
-def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None) -> dict[str, Any]:
-    """Build the config object passed to JS ``init()`` after the page loads."""
+def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None,
+                 font: str = POPUP_FONT, view: str = POPUP_VIEW) -> dict[str, Any]:
+    """Build the config object passed to JS ``init()`` after the page loads.
+
+    Parameters
+    ----------
+    snap : CacheSnapshot
+        The data the page renders first.
+    next_poll_time : float or None
+        Unix timestamp of the next scheduled poll, for the footer countdown.
+    font : str
+        One of ``POPUP_FONTS``.  The window is already open by the time the
+        page reads this, so the running app's choice is passed in rather than
+        read from the settings module, which only knows the startup value.
+    view : str
+        One of ``POPUP_VIEWS`` - which view the page opens in.
+    """
     return {
         'colors': {
             'bg': BG, 'fg': FG, 'fg_dim': FG_DIM, 'fg_heading': FG_HEADING, 'fg_link': FG_LINK,
-            'bar_bg': BAR_BG, 'bar_fg': BAR_FG, 'bar_fg_warn': BAR_FG_WARN, 'bar_divider': BAR_DIVIDER, 'bar_marker': BAR_MARKER,
+            'bar_bg': BAR_BG, 'bar_fg': BAR_FG, 'bar_fg_alt': BAR_FG_ALT, 'bar_fg_warn': BAR_FG_WARN,
+            'bar_divider': BAR_DIVIDER, 'bar_marker': BAR_MARKER,
         },
         't': {
             'title': T['app_name'], 'account': T['account'], 'email': T['email'], 'plan': T['plan'],
             'usage': T['usage'], 'extra_usage': T['extra_usage'], 'name': T['name'],
             'reveal_email': T['reveal_email'], 'hide_email': T['hide_email'],
             'claude_code': T['claude_code'], 'changelog': T['changelog'],
-            'pin_popup': T['pin_popup'], 'unpin_popup': T['unpin_popup'], 'refresh': T['refresh'],
+            'pin_popup': T['pin_popup'], 'unpin_popup': T['unpin_popup'], 'close_popup': T['close_popup'], 'refresh': T['refresh'],
+            'view_bar': T['view_bar'], 'view_detail': T['view_detail'],
+            'bar_used': T['bar_used'], 'bar_left': T['bar_left'],
             'detail_tokens': T['detail_tokens'], 'detail_messages': T['detail_messages'],
             'detail_estimated': T['detail_estimated'], 'detail_models': T['detail_models'],
             'detail_loading': T['detail_loading'], 'detail_unavailable': T['detail_unavailable'],
@@ -360,6 +386,12 @@ def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None) -> di
         },
         'app_version': __version__,
         'compact_hide': COMPACT_HIDE,
+        'font': font,
+        'view': view,
+        # The bar view's clock reads in the app's language rather than the
+        # system's, so an overridden `language` moves the date with it.
+        'lang_tag': LANG_CODE,
+        'time_format': TIME_FORMAT,
         'data': _snapshot_to_dict(snap, next_poll_time=next_poll_time),
     }
 
@@ -404,6 +436,9 @@ class _PopupApi:
     def set_pinned(self, pinned: bool) -> bool:
         return self._popup._set_pinned(pinned)
 
+    def set_view_mode(self, view: str) -> bool:
+        return self._popup._set_view_mode(view)
+
     def begin_drag(self) -> bool:
         return self._popup._begin_drag()
 
@@ -442,6 +477,10 @@ class UsagePopup:
     """Dark-themed HTML popup window showing account info and usage bars."""
 
     WIDTH = 340
+    # The bar view lays both agents' sessions out side by side, which the
+    # detail width cannot hold; every other dimension is still whatever the
+    # content renders to.
+    BAR_WIDTH = 360
     _CHECK_MS = 2000
     _REFRESH_MIN_INTERVAL = 5.0
 
@@ -459,8 +498,10 @@ class UsagePopup:
         self.app = app
         self._codex_usage = CodexUsage()
         self._running = True
+        self._view = app._popup_view
+        self._width = self.BAR_WIDTH if self._view == 'bar' else self.WIDTH
         self._pinned = False
-        self._moved_while_pinned = False
+        self._moved_by_user = False
         self._dragging = False
         self._drag_offset = (0, 0)
         self._drag_start_dpi = 0
@@ -486,10 +527,11 @@ class UsagePopup:
 
         api = _PopupApi(self)
 
+        # pywebview's default minimum height would leave space below the bar.
         self._window = webview.create_window(
             '', url=str(_POPUP_DIR / 'popup.html'),
-            width=self.WIDTH, height=initial_height,
-            resizable=False, frameless=True, shadow=False,
+            width=self._width, height=initial_height,
+            resizable=False, frameless=True, shadow=False, min_size=(200, 1),
             easy_drag=False,
             on_top=True, hidden=True,
             background_color=BG,
@@ -498,12 +540,18 @@ class UsagePopup:
         self._shown = False
         self._window.events.loaded += self._on_loaded
         self._window.events.closed += self._on_window_closed
+        # Published before the window blocks this thread so a font change made
+        # from the tray menu can reach the page while it is up.
+        app._popup = self
         threading.Thread(target=self._dismiss_watch, daemon=True).start()
         self._closed.wait()
 
     def _on_loaded(self) -> None:
         """Inject config and show the window transparently for layout."""
-        config = _init_config(self.app.cache.snapshot, next_poll_time=self.app._next_poll_time)
+        config = _init_config(
+            self.app.cache.snapshot, next_poll_time=self.app._next_poll_time,
+            font=self.app._popup_font, view=self._view,
+        )
         self._window.evaluate_js(f'init({json.dumps(config)})')
 
         self._popup_hwnd = self._window.native.Handle.ToInt32()
@@ -553,7 +601,7 @@ class UsagePopup:
         self._pump_tid = this_thread
 
         def _post_quit() -> None:
-            if self._shown and not self._pinned:
+            if self._shown and not self._stays_open():
                 ctypes.windll.user32.PostThreadMessageW(this_thread, _WM_QUIT, 0, 0)
 
         # -- Shared argtypes for CallNextHookEx --
@@ -679,12 +727,66 @@ class UsagePopup:
 
     def _set_pinned(self, pinned: bool) -> bool:
         self._pinned = bool(pinned)
-        if not self._pinned:
-            self._moved_while_pinned = False
+        if not self._stays_open():
+            self._moved_by_user = False
         return self._pinned
 
+    def _stays_open(self) -> bool:
+        return self._pinned or self._view == 'bar'
+
+    def _set_view_mode(self, view: str) -> bool:
+        """Switch between the detail window and the single-row bar.
+
+        The page calls this *before* it re-renders, so the new width is in
+        place by the time the content's height is reported and the window is
+        resized once, in both dimensions.  ``_last_height`` is cleared for the
+        same reason: the two views can happen to render to the same height,
+        and a report equal to the previous one is otherwise discarded - which
+        would leave the new layout in the old width.
+
+        Parameters
+        ----------
+        view : str
+            One of ``POPUP_VIEWS``.
+
+        Returns
+        -------
+        bool
+            True once the view is stored, so the page can await the switch.
+        """
+        assert view in POPUP_VIEWS
+
+        with self._geometry_lock:
+            self._view = view
+            self.app._popup_view = view
+            if not self._stays_open():
+                self._moved_by_user = False
+            self._width = self.BAR_WIDTH if view == 'bar' else self.WIDTH
+            self._last_height = 0
+
+        save_setting('popup_view', view)
+
+        return True
+
+    def apply_font(self, font: str) -> None:
+        """Restyle the open page for a typeface chosen from the tray menu.
+
+        Best-effort: the window can be closing as the menu item is clicked,
+        and a failed restyle is not worth propagating to the tray thread -
+        the next popup opens on the stored choice regardless.
+
+        Parameters
+        ----------
+        font : str
+            One of ``POPUP_FONTS``.
+        """
+        try:
+            self._window.evaluate_js(f'setFont({json.dumps(font)})')
+        except Exception:
+            logger.debug('font change did not reach the popup', exc_info=True)
+
     def _begin_drag(self) -> bool:
-        """Anchor the cursor to the window for a pinned-popup drag.
+        """Anchor the cursor to the window for a popup drag.
 
         Records the physical offset between the cursor and the window's
         top-left corner.  Dragging is then done entirely in physical
@@ -692,7 +794,7 @@ class UsagePopup:
         monitors with different DPI scaling, where logical-pixel deltas
         would jump at the boundary.
         """
-        if not self._pinned or not self._popup_hwnd:
+        if not self._stays_open() or not self._popup_hwnd:
             return False
 
         cursor = ctypes.wintypes.POINT()
@@ -711,7 +813,7 @@ class UsagePopup:
         physical cursor position, so out-of-order calls converge on the
         right spot instead of accumulating drift.
         """
-        if not self._dragging or not self._pinned or not self._popup_hwnd:
+        if not self._dragging or not self._stays_open() or not self._popup_hwnd:
             return False
 
         cursor = ctypes.wintypes.POINT()
@@ -719,7 +821,7 @@ class UsagePopup:
         x = cursor.x - self._drag_offset[0]
         y = cursor.y - self._drag_offset[1]
         ctypes.windll.user32.SetWindowPos(self._popup_hwnd, 0, x, y, 0, 0, _SWP_NOSIZE | _SWP_NOZORDER | _SWP_NOACTIVATE)
-        self._moved_while_pinned = True
+        self._moved_by_user = True
         return True
 
     def _end_drag(self) -> None:
@@ -739,7 +841,7 @@ class UsagePopup:
         current_dpi = ctypes.windll.user32.GetDpiForWindow(self._popup_hwnd) or ctypes.windll.user32.GetDpiForSystem()
         if current_dpi != self._drag_start_dpi:
             with self._geometry_lock:
-                self._window.resize(self.WIDTH, self._last_height)
+                self._window.resize(self._width, self._last_height)
 
     def _push_snapshot(self, snap: CacheSnapshot, next_poll_time: float | None, rescan_installations: bool) -> None:
         """Render *snap* into the open popup.
@@ -1005,10 +1107,10 @@ class UsagePopup:
         """
         dpi = ctypes.windll.user32.GetDpiForWindow(self._popup_hwnd) or ctypes.windll.user32.GetDpiForSystem()
         scale = dpi / _BASELINE_DPI
-        physical_width = int(self.WIDTH * scale)
+        physical_width = int(self._width * scale)
         physical_height = int(height * scale)
-        self._window.resize(self.WIDTH, height)
-        if self._pinned and self._moved_while_pinned:
+        self._window.resize(self._width, height)
+        if self._stays_open() and self._moved_by_user:
             return
         x, y = self._tray_position(physical_width, physical_height)
         self._window.move(x, y)

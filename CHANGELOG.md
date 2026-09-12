@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This changelog covers 1.30.0 onwards, the point from which this project builds independently.
 
 
+## [2.1.0] - 2026-09-13
+
+### Added
+
+- 트레이 메뉴의 "팝업 글꼴"에서 시스템(기본)·픽셀(Galmuri11) 서체를 고르면 열린 팝업에 즉시 적용되며, `popup_font` 설정으로도 선택할 수 있습니다
+- 팝업을 날짜·시간과 Claude·Codex의 세션·주간 사용률을 나란히 보여주는 바 모드로 전환할 수 있으며(`popup_view`), 시계의 `:`는 1초마다 깜빡이고 카드를 클릭하면 숫자만 남은 사용량으로 바뀌며 막대 채움과 시간 마커는 사용률 기준을 유지합니다
+- 바 모드는 하단 여백 없이 작게 표시되고 고정 여부와 관계없이 계속 열려 있으며, 날짜·시간 영역으로 드래그하고 오른쪽 버튼으로 상세 보기 복귀 또는 닫기를 할 수 있습니다
+- 바 모드의 주간 막대 색상을 `bar_fg_alt`로 지정할 수 있으며, 기본값은 세션 막대와 구별되는 `#e0a34a`입니다
+
+### Changed
+
+- 팝업의 기본 글꼴을 시스템 서체로 바꾸고, 픽셀 서체는 트레이 메뉴에서 선택할 수 있도록 했습니다
+- 종료하면 사라지던 트레이 표시 대상(`tray_provider`)과 새로고침 주기(`poll_interval`) 선택을 이제 설정 파일에 저장하며, 팝업 글꼴(`popup_font`)과 보기 모드(`popup_view`)도 다음 실행에서 유지합니다
+- 설정 파일의 기본 이름을 `usage-monitor-settings.json`에서 `config.json`으로 바꾸되 기존 이름도 계속 읽고 같은 파일에 저장하며, 디렉터리 우선순위를 유지하면서 각 디렉터리 안에서 새 이름을 먼저 찾습니다
+- 설정 저장은 `settings_store.py`가 위 네 키만 갱신하고 나머지 키의 값을 보존하며, 읽거나 해석할 수 없는 기존 파일은 덮어쓰지 않고 저장에 실패해도 선택은 현재 실행에 적용합니다
+- 팝업의 새로고침·고정·고정 해제·닫기·보기 전환 아이콘을 Fluent UI System Icons의 16px regular 아이콘으로 통일했습니다
+
+### Fixed
+
+- Codex가 사용률 0인 구간에 `resetsAt`을 보내더라도 팝업에 리셋 카운트다운과 경과 시간·시간 마커를 표시하지 않으며, 사용하지 않은 세션을 열었을 뿐인데 약 5시간 뒤 초기화되는 것처럼 보이던 문제를 수정했습니다
+
+[Show all code changes](https://github.com/deuxdoom/usage-monitor-for-claude/compare/v2.0.0...v2.1.0)
+
+
 ## [2.0.0] - 2026-09-08
 
 ### Added

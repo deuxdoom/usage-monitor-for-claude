@@ -11,6 +11,7 @@ let selectedProvider = 'claude';
 let codexTimerId = null;
 let codexBusy = false;
 let codexData = null;
+let codexReadError = null;
 // True while the first Codex read runs with the previous view still on screen.
 let codexPending = false;
 // Bar keys with their detail panel currently open.  Claude only ever adds
@@ -19,6 +20,18 @@ let codexPending = false;
 // clickable - and Codex adds its own prefixed keys, so the two views cannot
 // collide and an expanded panel stays open only in the tab it belongs to.
 let expandedDetail = new Set();
+// 'detail' is the full window, 'bar' the single row showing both agents at
+// once. The detail view's own state - selected provider, expanded panels,
+// revealed email - is left untouched while the bar is up, so switching back
+// does not rebuild it.
+let viewMode = 'detail';
+let viewSwitchBusy = false;
+// Whether the bar's percentages read as used or as remaining. Per session:
+// it is a way of looking at the same number, not a setting.
+let barShowsRemaining = false;
+let clockTimerId = null;
+let clockDateFormat = null;
+let clockTimeFormat = null;
 
 /**
  * Switch the popup between the Claude and Codex views.
@@ -58,6 +71,18 @@ function selectProvider(provider) {
     refreshCodex();
 }
 
+/**
+ * Return true while something on screen needs Codex data.
+ *
+ * The bar shows both agents at once, so it keeps the Codex reads running
+ * regardless of which provider the detail view has selected. Everything that
+ * starts or cancels a Codex read asks this rather than testing the selected
+ * provider, so the two views cannot disagree about whether the timer runs.
+ */
+function codexNeeded() {
+    return viewMode === 'bar' || selectedProvider === 'codex';
+}
+
 /** Release the held view, whether the read arrived or the user switched back. */
 function endCodexPending() {
     if (!codexPending) return;
@@ -78,9 +103,14 @@ async function refreshCodex() {
         failed = true;
     } finally {
         codexBusy = false;
+        codexReadError = failed ? translations.codex_unavailable : null;
         endCodexPending();
-        if (selectedProvider === 'codex') {
-            renderCodex(failed ? translations.codex_unavailable : null);
+        if (codexNeeded()) {
+            if (viewMode === 'bar') {
+                renderBarView();
+            } else {
+                renderCodex(failed ? translations.codex_unavailable : null);
+            }
             // Schedule against the app's own poll beat, so this view refreshes on the
             // same moment the Claude view does no matter when the tab was opened.
             // Capped at a minute so a cadence change made from the tray menu is
@@ -140,6 +170,8 @@ function init(config) {
 
     translations = config.t;
     compactHide = config.compact_hide || [];
+    setFont(config.font);
+    setupClock(config.lang_tag, config.time_format);
     document.getElementById('title').addEventListener('click', () => selectProvider('claude'));
     document.getElementById('codexBtn').addEventListener('click', () => selectProvider('codex'));
     document.getElementById('headingAccount').textContent = translations.account;
@@ -151,11 +183,12 @@ function init(config) {
     const changelogLink = document.getElementById('changelogLink');
     changelogLink.textContent = translations.changelog;
     changelogLink.addEventListener('click', () => pywebview.api.open_url(selectedProvider));
-    document.getElementById('closeBtn').addEventListener('click', () => pywebview.api.close());
+    setupCloseButtons();
     setupRefreshButton();
     setupAccountRow();
     setupPinButton();
-    setupPinnedDrag();
+    setupViewButtons();
+    setupPopupDrag();
 
     // The header is a provider switch now, so the app name lives on the footer
     // version instead. The status line beside it already ellipsizes at this
@@ -182,10 +215,86 @@ function init(config) {
         installRows: document.getElementById('installRows'),
         statusSection: document.getElementById('statusSection'),
         statusText: document.getElementById('statusText'),
+        barCards: document.getElementById('barCards'),
+        clockDate: document.getElementById('clockDate'),
+        clockTime: document.getElementById('clockTime'),
     };
 
     updateData(config.data);
+
+    // The stored view is applied without telling Python: it is the side that
+    // chose the opening view, so the window is already the right width, and a
+    // bridge call here would run before the API is guaranteed to be attached.
+    if (config.view === 'bar') {
+        applyViewMode('bar');
+    }
+
     requestAnimationFrame(() => document.body.classList.add('open'));
+}
+
+/**
+ * Point the detail layout at one of the two typefaces in the stylesheet.
+ *
+ * Called by Python: once from init(), and again whenever the font is changed
+ * from the tray menu while this window is open. The name is also written to
+ * the body, because the bar view substitutes the system stack for the pixel
+ * face - too small there to stay legible - and needs to know which was chosen.
+ *
+ * @param {string} font - 'system' or 'pixel'; the bar always uses system fonts.
+ */
+function setFont(font) {
+    const name = font === 'pixel' ? 'pixel' : 'system';
+    document.documentElement.style.setProperty('--font-stack', `var(--font-${name})`);
+    document.body.dataset.font = name;
+}
+
+/**
+ * Prepare the bar view's clock formatters and start it if the bar is up.
+ *
+ * Both formatters are built once: they are the expensive part of rendering a
+ * clock every second, and neither the language nor the 12/24-hour choice can
+ * change without the window being reopened.
+ *
+ * @param {string} langTag - Locale the app's translations were loaded for.
+ * @param {string} timeFormat - '24h' or '12h', from the same setting the
+ *   reset times are rendered with.
+ */
+function setupClock(langTag, timeFormat) {
+    const locale = langTag || 'en';
+    clockDateFormat = new Intl.DateTimeFormat(locale, {month: 'short', day: 'numeric', weekday: 'short'});
+    clockTimeFormat = new Intl.DateTimeFormat(locale, {hour: '2-digit', minute: '2-digit', hour12: timeFormat === '12h'});
+}
+
+function renderClock() {
+    const now = new Date();
+    els.clockDate.textContent = clockDateFormat.format(now);
+    els.clockTime.setAttribute('aria-label', clockTimeFormat.format(now));
+    els.clockTime.replaceChildren(...clockTimeFormat.formatToParts(now).map((part) => {
+        const span = document.createElement('span');
+        span.textContent = part.value;
+        if (part.type === 'literal' && part.value.includes(':')) {
+            span.className = 'clock-separator';
+            span.classList.toggle('off', now.getSeconds() % 2 === 1);
+        }
+        return span;
+    }));
+}
+
+/**
+ * Run the clock only while the bar view is showing it.
+ *
+ * The one-second tick blinks the separator and keeps minute changes prompt.
+ */
+function startClock() {
+    if (clockTimerId) return;
+    renderClock();
+    clockTimerId = setInterval(renderClock, 1000);
+}
+
+function stopClock() {
+    if (!clockTimerId) return;
+    clearInterval(clockTimerId);
+    clockTimerId = null;
 }
 
 /**
@@ -287,6 +396,15 @@ function renderAccountRow(profile) {
 }
 
 
+function setupCloseButtons() {
+    for (const id of ['closeBtn', 'barCloseBtn']) {
+        const button = document.getElementById(id);
+        button.title = translations.close_popup;
+        button.setAttribute('aria-label', translations.close_popup);
+        button.addEventListener('click', () => pywebview.api.close());
+    }
+}
+
 function setupPinButton() {
     const pinBtn = document.getElementById('pinBtn');
 
@@ -334,6 +452,11 @@ function reapplyData() {
     // read runs, and rendering an empty Codex view here would undo that.
     if (codexPending) return;
 
+    if (viewMode === 'bar') {
+        renderBarView();
+        return;
+    }
+
     if (selectedProvider === 'codex') {
         renderCodex();
         return;
@@ -343,48 +466,300 @@ function reapplyData() {
     }
 }
 
-function setupPinnedDrag() {
-    const header = document.querySelector('header');
+/**
+ * Wire both directions of the view switch.
+ *
+ * Each button goes one way only - the header's into the bar, the bar's own
+ * back out - so neither has to change what it shows when the view changes.
+ */
+function setupViewButtons() {
+    const toBar = document.getElementById('viewBtn');
+    toBar.setAttribute('aria-label', translations.view_bar);
+    toBar.title = translations.view_bar;
+    toBar.addEventListener('click', () => switchViewMode('bar'));
+
+    const toDetail = document.getElementById('barExpandBtn');
+    toDetail.setAttribute('aria-label', translations.view_detail);
+    toDetail.title = translations.view_detail;
+    toDetail.addEventListener('click', () => switchViewMode('detail'));
+}
+
+/**
+ * Change the view, telling Python first so the window resizes exactly once.
+ *
+ * The width belongs to the mode and has to be in place before the new
+ * content's height is measured; doing it the other way round resizes the
+ * window twice - into the new height at the old width, then again when the
+ * width catches up.
+ */
+async function switchViewMode(mode) {
+    if (viewMode === mode || viewSwitchBusy) return;
+
+    viewSwitchBusy = true;
+    try {
+        await pywebview.api.set_view_mode(mode);
+        applyViewMode(mode);
+    } catch (_) {
+        // Keep the layout paired with the host's width if the bridge fails.
+    } finally {
+        viewSwitchBusy = false;
+    }
+}
+
+function applyViewMode(mode) {
+    if (viewMode === mode) return;
+
+    viewMode = mode;
+    document.body.classList.toggle('bar-mode', mode === 'bar');
+
+    if (mode === 'bar') {
+        startClock();
+        // A first Codex read takes about a second. The empty row holds the
+        // card's height for it, so there is nothing to gain by waiting.
+        renderBarView();
+        refreshCodex();
+        return;
+    }
+
+    stopClock();
+    if (codexTimerId && !codexNeeded()) {
+        clearTimeout(codexTimerId);
+        codexTimerId = null;
+    }
+    reapplyData();
+}
+
+/**
+ * Render the bar view: the clock, then one card per agent.
+ *
+ * Which bar counts as the session and which as the weekly quota is decided by
+ * duration, not by field name - the shortest window an agent reports is its
+ * session, and the shortest of the rest is the quota above it. That keeps a
+ * list of quota names out of the page, so a new quota type appears here
+ * without the page being taught anything about it.
+ */
+function renderBarView() {
+    renderClock();
+
+    const providers = [
+        {name: 'CLAUDE', usage: lastData?.usage, status: lastData?.status},
+        {name: 'CODEX', usage: codexData?.account?.usage, status: codexData?.account?.status, error: codexReadError},
+    ];
+    if (!els.barCards.children.length) {
+        els.barCards.replaceChildren(...providers.map((provider) => buildBarCard(provider.name)));
+    }
+
+    providers.forEach((provider, index) => {
+        const card = els.barCards.children[index];
+        const entries = barWindows(provider.usage);
+        const rows = card.querySelectorAll('.bar-row');
+        rows.forEach((row, rowIndex) => updateBarRow(row, entries[rowIndex]));
+        const status = provider.status;
+        const error = provider.error || status?.error || (status?.is_error ? status.text : null);
+        card.classList.toggle('stale', !!error);
+        card.title = error || (!entries.some(Boolean) ? status?.text || translations.status_refreshing : '');
+        card.setAttribute('aria-pressed', barShowsRemaining);
+        card.setAttribute('aria-label', [provider.name, ...Array.from(rows, row => row.title), card.title].filter(Boolean).join(', '));
+    });
+}
+
+/** Return [session, weekly] for one agent, either of which may be null. */
+function barWindows(entries) {
+    const timed = (entries || []).filter((entry) => entry.period_seconds);
+    if (!timed.length) return [null, null];
+
+    const sorted = [...timed].sort((a, b) => a.period_seconds - b.period_seconds);
+    const session = sorted[0];
+    const weekly = sorted.find((entry) => entry.period_seconds > session.period_seconds) || null;
+
+    return [session, weekly];
+}
+
+function buildBarCard(name) {
+    const card = document.createElement('div');
+    card.className = 'bar-card';
+    card.setAttribute('role', 'button');
+    card.setAttribute('tabindex', '0');
+
+    const label = document.createElement('div');
+    label.className = 'bar-card-name';
+    label.textContent = name;
+
+    card.append(label, buildBarRow(false), buildBarRow(true));
+
+    card.addEventListener('click', toggleBarRemaining);
+    card.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            toggleBarRemaining();
+        }
+    });
+
+    return card;
+}
+
+function buildBarRow(weekly) {
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    row.classList.toggle('weekly', weekly);
+
+    const pct = document.createElement('span');
+    pct.className = 'bar-row-pct';
+    row.append(pct, createBarContainer(null));
+
+    return row;
+}
+
+function updateBarRow(row, entry) {
+    row.classList.toggle('empty', !entry);
+    const pct = row.querySelector('.bar-row-pct');
+    pct.textContent = entry ? (barShowsRemaining ? entry.left_text : entry.pct_text) : '\u2014';
+    pct.classList.toggle('warn', !!entry?.warn);
+    updateBarContainer(row.querySelector('.bar-container'), entry);
+
+    row.title = '';
+    if (entry) {
+        const template = barShowsRemaining ? translations.bar_left : translations.bar_used;
+        row.title = template.replace('{label}', entry.label).replace('{pct}', pct.textContent);
+    }
+
+}
+
+/**
+ * Flip every percentage in the bar between used and remaining.
+ *
+ * Only the numbers flip. The fill still measures what has been used, because
+ * it is read against the elapsed-time marker beside it - inverting the fill
+ * would leave that marker comparing against nothing.
+ */
+function toggleBarRemaining() {
+    barShowsRemaining = !barShowsRemaining;
+    renderBarView();
+}
+
+/**
+ * Build the track, fill, dividers and elapsed-time marker for one entry.
+ *
+ * Shared by the detail bars and the bar view's rows so both mark elapsed time
+ * the same way; an entry of null renders an empty track.
+ */
+function createBarContainer(entry) {
+    const container = document.createElement('div');
+    container.className = 'bar-container';
+    const fill = document.createElement('div');
+    fill.className = 'bar-fill';
+    container.appendChild(fill);
+    updateBarContainer(container, entry);
+    fill.style.width = '0%';
+
+    return container;
+}
+
+function updateBarContainer(container, entry) {
+    const fill = container.querySelector('.bar-fill');
+    fill.style.width = `${(entry?.fill_pct || 0) * 100}%`;
+    fill.classList.toggle('warn', !!entry?.warn);
+
+    for (const divider of container.querySelectorAll('.bar-divider')) divider.remove();
+    for (const pos of entry?.dividers || []) {
+        const divider = document.createElement('div');
+        divider.className = 'bar-divider';
+        divider.style.left = `calc(${pos * 100}% - 1px)`;
+        container.appendChild(divider);
+    }
+
+    let marker = container.querySelector('.bar-marker');
+    if (entry?.marker_rel != null) {
+        if (!marker) {
+            marker = document.createElement('div');
+            marker.className = 'bar-marker';
+            container.appendChild(marker);
+        }
+        marker.style.left = `calc(${entry.marker_rel * 100}% - 1px)`;
+    } else if (marker) {
+        marker.remove();
+    }
+}
+
+/**
+ * Wire the drag handles for the bar and the pinned detail popup.
+ *
+ * The bar view hides the header, so the clock takes over as its handle - it
+ * is the one part of that row that is neither a card nor a button.
+ */
+function setupPopupDrag() {
+    const handles = [document.querySelector('header'), document.getElementById('clockWidget')];
     let dragging = false;
+    let pointerId = null;
+    let activeHandle = null;
+    let bridgePending = false;
 
     function setDragging(active) {
         dragging = active;
-        header.classList.toggle('dragging', active);
+        for (const handle of handles) {
+            handle.classList.toggle('dragging', active);
+        }
     }
 
-    header.addEventListener('mousedown', (event) => {
-        if (!popupPinned || event.button !== 0 || event.target.closest('button')) {
-            return;
-        }
-        event.preventDefault();
-        setDragging(true);
-        pywebview.api.begin_drag().then((started) => {
-            setDragging(!!started);
-        }).catch(() => {
-            setDragging(false);
-        });
-    });
-
-    document.addEventListener('mousemove', (event) => {
-        if (!dragging) {
-            return;
-        }
-        // No button held (e.g. released outside the window): stop dragging.
-        if (event.buttons === 0) {
-            setDragging(false);
-            pywebview.api.end_drag();
-            return;
-        }
-        pywebview.api.drag().catch(() => {});
-    });
-
-    document.addEventListener('mouseup', () => {
-        if (!dragging) {
-            return;
-        }
+    function finishDrag() {
+        const wasDragging = dragging;
+        const releasedId = pointerId;
+        pointerId = null;
         setDragging(false);
-        pywebview.api.end_drag();
+        if (activeHandle?.hasPointerCapture(releasedId)) {
+            activeHandle.releasePointerCapture(releasedId);
+        }
+        activeHandle = null;
+        if (wasDragging) {
+            bridgePending = true;
+            pywebview.api.end_drag().catch(() => {}).finally(() => { bridgePending = false; });
+        }
+    }
+
+    for (const handle of handles) {
+        handle.addEventListener('pointerdown', (event) => {
+            if ((!popupPinned && viewMode !== 'bar') || event.button !== 0 || event.target.closest('button')) {
+                return;
+            }
+            if (pointerId !== null || bridgePending) {
+                return;
+            }
+            event.preventDefault();
+            pointerId = event.pointerId;
+            activeHandle = handle;
+            // Keep receiving motion even when the cursor leaves this small window.
+            handle.setPointerCapture(pointerId);
+            bridgePending = true;
+            pywebview.api.begin_drag().then((started) => {
+                // A quick release can arrive before the Python bridge responds.
+                if (pointerId === null) {
+                    if (started) return pywebview.api.end_drag();
+                } else if (started) {
+                    setDragging(true);
+                } else {
+                    finishDrag();
+                }
+            }).catch(finishDrag).finally(() => { bridgePending = false; });
+        });
+        handle.addEventListener('lostpointercapture', (event) => {
+            if (event.pointerId === pointerId) finishDrag();
+        });
+    }
+
+    document.addEventListener('pointermove', (event) => {
+        if (event.pointerId !== pointerId) return;
+        if (!(event.buttons & 1)) {
+            finishDrag();
+            return;
+        }
+        if (dragging) pywebview.api.drag().catch(() => {});
     });
+
+    for (const type of ['pointerup', 'pointercancel']) {
+        document.addEventListener(type, (event) => {
+            if (event.pointerId === pointerId) finishDrag();
+        });
+    }
 }
 
 /**
@@ -394,6 +769,10 @@ function setupPinnedDrag() {
  */
 function updateData(data) {
     lastData = data;
+    if (viewMode === 'bar') {
+        renderBarView();
+        return;
+    }
     if (selectedProvider === 'codex') return;
 
     const hasProfile = !!data.profile;
@@ -617,27 +996,7 @@ function createBarElement(entry) {
     pct.classList.toggle('warn', entry.warn);
     header.append(label, pct);
 
-    const container = document.createElement('div');
-    container.className = 'bar-container';
-    const fill = document.createElement('div');
-    fill.className = 'bar-fill';
-    fill.classList.toggle('warn', entry.warn);
-    fill.style.width = '0%';
-    container.appendChild(fill);
-
-    for (const pos of entry.dividers) {
-        const d = document.createElement('div');
-        d.className = 'bar-divider';
-        d.style.left = `calc(${pos * 100}% - 1px)`;
-        container.appendChild(d);
-    }
-
-    if (entry.marker_rel !== null) {
-        const marker = document.createElement('div');
-        marker.className = 'bar-marker';
-        marker.style.left = `calc(${entry.marker_rel * 100}% - 1px)`;
-        container.appendChild(marker);
-    }
+    const container = createBarContainer(entry);
 
     div.append(header, container);
     updatePaceText(div, entry);
@@ -679,30 +1038,7 @@ function updateBarElement(div, entry) {
     pct.classList.toggle('warn', entry.warn);
     updatePaceText(div, entry);
 
-    const fill = div.querySelector('.bar-fill');
-    fill.style.width = `${entry.fill_pct * 100}%`;
-    fill.classList.toggle('warn', entry.warn);
-
-    const container = div.querySelector('.bar-container');
-    let marker = container.querySelector('.bar-marker');
-    if (entry.marker_rel !== null) {
-        if (!marker) {
-            marker = document.createElement('div');
-            marker.className = 'bar-marker';
-            container.appendChild(marker);
-        }
-        marker.style.left = `calc(${entry.marker_rel * 100}% - 1px)`;
-    } else if (marker) {
-        marker.remove();
-    }
-
-    for (const d of container.querySelectorAll('.bar-divider')) d.remove();
-    for (const pos of entry.dividers) {
-        const d = document.createElement('div');
-        d.className = 'bar-divider';
-        d.style.left = `calc(${pos * 100}% - 1px)`;
-        container.appendChild(d);
-    }
+    updateBarContainer(div.querySelector('.bar-container'), entry);
 
     let resetEl = div.querySelector('.reset-text');
     if (entry.reset_text) {

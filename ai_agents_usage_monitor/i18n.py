@@ -11,7 +11,7 @@ import locale
 from pathlib import Path
 from typing import Any
 
-__all__ = ['LOCALE_DIR', 'detect_lang_code', 'load_translations', 'T']
+__all__ = ['LANG_CODE', 'LOCALE_DIR', 'active_lang_code', 'detect_lang_code', 'load_translations', 'T']
 
 LOCALE_DIR = Path(__file__).parent.parent / 'locale'
 
@@ -48,19 +48,30 @@ def detect_lang_code(lang: str) -> str:
     return 'en'
 
 
-def load_translations() -> dict[str, Any]:
-    """Load translations for the configured or detected system language, fallback to English."""
+def active_lang_code() -> str:
+    """Return the locale code the translations are loaded from.
+
+    The popup's clock formats its date and time against this code rather than
+    the system locale, so a user who overrode ``language`` reads the clock in
+    the same language as the rest of the window.
+
+    Returns
+    -------
+    str
+        A code with a shipped locale file, e.g. ``'ko'``.
+    """
     from .settings import LANGUAGE
 
-    if LANGUAGE:
-        lang_file = LOCALE_DIR / f'{LANGUAGE}.json'
-        if lang_file.exists():
-            return json.loads(lang_file.read_text(encoding='utf-8'))
+    if LANGUAGE and (LOCALE_DIR / f'{LANGUAGE}.json').exists():
+        return LANGUAGE
 
-    lang = locale.getlocale()[0] or ''
-    lang_code = detect_lang_code(lang)
-
-    return json.loads((LOCALE_DIR / f'{lang_code}.json').read_text(encoding='utf-8'))
+    return detect_lang_code(locale.getlocale()[0] or '')
 
 
+def load_translations() -> dict[str, Any]:
+    """Load translations for the configured or detected system language, fallback to English."""
+    return json.loads((LOCALE_DIR / f'{active_lang_code()}.json').read_text(encoding='utf-8'))
+
+
+LANG_CODE: str = active_lang_code()
 T: dict[str, Any] = load_translations()

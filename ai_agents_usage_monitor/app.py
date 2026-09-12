@@ -31,8 +31,10 @@ from .instance_id import effective_config_dir, is_default_config_dir
 from .settings import (
     ALERT_EXTRA_USAGE_SPENT, ALERT_TIME_AWARE, ALERT_TIME_AWARE_BELOW, ICON_FIELDS, IDLE_PAUSE, NOTIFY_CLAUDE_UPDATE,
     ON_RESET_COMMAND, ON_STARTUP_COMMAND, ON_THRESHOLD_COMMAND, QUICK_ACTION_COMMAND,
-    POLL_ERROR, POLL_FAST, POLL_FAST_EXTRA, POLL_INTERVAL, TRAY_PROVIDER, get_alert_thresholds,
+    POLL_ERROR, POLL_FAST, POLL_FAST_EXTRA, POLL_INTERVAL, POPUP_FONT, POPUP_FONTS, POPUP_VIEW,
+    TRAY_PROVIDER, get_alert_thresholds,
 )
+from .settings_store import save_setting
 from .formatting import (
     codex_reset_iso, duration_label, elapsed_pct, field_period, format_codex_tooltip, format_credits,
     format_tooltip, parse_field_name, popup_label,
@@ -47,10 +49,10 @@ __all__ = ['AIAgentsUsageMonitor', 'crash_log']
 
 # Refresh intervals offered by the tray menu.  One minute leads because it is
 # the app's rule; the slower two exist for a user who deliberately wants fewer
-# requests.  The choice lasts for the running app only - nothing is written to
-# disk, so every start begins at POLL_INTERVAL again.  Only the cadence changes:
-# POLL_FAST stays at its own value, so the cache cooldown and the reset-aligned
-# confirming poll are as exact under a five-minute cadence as under one minute.
+# requests.  The choice is written back to the settings file, so the next start
+# keeps the cadence the user picked.  Only the cadence changes: POLL_FAST stays
+# at its own value, so the cache cooldown and the reset-aligned confirming poll
+# are as exact under a five-minute cadence as under one minute.
 REFRESH_INTERVALS = (60, 180, 300)
 
 # Win32 tray mouse messages, delivered by the shell as the WM_NOTIFY lParam.
@@ -125,13 +127,20 @@ class AIAgentsUsageMonitor:
         self._light_taskbar = taskbar_uses_light_theme()
 
         # Which agent the tray icon, its tooltip and the threshold alerts follow.
-        # The tray menu switches it for this run only; the settings file keeps
-        # deciding what the next start follows, so the app still writes nothing.
         self._tray_provider = TRAY_PROVIDER
 
-        # How often the cadence poll runs.  The tray menu switches it for this
-        # run only, so the next start is back to the settings file's value.
+        # How often the cadence poll runs.
         self._poll_interval = POLL_INTERVAL
+
+        # Typeface the popup renders in.  Held here rather than read from the
+        # settings module at render time because the tray menu changes it, and
+        # a popup that is already open has to be told about that change.
+        self._popup_font = POPUP_FONT
+        self._popup_view = POPUP_VIEW
+
+        # The open popup, so a font change reaches a window already on screen.
+        # None whenever no popup is open, which is most of the time.
+        self._popup: UsagePopup | None = None
 
         # Non-default config dirs get a tooltip prefix so multiple
         # instances (one per Claude account) can be told apart.
@@ -176,11 +185,11 @@ class AIAgentsUsageMonitor:
     def _set_tray_provider(self, provider: str) -> None:
         """Point the tray icon, its tooltip and the threshold alerts at one agent.
 
-        The choice applies to the running app only - ``tray_provider`` in the
-        settings file still decides what the next start follows - so switching
-        costs nothing on disk.  The redraw is handed to a worker thread because
-        a Codex read starts the app-server and can take seconds, which would
-        freeze the menu it was clicked from.
+        The choice is stored as ``tray_provider``, so the next start follows
+        the same agent.  The redraw is handed to a worker thread because a
+        Codex read starts the app-server and can take seconds, which would
+        freeze the menu it was clicked from - and the save goes with it, so
+        neither a slow nor an unwritable disk can freeze that menu either.
 
         Parameters
         ----------
@@ -204,12 +213,14 @@ class AIAgentsUsageMonitor:
         self._set_poll_interval(300)
 
     def _set_poll_interval(self, seconds: int) -> None:
-        """Change how often the cadence poll runs, for this run only.
+        """Change how often the cadence poll runs.
 
         The poll loop is waiting out the previous interval, so it re-anchors
         its target on the new value rather than being interrupted here: a
         shorter choice therefore takes effect within a second instead of after
-        the old, longer wait has run out.
+        the old, longer wait has run out.  The choice is stored under the same
+        ``poll_interval`` key a user sets by hand, so the next start begins on
+        the chosen cadence.
 
         Parameters
         ----------
@@ -219,6 +230,35 @@ class AIAgentsUsageMonitor:
         assert seconds in REFRESH_INTERVALS
 
         self._poll_interval = seconds
+        save_setting('poll_interval', seconds)
+
+    def on_font_pixel(self, icon: Any = None, item: Any = None) -> None:
+        self._set_popup_font('pixel')
+
+    def on_font_system(self, icon: Any = None, item: Any = None) -> None:
+        self._set_popup_font('system')
+
+    def _set_popup_font(self, font: str) -> None:
+        """Change the popup's typeface and store the choice.
+
+        A popup that is open - a pinned one can be up for days - is restyled
+        in place rather than left on the old face until it is next opened.
+
+        Parameters
+        ----------
+        font : str
+            One of ``POPUP_FONTS``.
+        """
+        assert font in POPUP_FONTS
+        if font == self._popup_font:
+            return
+
+        self._popup_font = font
+        save_setting('popup_font', font)
+
+        popup = self._popup
+        if popup is not None:
+            popup.apply_font(font)
 
     def on_toggle_autostart(self, icon: Any = None, item: Any = None) -> None:
         set_autostart(not is_autostart_enabled())
@@ -337,6 +377,7 @@ class AIAgentsUsageMonitor:
                 threading.Thread(target=_bg_refresh, daemon=True).start()
             UsagePopup(self)
         finally:
+            self._popup = None
             self._popup_closed_at = time.time()
             self._popup_open = False
 
@@ -488,12 +529,21 @@ class AIAgentsUsageMonitor:
             if self._tray_provider != provider:
                 return
 
+            save_setting('tray_provider', provider)
             self._render_codex_tray(snapshot)
             self._check_codex_threshold_alerts(snapshot)
         elif self._last_response:
+            if self._tray_provider != provider:
+                return
+
+            save_setting('tray_provider', provider)
             self._render_tray()
         else:
             self.update()
+            if self._tray_provider != provider:
+                return
+
+            save_setting('tray_provider', provider)
 
     def _on_theme_changed(self) -> None:
         """Re-render the tray icon when the Windows theme changes."""

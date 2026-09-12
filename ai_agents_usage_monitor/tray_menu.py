@@ -31,7 +31,8 @@ def build_menu(monitor: Any) -> pystray.Menu:
     ----------
     monitor : AIAgentsUsageMonitor
         The running monitor, read for its menu handlers and for the current
-        tray provider and refresh interval the radio items check against.
+        tray provider, refresh interval and popup font the radio items check
+        against.
     """
     return pystray.Menu(
         # Names the app at the top of the menu. Disabled so it reads as a
@@ -67,6 +68,16 @@ def build_menu(monitor: Any) -> pystray.Menu:
             pystray.MenuItem(
                 T['refresh_minutes'].format(n=5), monitor.on_refresh_5min,
                 checked=lambda item: monitor._poll_interval == 300, radio=True,
+            ),
+        )),
+        pystray.MenuItem(T['menu_font'], pystray.Menu(
+            pystray.MenuItem(
+                T['font_system'], monitor.on_font_system,
+                checked=lambda item: monitor._popup_font == 'system', radio=True,
+            ),
+            pystray.MenuItem(
+                T['font_pixel'], monitor.on_font_pixel,
+                checked=lambda item: monitor._popup_font == 'pixel', radio=True,
             ),
         )),
         pystray.MenuItem(

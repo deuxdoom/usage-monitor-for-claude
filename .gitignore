@@ -36,3 +36,9 @@ RELEASE.md
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Written by the app itself - the tray menu and popup choices persist here
+config.json
+
+# 에이전트 간 인계 문서 (작업이 끝나면 삭제)
+HANDOFF.md

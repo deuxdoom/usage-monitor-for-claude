@@ -60,6 +60,10 @@ send the newer shape. Each entry contributes one usage bar:
 Nothing assumes which window is "primary" or "secondary". Bars are sorted by length, so the
 shortest reads on top and the longest below - the same order the Claude default gives. A window
 with no `resetsAt` is still shown; its countdown is simply blank rather than invented.
+In the popup, a window whose `usedPercent` is zero also keeps its empty gauge but shows no
+countdown, elapsed-time text, dividers or time marker, even if `resetsAt` is present. Once the
+reported usage is positive, those indicators use the server timestamp again. This display rule
+does not alter the cached server timestamps used by the poll scheduler.
 
 ### Cadence and backoff
 
@@ -113,6 +117,8 @@ Codex, which always draws its shortest window on top and its longest below.
 
 ## Side effects
 
-The monitor itself writes no files. The delegated Codex process may write its own logs, databases
-or refreshed credentials under its configured home, as Codex normally does. See
+The monitor saves only its tray provider, refresh interval, popup font and popup view choices in
+the settings file, using a temporary file in the same directory for replacement. Account and usage
+data remain in memory. The delegated Codex process may write its own logs, databases or refreshed
+credentials under its configured home, as Codex normally does. See
 [PRIVACY.md](../PRIVACY.md) for the full account.

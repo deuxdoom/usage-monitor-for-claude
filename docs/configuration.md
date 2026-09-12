@@ -1,6 +1,6 @@
 # Configuration
 
-All settings work out of the box - no configuration file is needed. To customize behavior, create a file called `usage-monitor-settings.json` with only the keys you want to change:
+All settings work out of the box - no configuration file needs to be created by hand. The app saves menu and popup choices in `config.json`. To customize other settings, edit that file or create one containing only the keys you want to change:
 
 ```json
 {
@@ -10,13 +10,19 @@ All settings work out of the box - no configuration file is needed. To customize
 }
 ```
 
-The app searches for this file in these locations (first match wins):
+The app searches these directories in order (first file found wins):
 
-1. **`$CLAUDE_CONFIG_DIR/usage-monitor-settings.json`** (only if a custom config directory is set via `--config-dir` or `CLAUDE_CONFIG_DIR` and differs from `~/.claude/`) - this lets every instance have its own settings when running one instance per Claude account
+1. **`$CLAUDE_CONFIG_DIR/`** (only if a custom config directory is set via `--config-dir` or `CLAUDE_CONFIG_DIR` and differs from `~/.claude/`) - this lets every instance have its own settings when running one instance per Claude account
 2. **Next to the EXE** (or project root when running from source)
-3. **`~/.claude/usage-monitor-settings.json`**
+3. **`~/.claude/`**
 
-The app never creates or modifies this file. To start, create an empty file and add keys as needed. Settings are read at startup - after editing the file, quit from the tray context menu and start the app again to apply changes.
+Within each directory, `config.json` is checked before the legacy `usage-monitor-settings.json`. Directory priority comes first: a legacy file in an earlier directory takes precedence over a new-name file in a later one. Existing files do not need to be renamed, and files are not merged.
+
+The app saves only `tray_provider`, `poll_interval`, `popup_font` and `popup_view`, preserving the values of every other key. It updates the file read at startup, including a legacy-name file. If none was read, it creates `config.json` in the first directory above. If writing there fails, it tries `~/.claude/config.json`. Required directories may be created. Saving uses a temporary file in the same directory followed by an atomic replacement; JSON whitespace may change.
+
+An existing file that cannot be read or parsed as a JSON object is left untouched. Empty files are treated as empty settings. If saving fails, the choice still applies to the running app but may not survive a restart. A higher-priority existing file still takes precedence over a fallback file at the next start.
+
+Menu and popup choices apply immediately. Settings edited by hand are read at startup - after editing the file, quit from the tray context menu and start the app again to apply changes.
 
 ## Alert thresholds
 
@@ -165,6 +171,13 @@ An **estimated total** is shown alongside the token count once the bar's utiliza
 
 There is no setting to turn this off - it reads local files only when the panel is clicked, so it costs nothing until asked for. Only `five_hour` and `seven_day` support it; a model-scoped or unlabeled quota (`seven_day_opus`, `nimbus_quill`, ...) has no local-log equivalent, and its bar is not clickable.
 
+## Popup font and view
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `popup_font` | `"system"` | Detail popup typeface: `"system"` (sans-serif) or `"pixel"` (bundled Galmuri11). The tray menu's "Popup font" selection applies to an open popup and is saved. Bar mode always uses the system font for legibility; an older `"mono"` value falls back to `"system"` |
+| `popup_view` | `"detail"` | Popup view: `"detail"` or `"bar"`. The popup's view buttons save this choice. The bar stays open without pinning, can be dragged by its clock, and has detail-view and close buttons |
+
 ## Popup position
 
 The popup is anchored to the corner nearest the tray, staying clear of both the monitor work area edge and the taskbar window's own rectangle - whichever is stricter. The second bound covers an auto-hiding taskbar, which Windows does not subtract from the work area at all. A third-party bar drawn as its own window is still not accounted for; `popup_margin` widens the gap for that case.
@@ -211,7 +224,7 @@ The tray icon displays two small progress bars. By default, these show the sessi
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `tray_provider` | `"claude"` | Which agent the tray icon, its tooltip and the threshold alerts follow: `"claude"` or `"codex"`. `"codex"` also makes the app read Codex quotas on the poll beat instead of only while the popup's Codex view is open, so the Codex app-server runs in the background as well. `icon_fields` and `tooltip_fields` name Claude API fields and are ignored under `"codex"`, which always draws its shortest window on top and its longest below. The popup shows both agents either way. The tray menu's "Tray icon tracks" submenu switches agents while the app runs, so this setting is what each start begins with rather than the only way to choose |
+| `tray_provider` | `"claude"` | Which agent the tray icon, its tooltip and the threshold alerts follow: `"claude"` or `"codex"`. `"codex"` also makes the app read Codex quotas on the poll beat instead of only while the popup's Codex detail or bar view is open, so the Codex app-server runs in the background as well. `icon_fields` and `tooltip_fields` name Claude API fields and are ignored under `"codex"`, which always draws its shortest window on top and its longest below. The tray menu's "Tray icon tracks" submenu switches agents immediately and saves this key for the next start |
 | `icon_fields` | `["five_hour", "seven_day"]` | Which two usage fields to show as icon bars. The first entry is the top bar (also determines the icon text), the second is the bottom bar |
 | `icon_style` | `"number+bars"` | Icon layout: `"number+bars"` shows the first field's percentage above two progress bars; `"numbers"` shows both fields as two stacked percentages without bars |
 
@@ -269,13 +282,13 @@ Run a shell command when a usage event occurs. See [Event Commands](event-comman
 
 ## Polling intervals
 
-**This app refreshes once a minute.** Polling stops while nothing is on screen - see `idle_pause` below - but whenever it is running, that is the cadence. The tray menu's "Refresh interval" submenu offers one, three and five minutes for a session where you would rather trade freshness for fewer API calls, and nothing is written to disk, so every start is back on `poll_interval`. Raising both values below changes what that start begins with.
+**This app refreshes once a minute by default.** Polling stops after the popup has been closed for `idle_pause` seconds. The tray menu's "Refresh interval" submenu offers one, three and five minutes and saves the selection as `poll_interval`, so it survives a restart. This changes the ordinary cadence only; `poll_fast` stays unchanged so reset-confirming polls keep their timing.
 
 The countdowns themselves never depend on these values. The popup's reset countdowns, elapsed-time markers and bar dividers are redrawn every minute from your own clock, so they keep moving whatever you set here - lowering these will not make a countdown tick faster, only spend more API calls.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `poll_interval` | `60` | Seconds between API updates. The tray menu's "Refresh interval" submenu switches between one, three and five minutes while the app runs, so this setting is what each start begins with rather than the only way to choose. A menu choice moves the cadence alone: `poll_fast` still floors how often a fetch can be sent, so the confirming poll after a quota reset is as exact at five minutes as at one |
+| `poll_interval` | `60` | Seconds between API updates. The tray menu's "Refresh interval" submenu selects and saves 60, 180 or 300 seconds. A menu choice moves the cadence alone: `poll_fast` still floors how often a fetch can be sent, so the confirming poll after a quota reset is as exact at five minutes as at one |
 | `poll_fast` | `60` | Seconds when usage is actively increasing. Doubles as the cache cooldown, so a scheduled poll is never sent more often than this, whatever `poll_interval` says. Only the popup's refresh button and the refetch after an account switch skip it |
 | `poll_fast_extra` | `2` | Extra fast polls after usage stops increasing |
 | `poll_error` | `30` | Seconds after a transient error (5xx, network). Rate-limit errors (429) use exponential backoff instead |
@@ -324,6 +337,7 @@ Override individual channels as RGBA arrays `[R, G, B, A]` (0-255). Unspecified 
 | `fg_link` | `"#4a9eff"` | Link text (e.g. changelog) |
 | `bar_bg` | `"#333333"` | Progress bar background |
 | `bar_fg` | `"#4a9eff"` | Progress bar fill |
+| `bar_fg_alt` | `"#e0a34a"` | Weekly row fill in bar mode; warnings still use `bar_fg_warn` |
 | `bar_fg_warn` | `"#e05050"` | Progress bar fill when usage outpaces elapsed time, error text |
 | `bar_divider` | `"#000c"` | Time dividers on progress bars (hour marks on the session bar, midnights on weekly bars) |
 | `bar_marker` | `"#fffc"` | Time-position marker on progress bars |

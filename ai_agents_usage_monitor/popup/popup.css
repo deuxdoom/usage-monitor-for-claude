@@ -17,10 +17,20 @@ html { overflow: hidden; }
     src: url('Galmuri11.woff2') format('woff2');
 }
 
+/* The two faces the tray menu offers. Only --font-stack is read by the
+   layout, and setFont() repoints it, so a face change is one property write
+   rather than a rule per element. Each stack ends in a generic family so
+   scripts missing from the named faces can fall back to installed fonts. */
+:root {
+    --font-pixel: 'Galmuri11', system-ui, sans-serif;
+    --font-system: 'Helvetica Neue', Helvetica, Avenir, Tahoma, 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif;
+    --font-stack: var(--font-system);
+}
+
 body {
     background: var(--bg);
     color: var(--fg);
-    font-family: 'Galmuri11', system-ui, sans-serif;
+    font-family: var(--font-stack);
     font-size: 13px;
     line-height: 1.3;
     display: flex;
@@ -72,23 +82,27 @@ header {
         border: none;
         font-family: inherit;
 
+        & svg {
+            width: 16px;
+            height: 16px;
+        }
+
         &:hover { color: var(--fg-heading); }
 
+        /* Buttons that mean two things carry both glyphs and hide one, so the
+           state is a class toggle rather than a path swapped in from JS. */
         &#pinBtn {
-            & svg {
-                width: 16px;
-                height: 16px;
-            }
+            & .icon-unpin { display: none; }
 
-            &.pinned { color: var(--fg-heading); }
+            &.pinned {
+                color: var(--fg-heading);
+
+                & .icon-pin { display: none; }
+                & .icon-unpin { display: inline; }
+            }
         }
 
         &#refreshBtn {
-            & svg {
-                width: 16px;
-                height: 16px;
-            }
-
             /* Keep the icon visible but inert while a fetch is in flight. */
             &:disabled {
                 cursor: default;
@@ -106,6 +120,7 @@ header {
     body.pinned & {
         cursor: grab;
         user-select: none;
+        touch-action: none;
 
         &.dragging { cursor: grabbing; }
     }
@@ -117,6 +132,178 @@ header {
     gap: 4px;
     flex-shrink: 0;
 }
+
+/* Single-row view.
+ *
+ * This replaces the window rather than living inside it: the header, the
+ * sections and the footer are all hidden, and the row carries its own way back
+ * to the detail window. The detail view's state is left exactly as it was -
+ * hidden, not torn down - so switching back does not have to rebuild it.
+ *
+ * Galmuri11 is drawn for 11px and up, and this row is smaller than that, where
+ * a pixel face turns to mush. The pixel choice is therefore substituted for the
+ * system stack here. The selected font applies only to the detail view.
+ */
+body.bar-mode {
+    padding: 0;
+    gap: 0;
+    font-size: 11px;
+    line-height: 1.2;
+
+    --font-stack: var(--font-system);
+
+    & > header, & > section, & > footer { display: none; }
+
+    & > #barView {
+        display: flex;
+        align-items: stretch;
+    }
+}
+
+#barView {
+    flex-direction: row;
+    gap: 0;
+}
+
+/* Date and time also provide the bar's drag handle. */
+#clockWidget {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    flex: none;
+    padding: 6px 8px;
+    border-right: 1px solid var(--bar-bg);
+    text-align: center;
+}
+
+/* The header is hidden here, so the clock takes over as the drag handle. */
+body.bar-mode #clockWidget {
+    cursor: grab;
+    touch-action: none;
+
+    &.dragging { cursor: grabbing; }
+}
+
+#clockDate {
+    font-size: 9px;
+    color: var(--fg-dim);
+    white-space: nowrap;
+}
+
+#clockTime {
+    font-size: 14px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-heading);
+    line-height: 1.1;
+    white-space: nowrap;
+}
+
+/* Keep the separator's width while it blinks so the clock never shifts. */
+.clock-separator.off { visibility: hidden; }
+
+#barCards {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    gap: 0;
+}
+
+#barControls {
+    flex: none;
+    width: 28px;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid var(--bar-bg);
+
+    & button {
+        flex: 1;
+        min-height: 24px;
+        color: var(--fg-dim);
+        background: none;
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        & svg { width: 14px; height: 14px; }
+        &:hover { color: var(--fg-heading); background: rgba(255, 255, 255, 0.05); }
+    }
+}
+
+/* One agent. Both quota rows are shown at once and told apart by color, so
+   neither needs a label of its own in a row this small. Clicking the card
+   flips every percentage between used and remaining. */
+.bar-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+    padding: 4px 6px;
+    cursor: pointer;
+    outline: none;
+
+    & + .bar-card { border-left: 1px solid var(--bar-bg); }
+
+    &:hover, &:focus-visible { background: rgba(255, 255, 255, 0.05); }
+}
+
+.bar-card-name {
+    font-size: 9px;
+    line-height: 11px;
+    font-weight: 700;
+    color: var(--fg-dim);
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bar-card.stale {
+    & .bar-row { opacity: 0.4; }
+    & .bar-card-name { color: var(--bar-fg-warn); }
+}
+
+.bar-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.bar-row-pct {
+    flex: none;
+    width: 30px;
+    font-size: 11px;
+    line-height: 14px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    color: var(--bar-fg);
+    transition: color 0.3s ease;
+
+    &.warn { color: var(--bar-fg-warn); }
+}
+
+.bar-row > .bar-container {
+    flex: 1;
+    min-width: 0;
+    height: 6px;
+}
+
+/* The weekly quota is the second color. :not(.warn) keeps an over-pace bar red
+   in both rows - the warning has to outrank the row it happens to be in. */
+.bar-row.weekly {
+    & .bar-row-pct:not(.warn) { color: var(--bar-fg-alt); }
+    & .bar-fill:not(.warn) { background: var(--bar-fg-alt); }
+}
+
+/* Nothing to show for this agent yet: the row keeps its place so the window
+   does not change size when the first read lands. */
+.bar-row.empty .bar-row-pct { color: var(--fg-dim); }
 
 section, footer {
     display: none;
@@ -385,4 +572,5 @@ footer {
 /* Respect the OS "reduce motion" setting: no spin, just the dimmed state. */
 @media (prefers-reduced-motion: reduce) {
     header button#refreshBtn.spinning svg { animation: none; }
+    .clock-separator.off { visibility: visible; }
 }

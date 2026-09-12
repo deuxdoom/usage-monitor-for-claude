@@ -114,7 +114,7 @@ Non-exhaustive starting hints: `open(..., mode_with_write)` (any of `'w'/'a'/'x'
 
 Registry: any `winreg.SetValue*`, `winreg.DeleteValue`, `winreg.DeleteKey*`, `winreg.CreateKey*`, `winreg.SaveKey`, or `ctypes` calls into `advapi32` registry APIs (`RegSetValueExW`, `RegDeleteValueW`, `RegCreateKeyExW`, etc.).
 
-The app is read-only outside three known surfaces: the settings file, the cache file, and the autostart registry entry. Any new write target outside those is a finding by default and requires explicit justification tied to the stated PR goal.
+The app writes only its four stored settings through `settings_store.py` (including same-directory temporary replacement files and destination-directory creation), the notification identity and autostart registry entries, and deletion of the legacy notification identity key. Usage caches stay in memory. Any new write target outside those is a finding by default and requires explicit justification tied to the stated PR goal.
 
 ### Obfuscation
 - Any base64, hex, or other encoded strings? Decode and inspect.
