@@ -34,6 +34,10 @@ usage-monitor-settings.json
 # Release notes staged for the GitHub release page (copy-pasted, not committed)
 RELEASE.md
 
+# Local redesign progress and verification suite
+REDESIGN_TODO.md
+tests/
+
 # OS
 Thumbs.db
 Desktop.ini
