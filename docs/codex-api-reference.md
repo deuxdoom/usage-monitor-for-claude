@@ -103,7 +103,7 @@ Local token totals are **not** the numerator of the server quota:
 - An imported rollout stamps every record with the import time, so its tokens land in whichever
   window is current - the original timing is not in the file and is never invented
 
-The detail panel says this in its own source note. The monitor never shows a Codex message count
+The detail panel of the longer window says this in its source note, once rather than under every open panel. The monitor never shows a Codex message count
 or an estimated quota denominator, because neither can be derived honestly from these records.
 
 ## What Codex does not drive
@@ -117,7 +117,7 @@ Codex, which always draws its shortest window on top and its longest below.
 
 ## Side effects
 
-The monitor saves only its tray provider, refresh interval, popup font and popup view choices in
+The monitor saves only its tray provider, refresh interval and popup view choices in
 the settings file, using a temporary file in the same directory for replacement. Account and usage
 data remain in memory. The delegated Codex process may write its own logs, databases or refreshed
 credentials under its configured home, as Codex normally does. See

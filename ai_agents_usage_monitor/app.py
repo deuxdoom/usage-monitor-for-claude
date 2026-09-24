@@ -31,7 +31,7 @@ from .instance_id import effective_config_dir, is_default_config_dir
 from .settings import (
     ALERT_EXTRA_USAGE_SPENT, ALERT_TIME_AWARE, ALERT_TIME_AWARE_BELOW, ICON_FIELDS, IDLE_PAUSE, NOTIFY_CLAUDE_UPDATE,
     ON_RESET_COMMAND, ON_STARTUP_COMMAND, ON_THRESHOLD_COMMAND, QUICK_ACTION_COMMAND,
-    POLL_ERROR, POLL_FAST, POLL_FAST_EXTRA, POLL_INTERVAL, POPUP_FONT, POPUP_FONTS, POPUP_VIEW,
+    POLL_ERROR, POLL_FAST, POLL_FAST_EXTRA, POLL_INTERVAL, POPUP_VIEW,
     TRAY_PROVIDER, get_alert_thresholds,
 )
 from .settings_store import save_setting
@@ -132,15 +132,7 @@ class AIAgentsUsageMonitor:
         # How often the cadence poll runs.
         self._poll_interval = POLL_INTERVAL
 
-        # Typeface the popup renders in.  Held here rather than read from the
-        # settings module at render time because the tray menu changes it, and
-        # a popup that is already open has to be told about that change.
-        self._popup_font = POPUP_FONT
         self._popup_view = POPUP_VIEW
-
-        # The open popup, so a font change reaches a window already on screen.
-        # None whenever no popup is open, which is most of the time.
-        self._popup: UsagePopup | None = None
 
         # Non-default config dirs get a tooltip prefix so multiple
         # instances (one per Claude account) can be told apart.
@@ -231,34 +223,6 @@ class AIAgentsUsageMonitor:
 
         self._poll_interval = seconds
         save_setting('poll_interval', seconds)
-
-    def on_font_pretendard(self, icon: Any = None, item: Any = None) -> None:
-        self._set_popup_font('pretendard')
-
-    def on_font_system(self, icon: Any = None, item: Any = None) -> None:
-        self._set_popup_font('system')
-
-    def _set_popup_font(self, font: str) -> None:
-        """Change the popup's typeface and store the choice.
-
-        A popup that is open - a pinned one can be up for days - is restyled
-        in place rather than left on the old face until it is next opened.
-
-        Parameters
-        ----------
-        font : str
-            One of ``POPUP_FONTS``.
-        """
-        assert font in POPUP_FONTS
-        if font == self._popup_font:
-            return
-
-        self._popup_font = font
-        save_setting('popup_font', font)
-
-        popup = self._popup
-        if popup is not None:
-            popup.apply_font(font)
 
     def on_toggle_autostart(self, icon: Any = None, item: Any = None) -> None:
         set_autostart(not is_autostart_enabled())
@@ -377,7 +341,6 @@ class AIAgentsUsageMonitor:
                 threading.Thread(target=_bg_refresh, daemon=True).start()
             UsagePopup(self)
         finally:
-            self._popup = None
             self._popup_closed_at = time.time()
             self._popup_open = False
 

@@ -8,8 +8,7 @@
     <title>AI Agents Usage Monitor — 작업의 흐름을 한눈에</title>
     <link rel="icon" href="ai_agents_usage_monitor.ico" sizes="any">
     <style>
-        @font-face { font-family: Pretendard; src: url('ai_agents_usage_monitor/popup/PretendardVariable.woff2') format('woff2'); font-style: normal; font-weight: 100 900; font-display: swap; }
-        @font-face { font-family: NanumSquareNeo; src: url('ai_agents_usage_monitor/popup/NanumSquareNeo.woff2') format('woff2'); font-style: normal; font-weight: 100 900; font-display: swap; }
+        @font-face { font-family: 'Pretendard JP'; src: url('ai_agents_usage_monitor/popup/PretendardJPVariable.woff2') format('woff2'); font-style: normal; font-weight: 100 900; font-display: swap; }
         @font-face { font-family: JetBrainsMono; src: url('assets/JetBrainsMono-Regular.ttf') format('truetype'); font-style: normal; font-weight: 400; font-display: swap; }
         :root {
             color-scheme: dark;
@@ -27,7 +26,7 @@
             margin: 0;
             background: var(--paper);
             color: var(--ink);
-            font-family: Pretendard, "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+            font-family: "Pretendard JP", "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
             line-height: 1.55;
         }
         a { color: inherit; text-decoration: none; }
@@ -185,14 +184,11 @@
 
         .start-section { padding-top: 20px; padding-bottom: 112px; text-align: center; }
         .start-section .section-intro { margin: auto; }
-        .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 44px 0 36px; text-align: left; }
+        .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 44px 0 0; text-align: left; }
         .step { padding: 24px; border-top: 2px solid #368368; background: white; border-radius: 0 0 15px 15px; }
         .step small { color: #318165; font-weight: 800; letter-spacing: .1em; }
         .step strong { display: block; margin: 15px 0 8px; font-size: 16px; }
         .step p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
-        .start-section .button { background: #1e715b; color: white; }
-        .start-section .button:hover { background: #15503f; }
-        .start-note { margin: 13px 0 0; color: var(--muted); font-size: 12px; }
 
         .site-footer { border-top: 1px solid var(--line); }
         .footer-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-block: 27px; }
@@ -248,7 +244,7 @@
         .site-nav { color: #a3b3b2; }
         .site-nav .nav-download { border-color: #536365; }
         .hero { gap: clamp(28px, 5vw, 80px); padding-block: 72px 82px; }
-        .eyebrow, .kicker, .feature-index, .view-demo-label, .step small, .hero-facts, .visual-note {
+        .eyebrow, .kicker, .feature-index, .view-demo-label, .step small {
             font-family: JetBrainsMono, Consolas, monospace;
         }
         .eyebrow { color: #9fb8b1; }
@@ -259,8 +255,8 @@
             background: #f4d486;
             box-shadow: 0 0 0 5px #f4d4862b;
         }
-        h1 { letter-spacing: -.065em; }
-        h1, h2, h3 { font-family: NanumSquareNeo, 'Yu Gothic', 'Malgun Gothic', Pretendard, sans-serif; }
+        h1 { letter-spacing: -.045em; }
+        h2 { letter-spacing: -.04em; }
         h1 em { color: #92e0ba; }
         .hero-copy > p { color: #aebfbc; }
         .button { border-radius: 9px; }
@@ -272,16 +268,15 @@
         .site-nav .cat-link, .footer-links .cat-link { display: inline-flex; align-items: center; justify-content: center; }
         .hero-facts {
             color: #c4d6cd;
-            font-family: NanumSquareNeo, Pretendard, 'Malgun Gothic', sans-serif;
             font-size: 13px;
             font-weight: 650;
             letter-spacing: -.025em;
         }
-        .visual-frame { display: flex; align-items: center; justify-content: center; min-height: 0; padding: 24px; border-color: #445655; border-radius: 18px; background: #1e292b; box-shadow: 0 30px 70px #0008; }
-        .visual-frame img { width: min(100%, 340px); max-width: 100%; margin: 0; box-shadow: 0 18px 42px #0008; }
-        .bar-float { position: relative; inset: auto; width: min(100%, 378px); padding: 8px; margin: 12px 0 0 auto; border-color: #445655; border-radius: 10px; background: #1e292b; box-shadow: none; backdrop-filter: none; }
+        .visual-frame { display: flex; align-items: center; justify-content: center; height: auto; min-height: 0; padding: 24px; border-color: #445655; border-radius: 18px; background: #1e292b; box-shadow: 0 30px 70px #0008; }
+        .visual-frame img { width: min(100%, 510px); max-width: 100%; margin: 0; box-shadow: 0 18px 42px #0008; }
+        .bar-float { position: relative; inset: auto; width: min(100%, 378px); padding: 8px; margin: 12px auto 0; border-color: #445655; border-radius: 10px; background: #1e292b; box-shadow: none; backdrop-filter: none; }
         .bar-float img { width: 100%; height: auto; }
-        .visual-note { color: #91a5a2; }
+        .visual-note { color: #91a5a2; text-align: center; }
         main { background: var(--paper); }
         .kicker { color: var(--green); }
         .section-intro > p, .section-copy > p { color: var(--muted); }
@@ -291,7 +286,7 @@
         .feature-card:nth-child(2) .feature-index { border-color: #5e4c38; background: #3b3128; color: #edbd83; }
         .feature-card:nth-child(3) .feature-index { border-color: #405272; background: #2a3445; color: #abc1eb; }
         .feature-card:nth-child(4) .feature-index { border-color: #60463d; background: #3b2c2a; color: #e7a493; }
-        .feature-card h3 { align-self: center; margin: 0; color: var(--ink); }
+        .feature-card h3 { align-self: center; margin: 0; color: var(--ink); letter-spacing: -.03em; word-break: keep-all; }
         .feature-card p { grid-column: 2; margin-top: 12px; color: var(--muted); }
         .views-section { background: #171d20; border-block: 1px solid var(--line); }
         .view-points li { color: var(--muted); }
@@ -300,7 +295,7 @@
         .view-demo { border-color: #405050; border-radius: 16px; background: #222b2d; box-shadow: 0 25px 50px #0005; }
         .view-demo-label { color: #a8bcba; }
         .bar-image { width: min(100%, 360px); height: auto; margin-inline: auto; border: 0; box-shadow: 0 12px 28px #0006; }
-        .detail-link { width: 230px; max-width: 80%; }
+        .detail-link { width: 420px; max-width: 100%; }
         .detail-link img { box-shadow: 0 18px 35px #0007; }
         .detail-link span { color: #a5d9c2; }
         .privacy-panel { border: 1px solid #384b45; border-radius: 16px; background: #1c2b28; }
@@ -312,9 +307,7 @@
         .step { border-top-color: #82d6b7; border-radius: 0 0 10px 10px; background: #1b2224; }
         .step strong { color: var(--ink); }
         .step small { color: var(--green); }
-        .step p, .start-note { color: var(--muted); }
-        .start-section .button { background: #8be0b7; color: #10241d; }
-        .start-section .button:hover { background: #b2f0ce; }
+        .step p { color: var(--muted); }
         .site-footer { border-color: var(--line); background: #0d1012; }
         .footer-links { color: var(--muted); }
         .site-header {
@@ -403,7 +396,7 @@
             .hero-copy { animation: hero-enter .7s cubic-bezier(.2,.8,.2,1) both; }
             .hero-visual { animation: hero-enter .8s .12s cubic-bezier(.2,.8,.2,1) both; }
             @supports (animation-timeline: view()) {
-                .section-intro, .section-copy, .view-demo, .privacy-panel {
+                .section-intro, .section-copy, .view-demo, .update-shot, .privacy-panel {
                     animation: reveal-on-view 1ms linear both;
                     animation-timeline: view();
                     animation-range: entry 0% cover 24%;
@@ -422,6 +415,35 @@
             .eyebrow.latest-release::before { animation: none; transition: none; }
             .feature-card:hover, .step:hover, .button:hover, .bar-float:hover, .detail-link:hover img { transform: none; }
         }
+
+        /* 03: the update window beside its story, mirroring 02's layout. */
+        .update-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: clamp(36px, 8vw, 110px); }
+        .update-shot { display: flex; justify-content: center; margin: 0; padding: 30px; border: 1px solid #405050; border-radius: 16px; background: #222b2d; box-shadow: 0 25px 50px #0005; }
+        .update-shot img { width: min(100%, 360px); height: auto; border-radius: 10px; box-shadow: 0 18px 40px #0008; }
+        @media (max-width: 760px) {
+            .update-grid { grid-template-columns: 1fr; gap: 36px; }
+            .update-grid .section-copy { order: -1; }
+            .update-shot { padding: 18px; }
+        }
+
+        /* The full-size screenshot opens over the page instead of leaving it. */
+        .detail-link span { display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; width: 100%; }
+        .detail-link span svg { width: 12px; height: 12px; }
+        .lightbox { max-width: min(94vw, 1020px); max-height: 94vh; padding: 0; overflow: visible; border: 0; background: transparent; }
+        .lightbox::backdrop { background: rgb(6 8 10 / 78%); backdrop-filter: blur(6px); }
+        .lightbox img { display: block; width: auto; max-width: 100%; max-height: 94vh; border-radius: 12px; box-shadow: 0 30px 80px #000c; }
+        /* Pinned to the viewport corner, clear of the screenshot's own close icons. */
+        .lightbox-close { position: fixed; top: 18px; right: 18px; display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid #ffffff2e; border-radius: 50%; background: rgb(16 19 22 / 88%); color: #f2f4f2; cursor: pointer; }
+        .lightbox-close svg { width: 16px; height: 16px; }
+        .lightbox-close:hover { background: #22292b; }
+        .lightbox-close:focus-visible { outline: 3px solid #83ccac; outline-offset: 2px; }
+        html:has(.lightbox[open]) { overflow: hidden; }
+        @media (prefers-reduced-motion: no-preference) {
+            .lightbox[open] { animation: lightbox-in .22s cubic-bezier(.2,.8,.2,1); }
+            .lightbox[open]::backdrop { animation: fade-in .22s ease; }
+        }
+        @keyframes lightbox-in { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
+        @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
 <body>
@@ -435,9 +457,10 @@
             <nav class="site-nav" aria-label="주요 메뉴">
                 <a href="#features">기능</a>
                 <a href="#views">화면</a>
+                <a href="#update">업데이트</a>
                 <a href="#privacy">데이터 처리</a>
                 <a class="cat-link" href="https://github.com/deuxdoom/usage-monitor-for-claude" aria-label="GitHub 소스 코드"><svg class="cat-icon" aria-hidden="true"><use href="#cat-mark"/></svg></a>
-                <a class="nav-download" href="https://github.com/deuxdoom/usage-monitor-for-claude/releases/latest/download/AIAgentsUsageMonitor.exe">EXE 다운로드 ↓</a>
+                <a class="nav-download" href="https://github.com/deuxdoom/usage-monitor-for-claude/releases/latest/download/AIAgentsUsageMonitor.exe">다운로드 ↓</a>
             </nav>
         </div>
     </header>
@@ -450,21 +473,21 @@
                 <p>Claude와 Codex의 사용량, 초기화 시각, 사용 속도를 트레이에서 바로 확인하세요. 숫자는 명확하게, 화면은 가볍게. 필요한 순간에만 열어 보는 작은 모니터입니다.</p>
                 <div class="hero-actions">
                     <a class="button primary" href="https://github.com/deuxdoom/usage-monitor-for-claude/releases/latest/download/AIAgentsUsageMonitor.exe">Windows용 EXE 받기 <span aria-hidden="true">↓</span></a>
-                    <a class="button ghost release-check" href="https://github.com/deuxdoom/usage-monitor-for-claude/releases/latest">최신 릴리스 확인 <span aria-hidden="true">↗</span></a>
                     <a class="button ghost icon-only" href="https://github.com/deuxdoom/usage-monitor-for-claude" aria-label="GitHub에서 코드 보기" title="GitHub에서 코드 보기"><svg class="cat-icon" aria-hidden="true"><use href="#cat-mark"/></svg></a>
                 </div>
                 <ul class="hero-facts" aria-label="앱 특징">
                     <li>Claude + Codex</li>
                     <li>기본 1분 갱신</li>
                     <li>설치 없는 단일 EXE</li>
+                    <li>자동 업데이트</li>
                 </ul>
             </div>
             <div class="hero-visual">
                 <div class="visual-frame">
-                    <img src="screenshot.png" width="680" height="1016" alt="Claude 사용량의 세션, 주간 한도, 초기화 시각을 카드로 보여주는 상세 팝업 예시" fetchpriority="high">
+                    <img src="screenshot.png" width="1020" height="997" alt="Claude와 Codex의 세션·주간 한도, 모델별 토큰 사용량, 초기화 시각을 나란히 보여 주는 상세 팝업" fetchpriority="high">
                 </div>
                 <div class="bar-float"><img src="screenshot2.png" width="720" height="120" alt="Claude와 Codex 사용률을 나란히 보여주는 한 줄 바 모드 예시"></div>
-                <p class="visual-note">제품 미리보기 · 화면의 수치는 예시 데이터</p>
+                <p class="visual-note">제품 미리보기</p>
             </div>
         </div>
     </div>
@@ -480,7 +503,7 @@
                 <article class="feature-card"><span class="feature-index">01</span><h3>두 에이전트의 한도</h3><p>Claude와 Codex를 전환해 세션 및 주간 한도, 플랜과 초기화 시각을 확인합니다.</p></article>
                 <article class="feature-card"><span class="feature-index">02</span><h3>속도까지 읽는 막대</h3><p>시간 마커와 현재 사용률을 비교해 평소보다 빠르게 소진 중인지 알려줍니다.</p></article>
                 <article class="feature-card"><span class="feature-index">03</span><h3>작게 두는 바 모드</h3><p>두 에이전트의 주요 한도를 한 줄에 놓고, 사용률과 남은 비율을 눌러 바꿉니다.</p></article>
-                <article class="feature-card"><span class="feature-index">04</span><h3>알림과 안전한 업데이트</h3><p>임계값·초기화를 알리고, 새 버전은 동의한 뒤 검증해 교체합니다. 화면이 닫히면 불필요한 사용량 조회도 줄입니다.</p></article>
+                <article class="feature-card"><span class="feature-index">04</span><h3>알림과 자동 업데이트</h3><p>임계값·초기화를 알리고, 새 버전은 검증해 설치한 뒤 앱을 다시 실행합니다. 화면이 닫히면 불필요한 사용량 조회도 줄입니다.</p></article>
             </div>
         </section>
 
@@ -493,16 +516,34 @@
                     <ul class="view-points">
                         <li><b>01</b><span><strong>클릭하면 더 깊게</strong>사용량 카드를 펼쳐 로컬 기록의 모델별 토큰을 확인합니다.</span></li>
                         <li><b>02</b><span><strong>열어 둔 채로 가볍게</strong>바 모드는 드래그해 원하는 위치에 놓을 수 있습니다.</span></li>
-                        <li><b>03</b><span><strong>한 번 선택하면 그대로</strong>보기 모드와 글꼴, 새로고침 주기를 다음 실행에도 유지합니다.</span></li>
+                        <li><b>03</b><span><strong>한 번 선택하면 그대로</strong>보기 모드와 새로고침 주기를 다음 실행에도 유지합니다.</span></li>
                     </ul>
                 </div>
                 <div class="view-demo">
                     <div class="view-demo-label"><span>COMPACT VIEW</span><span>Claude + Codex</span></div>
                     <img class="bar-image" src="screenshot2.png" width="720" height="120" alt="날짜와 시간, 두 에이전트의 세션 및 주간 사용률이 나란히 표시된 바 화면" loading="lazy">
-                    <a class="detail-link" href="screenshot.png" aria-label="상세 팝업 전체 이미지 보기">
-                        <img src="screenshot.png" width="680" height="1016" alt="카드로 정리된 상세 팝업 화면" loading="lazy">
-                        <span>상세 화면 전체 보기 ↗</span>
+                    <a class="detail-link" href="screenshot.png" aria-haspopup="dialog" aria-controls="detailLightbox" aria-label="상세 화면 크게 보기">
+                        <img src="screenshot.png" width="1020" height="997" alt="Claude와 Codex 상세 팝업을 나란히 놓은 화면" loading="lazy">
+                        <span>상세 화면 전체 보기 <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M9.5 2a.5.5 0 0 0 0 1h2.79L9.15 6.15a.5.5 0 1 0 .7.7L13 3.71V6.5a.5.5 0 0 0 1 0v-4a.5.5 0 0 0-.5-.5zm-7 7.5a.5.5 0 0 1 1 0v2.79l3.15-3.14a.5.5 0 1 1 .7.7L4.21 13H7a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5z"/></svg></span>
                     </a>
+                </div>
+            </div>
+        </section>
+
+        <section class="update-section shell" id="update" aria-labelledby="update-title">
+            <div class="update-grid">
+                <figure class="update-shot">
+                    <img src="screenshot3.png" width="920" height="1280" alt="변경 내역과 다섯 단계 진행 표시, 다운로드 진행률이 함께 보이는 업데이트 창" loading="lazy">
+                </figure>
+                <div class="section-copy">
+                    <p class="kicker">03 / ALWAYS UP TO DATE</p>
+                    <h2 id="update-title">새 버전은<br>알아서, 안전하게.</h2>
+                    <p>앱을 켤 때 새 버전을 확인하고, 있으면 창 하나에 변경 내역과 진행 과정을 보여 줍니다. 한 번 누르면 다운로드부터 다시 실행까지 알아서 마칩니다.</p>
+                    <ul class="view-points">
+                        <li><b>01</b><span><strong>바뀐 점을 먼저 확인</strong>업데이트하기 전에 변경 내역을 요약해 보여 줍니다.</span></li>
+                        <li><b>02</b><span><strong>공식 파일만 설치</strong>GitHub 릴리스와 크기·SHA-256이 일치하는 파일만 설치합니다.</span></li>
+                        <li><b>03</b><span><strong>끝나면 다시 실행</strong>교체를 마치면 앱을 자동으로 다시 실행하고, 문제가 생기면 이전 버전으로 되돌립니다.</span></li>
+                    </ul>
                 </div>
             </div>
         </section>
@@ -510,7 +551,7 @@
         <section class="privacy-section shell" id="privacy" aria-labelledby="privacy-title">
             <div class="privacy-panel">
                 <div>
-                    <p class="kicker">03 / CLEAR ABOUT DATA</p>
+                    <p class="kicker">04 / CLEAR ABOUT DATA</p>
                     <h2 id="privacy-title">무엇을 읽는지<br>알 수 있게.</h2>
                     <p>사용량을 보여주기 위해 필요한 범위만 다룹니다. 앱은 오픈소스이며, 인증 정보와 로컬 기록을 다루는 방식을 직접 확인할 수 있습니다.</p>
                     <a class="text-link" href="https://github.com/deuxdoom/usage-monitor-for-claude/blob/main/PRIVACY.md">데이터 처리 방식 자세히 보기 <span aria-hidden="true">↗</span></a>
@@ -526,19 +567,22 @@
 
         <section class="start-section shell" id="download" aria-labelledby="start-title">
             <div class="section-intro">
-                <p class="kicker">04 / GET STARTED</p>
+                <p class="kicker">05 / GET STARTED</p>
                 <h2 id="start-title">다운로드하고,<br>트레이에서 시작하세요.</h2>
                 <p>Windows 10/11 x64에서 실행합니다. Claude Code와 Codex에 이미 로그인했다면 별도의 API 키를 입력할 필요가 없습니다.</p>
             </div>
             <div class="steps">
                 <div class="step"><small>STEP 01</small><strong>EXE 다운로드</strong><p>최신 릴리스에서 실행 파일을 받아 원하는 폴더에 둡니다.</p></div>
                 <div class="step"><small>STEP 02</small><strong>트레이에서 열기</strong><p>앱을 실행하고 트레이 아이콘을 클릭해 상세 팝업을 엽니다.</p></div>
-                <div class="step"><small>STEP 03</small><strong>내 방식으로 보기</strong><p>상세/바 보기와 갱신 주기, 글꼴을 원하는 대로 고릅니다.</p></div>
+                <div class="step"><small>STEP 03</small><strong>내 방식으로 보기</strong><p>상세/바 보기와 갱신 주기를 원하는 대로 고릅니다.</p></div>
             </div>
-            <a class="button" href="https://github.com/deuxdoom/usage-monitor-for-claude/releases/latest/download/AIAgentsUsageMonitor.exe">최신 EXE 다운로드 <span aria-hidden="true">↓</span></a>
-            <p class="start-note">무료 · 오픈소스 · Windows x64</p>
         </section>
     </main>
+
+    <dialog class="lightbox" id="detailLightbox" aria-label="Claude와 Codex 상세 화면">
+        <button type="button" class="lightbox-close" id="detailLightboxClose" aria-label="닫기" title="닫기"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M3.35 2.65a.5.5 0 0 0-.7.7L7.29 8l-4.64 4.65a.5.5 0 0 0 .7.7L8 8.71l4.65 4.64a.5.5 0 0 0 .7-.7L8.71 8l4.64-4.65a.5.5 0 0 0-.7-.7L8 7.29z"/></svg></button>
+        <img src="screenshot.png" width="1020" height="997" alt="Claude와 Codex의 세션·주간 한도, 모델별 토큰 사용량, 초기화 시각을 나란히 보여 주는 상세 팝업" loading="lazy">
+    </dialog>
 
     <footer class="site-footer">
         <div class="shell footer-inner">
@@ -566,6 +610,22 @@
                 label.textContent = `LATEST RELEASE · ${version}`;
                 badge.setAttribute('aria-label', `GitHub 최신 릴리스 ${version} 보기`);
             } catch { /* The fixed releases/latest link still works offline or when rate limited. */ }
+        })();
+    </script>
+    <script>
+        // The link still points at the image, so it works without script;
+        // with script it opens the image over the page and closes back to it.
+        (() => {
+            const dialog = document.getElementById('detailLightbox');
+            const link = document.querySelector('.detail-link');
+            if (!dialog || !link || typeof dialog.showModal !== 'function') return;
+            link.addEventListener('click', (event) => {
+                event.preventDefault();
+                dialog.showModal();
+            });
+            document.getElementById('detailLightboxClose').addEventListener('click', () => dialog.close());
+            // A click on the dimmed area lands on the dialog itself, not the image.
+            dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); });
         })();
     </script>
 </body>

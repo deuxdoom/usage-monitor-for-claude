@@ -10,10 +10,12 @@ import traceback
 from pathlib import Path
 
 # The copied helper must bypass configuration, single-instance and tray startup.
+# Anything after its four fixed arguments is the app's own command line,
+# handed back to the new version when the helper restarts it.
 if len(sys.argv) > 1 and sys.argv[1] == '--apply-update':
     from ai_agents_usage_monitor.updater import run_update_helper
 
-    sys.exit(run_update_helper(*sys.argv[2:]) if len(sys.argv) == 6 else 2)
+    sys.exit(run_update_helper(*sys.argv[2:]) if len(sys.argv) >= 6 else 2)
 
 from ai_agents_usage_monitor.instance_id import parse_config_dir
 

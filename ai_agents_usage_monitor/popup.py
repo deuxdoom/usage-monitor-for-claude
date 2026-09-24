@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import webview  # type: ignore[import-untyped]  # no type stubs available
+from webview.window import FixPoint  # type: ignore[import-untyped]  # no type stubs available
 
 from . import __version__
 from . import claude_sessions
@@ -34,7 +35,7 @@ from .formatting import (
 from .i18n import LANG_CODE, T
 from .settings import (
     BAR_BG, BAR_DIVIDER, BAR_FG, BAR_FG_ALT, BAR_FG_WARN, BAR_MARKER, BG, COMPACT_HIDE, FG, FG_DIM, FG_HEADING, FG_LINK,
-    POPUP_FIELDS, POPUP_FONT, POPUP_MARGIN, POPUP_VIEW, POPUP_VIEWS, TIME_FORMAT,
+    POPUP_FIELDS, POPUP_MARGIN, POPUP_VIEW, POPUP_VIEWS, TIME_FORMAT,
 )
 from .settings_store import save_setting
 
@@ -148,6 +149,22 @@ def _available_bounds(
         right = min(right, bar.left)
 
     return left, top, right, bottom
+
+
+def _in_lower_half(window: ctypes.wintypes.RECT, work: ctypes.wintypes.RECT) -> bool:
+    """Return True when the window's vertical center lies below the work area's."""
+    return window.top + window.bottom > work.top + work.bottom
+
+
+def _clamp_to_work_area(left: int, top: int, width: int, height: int, work: ctypes.wintypes.RECT) -> tuple[int, int]:
+    """Return the top-left that keeps a ``width`` x ``height`` window inside ``work``.
+
+    All values are physical pixels.  A window taller or wider than the work
+    area is aligned to its top or left edge, so the title row stays reachable.
+    """
+    left = max(work.left, min(left, work.right - width))
+    top = max(work.top, min(top, work.bottom - height))
+    return left, top
 
 
 def _snapshot_to_dict(
@@ -344,8 +361,7 @@ def _codex_account_to_dict(snapshot: dict[str, Any], local_periods: set[int],
     }
 
 
-def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None,
-                 font: str = POPUP_FONT, view: str = POPUP_VIEW) -> dict[str, Any]:
+def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None, view: str = POPUP_VIEW) -> dict[str, Any]:
     """Build the config object passed to JS ``init()`` after the page loads.
 
     Parameters
@@ -354,10 +370,6 @@ def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None,
         The data the page renders first.
     next_poll_time : float or None
         Unix timestamp of the next scheduled poll, for the footer countdown.
-    font : str
-        One of ``POPUP_FONTS``.  The window is already open by the time the
-        page reads this, so the running app's choice is passed in rather than
-        read from the settings module, which only knows the startup value.
     view : str
         One of ``POPUP_VIEWS`` - which view the page opens in.
     """
@@ -387,10 +399,10 @@ def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None,
         },
         'app_version': __version__,
         'compact_hide': COMPACT_HIDE,
-        'font': font,
         'view': view,
-        # The bar view's clock reads in the app's language rather than the
-        # system's, so an overridden `language` moves the date with it.
+        # The app's language rather than the system's: the bar clock formats
+        # its date in it, and the page sets it as the document language so
+        # heading tracking suits the script.
         'lang_tag': LANG_CODE,
         'time_format': TIME_FORMAT,
         'data': _snapshot_to_dict(snap, next_poll_time=next_poll_time),
@@ -544,17 +556,13 @@ class UsagePopup:
         self._shown = False
         self._window.events.loaded += self._on_loaded
         self._window.events.closed += self._on_window_closed
-        # Published before the window blocks this thread so a font change made
-        # from the tray menu can reach the page while it is up.
-        app._popup = self
         threading.Thread(target=self._dismiss_watch, daemon=True).start()
         self._closed.wait()
 
     def _on_loaded(self) -> None:
         """Inject config and show the window transparently for layout."""
         config = _init_config(
-            self.app.cache.snapshot, next_poll_time=self.app._next_poll_time,
-            font=self.app._popup_font, view=self._view,
+            self.app.cache.snapshot, next_poll_time=self.app._next_poll_time, view=self._view,
         )
         self._window.evaluate_js(f'init({json.dumps(config)})')
 
@@ -771,23 +779,6 @@ class UsagePopup:
         save_setting('popup_view', view)
 
         return True
-
-    def apply_font(self, font: str) -> None:
-        """Restyle the open page for a typeface chosen from the tray menu.
-
-        Best-effort: the window can be closing as the menu item is clicked,
-        and a failed restyle is not worth propagating to the tray thread -
-        the next popup opens on the stored choice regardless.
-
-        Parameters
-        ----------
-        font : str
-            One of ``POPUP_FONTS``.
-        """
-        try:
-            self._window.evaluate_js(f'setFont({json.dumps(font)})')
-        except Exception:
-            logger.debug('font change did not reach the popup', exc_info=True)
 
     def _begin_drag(self) -> bool:
         """Anchor the cursor to the window for a popup drag.
@@ -1108,13 +1099,57 @@ class UsagePopup:
         are still computed for ``_tray_position``, which needs them to
         calculate the correct logical position against the physical work-area
         coordinates returned by Win32.
+
+        A window the user has dragged keeps its place instead of returning to
+        the tray; ``_resize_in_place`` keeps it on its monitor.
         """
         dpi = ctypes.windll.user32.GetDpiForWindow(self._popup_hwnd) or ctypes.windll.user32.GetDpiForSystem()
         scale = dpi / _BASELINE_DPI
         physical_width = int(self._width * scale)
         physical_height = int(height * scale)
-        self._window.resize(self._width, height)
         if self._stays_open() and self._moved_by_user:
+            self._resize_in_place(height, physical_width, physical_height, scale)
             return
+        self._window.resize(self._width, height)
         x, y = self._tray_position(physical_width, physical_height)
         self._window.move(x, y)
+
+    def _resize_in_place(self, height: int, physical_width: int, physical_height: int, scale: float) -> None:
+        """Resize a user-placed window without letting it leave its monitor.
+
+        pywebview resizes from the top-left corner by default, so a window
+        parked near the bottom of the screen runs past the taskbar as soon as
+        it grows - which is exactly what switching a docked bar back to the
+        pinned detail view, or expanding a card, does.  The window therefore
+        keeps the edge nearer to where it sits: in the lower half of its work
+        area it keeps its bottom edge and grows upward.  Whatever still does
+        not fit is moved back inside the work area, never resized.
+
+        Parameters
+        ----------
+        height : int
+            New content height in logical pixels.
+        physical_width, physical_height : int
+            The same size in physical pixels, to compare against Win32 rectangles.
+        scale : float
+            The window's DPI scale, to convert a corrected position back to
+            the logical pixels ``move()`` expects.
+        """
+        window = ctypes.wintypes.RECT()
+        mon_info = _MONITORINFO()
+        mon_info.cbSize = ctypes.sizeof(_MONITORINFO)
+        hmon = ctypes.windll.user32.MonitorFromWindow(self._popup_hwnd, 2)  # MONITOR_DEFAULTTONEAREST
+        if not ctypes.windll.user32.GetWindowRect(self._popup_hwnd, ctypes.byref(window)) \
+                or not ctypes.windll.user32.GetMonitorInfoW(hmon, ctypes.byref(mon_info)):
+            self._window.resize(self._width, height)
+            return
+
+        work = mon_info.rcWork
+        keep_bottom = _in_lower_half(window, work)
+        kept_edge = FixPoint.SOUTH if keep_bottom else FixPoint.NORTH
+        self._window.resize(self._width, height, fix_point=kept_edge | FixPoint.WEST)
+
+        anchored_top = window.bottom - physical_height if keep_bottom else window.top
+        x, y = _clamp_to_work_area(window.left, anchored_top, physical_width, physical_height, work)
+        if (x, y) != (window.left, anchored_top):
+            self._window.move(int(x / scale), int(y / scale))

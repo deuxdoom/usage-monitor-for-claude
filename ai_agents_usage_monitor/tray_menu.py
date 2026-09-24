@@ -31,18 +31,19 @@ def build_menu(monitor: Any) -> pystray.Menu:
     ----------
     monitor : AIAgentsUsageMonitor
         The running monitor, read for its menu handlers and for the current
-        tray provider, refresh interval and popup font the radio items check
-        against.
+        tray provider and refresh interval the radio items check against.
     """
     return pystray.Menu(
         # Names the app at the top of the menu. Disabled so it reads as a
         # heading and cannot be clicked, and without an action so it stays
-        # inert; `default` remains on "show usage", which is what a left
-        # click on the tray icon has to keep firing.
+        # inert.
         pystray.MenuItem(T['app_name'], None, enabled=False),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem(T['menu_show'], monitor.on_show_popup, default=True),
-        pystray.Menu.SEPARATOR,
+        # A left click on the tray icon fires the menu's default item, so
+        # opening the popup has to stay one.  It is hidden because the click
+        # already does its job: pystray draws only visible items, but looks
+        # up the default among all of them.
+        pystray.MenuItem(T['menu_show'], monitor.on_show_popup, default=True, visible=False),
         # The agent names are product names and read the same in every
         # language, exactly as the popup's own switch shows them, so
         # they are written out instead of going through a locale key.
@@ -68,16 +69,6 @@ def build_menu(monitor: Any) -> pystray.Menu:
             pystray.MenuItem(
                 T['refresh_minutes'].format(n=5), monitor.on_refresh_5min,
                 checked=lambda item: monitor._poll_interval == 300, radio=True,
-            ),
-        )),
-        pystray.MenuItem(T['menu_font'], pystray.Menu(
-            pystray.MenuItem(
-                T['font_system'], monitor.on_font_system,
-                checked=lambda item: monitor._popup_font == 'system', radio=True,
-            ),
-            pystray.MenuItem(
-                T['font_pretendard'], monitor.on_font_pretendard,
-                checked=lambda item: monitor._popup_font == 'pretendard', radio=True,
             ),
         )),
         pystray.MenuItem(

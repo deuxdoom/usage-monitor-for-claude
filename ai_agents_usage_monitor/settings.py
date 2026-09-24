@@ -37,7 +37,7 @@ __all__ = [
     'LANGUAGE', 'LEGACY_SETTINGS_FILENAME', 'MAX_BACKOFF', 'NOTIFY_CLAUDE_UPDATE',
     'ON_RESET_COMMAND', 'ON_STARTUP_COMMAND', 'ON_THRESHOLD_COMMAND', 'QUICK_ACTION_COMMAND',
     'POLL_ERROR', 'POLL_FAST', 'POLL_FAST_EXTRA', 'POLL_INTERVAL',
-    'POPUP_FIELDS', 'POPUP_FONT', 'POPUP_FONTS', 'POPUP_HIDE_FIELDS', 'POPUP_HIDE_INACTIVE',
+    'POPUP_FIELDS', 'POPUP_HIDE_FIELDS', 'POPUP_HIDE_INACTIVE',
     'POPUP_MARGIN', 'POPUP_VIEW', 'POPUP_VIEWS',
     'SETTINGS_FILENAME', 'SETTINGS_PATH', 'TIME_FORMAT', 'TOOLTIP_FIELDS', 'TRAY_PROVIDER',
     'get_alert_thresholds', 'settings_search_paths',
@@ -74,11 +74,10 @@ _PERCENT_KEYS = frozenset({'alert_time_aware_below'})
 _STRING_KEYS = frozenset({'currency_symbol', 'language'})
 _VALID_TIME_FORMATS = frozenset({'24h', '12h'})
 _VALID_ICON_STYLES = frozenset({'number+bars', 'numbers'})
-# The popup typefaces and views the app offers, in the order the tray menu
-# and the popup's own mode button present them.  Public because the menu
-# handlers validate against them too: a second copy of either list is how the
-# menu and the file would come to disagree about what a valid choice is.
-POPUP_FONTS = ('pretendard', 'system')
+# The popup views the app offers, in the order the popup's own mode button
+# presents them.  Public because the view handlers validate against it too: a
+# second copy of the list is how the popup and the file would come to disagree
+# about what a valid choice is.
 POPUP_VIEWS = ('detail', 'bar')
 _COMMAND_KEYS = frozenset({
     'on_double_click_command', 'on_reset_command', 'on_startup_command', 'on_threshold_command', 'quick_action_command',
@@ -229,14 +228,6 @@ def _validate(data: dict, path: Path) -> dict:
         elif key == 'icon_style':
             if value not in _VALID_ICON_STYLES:
                 errors.append(f'  {key}: must be "number+bars" or "numbers", got {value!r}')
-                drop.append(key)
-
-        elif key == 'popup_font':
-            if value in {'mono', 'pixel'}:
-                data[key] = 'pretendard'
-                continue
-            if value not in POPUP_FONTS:
-                errors.append(f'  {key}: must be one of {", ".join(POPUP_FONTS)}, got {value!r}')
                 drop.append(key)
 
         elif key == 'popup_view':
@@ -457,10 +448,6 @@ POPUP_MARGIN: int = _S.get('popup_margin', 12)
 
 # Sections and usage bars hidden while the popup is pinned (compact view)
 COMPACT_HIDE: list[str] = _S.get('compact_hide', [])
-
-# Detail popup typeface: bundled Pretendard by default or the system stack.
-# The bar always uses the system stack for small-text legibility.
-POPUP_FONT: str = _S.get('popup_font', POPUP_FONTS[0])
 
 # Which view the popup opens in: 'detail' is the full window, 'bar' the
 # single-row session summary.  Written back by the popup's own mode button.

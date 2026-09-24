@@ -2,32 +2,30 @@
 html { overflow: hidden; }
 [hidden] { display: none !important; }
 
-/* Bundled variable font for consistent Latin and Hangul rendering offline.
-   WebView2 keeps Windows' native text rasterization, including ClearType. */
+/* The popup's one typeface, bundled so it renders the same offline.
+   Pretendard JP rather than Pretendard: both carry Latin, all Hangul
+   syllables and kana, but only JP has kanji, so the Japanese UI would
+   otherwise borrow Malgun Gothic's Korean-form kanji. WebView2 keeps
+   Windows' native text rasterization, including ClearType. Every element
+   inherits it - hierarchy comes from size and weight, never from a second
+   face. */
 @font-face {
-    font-family: 'Pretendard';
-    src: url('PretendardVariable.woff2') format('woff2');
-    font-style: normal;
-    font-weight: 100 900;
-    font-display: block;
-}
-@font-face {
-    font-family: 'NanumSquareNeo';
-    src: url('NanumSquareNeo.woff2') format('woff2');
+    font-family: 'Pretendard JP';
+    src: url('PretendardJPVariable.woff2') format('woff2');
     font-style: normal;
     font-weight: 100 900;
     font-display: block;
 }
 
-/* The two faces the tray menu offers. Only --font-stack is read by the
-   layout, and setFont() repoints it, so a face change is one property write
-   rather than a rule per element. Each stack ends in a generic family so
-   scripts missing from the named faces can fall back to installed fonts. */
+/* Each agent's signature color, owned here once for the provider-switch
+   dots, the top strip and the bar's agent names. Both clear 4.5:1 on the
+   black bar, hovered included, so its 10 px names stay legible. Claude is a
+   muted brown rather than the brand's orange: the orange sat too close to
+   --bar-fg-warn, so the name read as a warning beside the red percentages. */
 :root {
-    --font-pretendard: 'Pretendard', 'Malgun Gothic', system-ui, sans-serif;
-    --font-system: 'Helvetica Neue', Helvetica, Avenir, Tahoma, 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif;
-    --font-display: 'NanumSquareNeo', 'Yu Gothic', 'Malgun Gothic', 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
-    --font-stack: var(--font-pretendard);
+    --claude-signature: #b9835a;
+    --codex-signature: #7e9bef;
+    --font-ui: 'Pretendard JP', 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif;
     --surface: color-mix(in srgb, var(--bg) 91%, var(--fg) 9%);
     --stroke: color-mix(in srgb, var(--fg) 14%, transparent);
     --hover: color-mix(in srgb, var(--fg) 9%, transparent);
@@ -37,7 +35,7 @@ body {
     position: relative;
     background: var(--bg);
     color: var(--fg);
-    font-family: var(--font-stack);
+    font-family: var(--font-ui);
     font-size: 13px;
     line-height: 1.35;
     display: flex;
@@ -57,7 +55,7 @@ body:not(.bar-mode)::before {
     position: absolute;
     inset: 0 0 auto;
     height: 2px;
-    background: linear-gradient(90deg, #c47759 0 49%, #698bd5 51% 100%);
+    background: linear-gradient(90deg, var(--claude-signature) 0 49%, var(--codex-signature) 51% 100%);
 }
 
 header {
@@ -88,10 +86,10 @@ header {
                 width: 6px;
                 height: 6px;
                 border-radius: 50%;
-                background: #c9795b;
+                background: var(--claude-signature);
             }
 
-            &#codexBtn::before { background: #5875c7; }
+            &#codexBtn::before { background: var(--codex-signature); }
 
             &[aria-pressed="true"] {
                 color: var(--fg-heading);
@@ -173,9 +171,6 @@ header {
  * sections and the footer are all hidden, and the row carries its own way back
  * to the detail window. The detail view's state is left exactly as it was -
  * hidden, not torn down - so switching back does not have to rebuild it.
- *
- * At this smaller size the system stack stays clearest. The menu's selected
- * typeface applies to the detail view.
  */
 body.bar-mode {
     padding: 0;
@@ -183,8 +178,6 @@ body.bar-mode {
     font-size: 11px;
     line-height: 1.2;
     background: var(--bg);
-
-    --font-stack: var(--font-system);
 
     & > header, & > section, & > footer { display: none; }
 
@@ -194,11 +187,12 @@ body.bar-mode {
     }
 }
 
+/* The same black as the detail popup, so switching views keeps one look. */
 #barView {
     flex-direction: row;
     gap: 0;
     min-height: 58px;
-    background: var(--surface);
+    background: var(--bg);
 }
 
 /* Date and time also provide the bar's drag handle. */
@@ -292,13 +286,17 @@ body.bar-mode #clockWidget {
     font-size: 10px;
     line-height: 12px;
     font-weight: 750;
-    color: var(--fg-heading);
+    color: var(--signature, var(--fg-heading));
     letter-spacing: 0.01em;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
+.bar-card[data-provider="claude"] { --signature: var(--claude-signature); }
+.bar-card[data-provider="codex"] { --signature: var(--codex-signature); }
+
+/* More specific than the name rule, so a failed read still reads as one. */
 .bar-card.stale {
     & .bar-row { opacity: 0.4; }
     & .bar-card-name { color: var(--bar-fg-warn); }
@@ -357,13 +355,16 @@ section.stale { opacity: 0.4; }
 body.pending > section, body.pending > footer { opacity: 0.4; }
 
 h2 {
-    font-family: var(--font-display);
     font-size: 10px;
     font-weight: 750;
     color: var(--fg-dim);
     text-transform: uppercase;
     letter-spacing: 0.08em;
 }
+
+/* Tracking suits capitals; spread across Hangul or kana it pulls each
+   syllable apart ("사 용 량"), so those headings stay near their natural set. */
+:root:lang(ko) h2, :root:lang(ja) h2 { letter-spacing: 0.02em; }
 
 #accountSection, #extraSection, #installSection {
     padding: 9px 11px;
@@ -483,7 +484,6 @@ dl > div {
         min-width: 0;
         color: var(--fg-heading);
         font-weight: 650;
-        font-family: var(--font-display);
     }
 }
 
@@ -587,8 +587,18 @@ dl > div {
     &:hover, &:focus-visible { color: var(--fg-heading); border-color: var(--fg-dim); }
 }
 
-.disclosure-arrow { display: inline-block; font-size: 15px; line-height: 0.8; transition: transform 0.15s ease; }
-[aria-expanded="true"] > .disclosure-arrow { transform: rotate(180deg); }
+/* Drawn from two borders rather than a glyph: Pretendard has no chevron, and
+   the fallback face's "⌄" sat below the text's baseline. */
+.disclosure-arrow {
+    flex: none;
+    width: 5px;
+    height: 5px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: translateY(-1.5px) rotate(45deg);
+    transition: transform 0.15s ease;
+}
+[aria-expanded="true"] > .disclosure-arrow { transform: translateY(1.5px) rotate(225deg); }
 
 #installRows { margin-top: 3px; }
 
@@ -722,7 +732,6 @@ footer {
     color: var(--bar-fg);
     font-weight: 750;
     font-variant-numeric: tabular-nums;
-    font-family: 'Segoe UI Variable Display', 'Segoe UI', var(--font-pretendard);
 }
 
 #installRows dd { font-variant-numeric: tabular-nums; }

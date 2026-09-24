@@ -18,6 +18,9 @@ dist/
 .vscode/
 .idea/
 
+# TEST
+tests/ 
+
 # Claude Code - agent instructions and local settings, tracked outside this repository
 .claude/
 
@@ -36,7 +39,6 @@ RELEASE.md
 
 # Local redesign progress and verification suite
 REDESIGN_TODO.md
-tests/
 
 # OS
 Thumbs.db

@@ -18,7 +18,7 @@ The app searches these directories in order (first file found wins):
 
 Within each directory, `config.json` is checked before the legacy `usage-monitor-settings.json`. Directory priority comes first: a legacy file in an earlier directory takes precedence over a new-name file in a later one. Existing files do not need to be renamed, and files are not merged.
 
-The app saves only `tray_provider`, `poll_interval`, `popup_font` and `popup_view`, preserving the values of every other key. It updates the file read at startup, including a legacy-name file. If none was read, it creates `config.json` in the first directory above. If writing there fails, it tries `~/.claude/config.json`. Required directories may be created. Saving uses a temporary file in the same directory followed by an atomic replacement; JSON whitespace may change.
+The app saves only `tray_provider`, `poll_interval` and `popup_view`, preserving the values of every other key. It updates the file read at startup, including a legacy-name file. If none was read, it creates `config.json` in the first directory above. If writing there fails, it tries `~/.claude/config.json`. Required directories may be created. Saving uses a temporary file in the same directory followed by an atomic replacement; JSON whitespace may change.
 
 An existing file that cannot be read or parsed as a JSON object is left untouched. Empty files are treated as empty settings. If saving fails, the choice still applies to the running app but may not survive a restart. A higher-priority existing file still takes precedence over a fallback file at the next start.
 
@@ -163,7 +163,7 @@ Note that setting `popup_hide_fields` yourself **replaces** the default rather t
 
 Clicking the session (5hr) or weekly (7 day) bar expands a panel with the exact token and message counts for that period, and a per-model breakdown. The usage API itself only reports a percentage - it does not disclose token counts or which models were used - so this reads the numbers straight out of Claude Code's own session transcripts (`<config dir>/projects/**/*.jsonl`), the same files Claude Code itself writes as you work. Nothing beyond the existing `/api/oauth/usage` call leaves the machine; the transcripts never do.
 
-**These transcripts cover Claude Code only.** The quota percentage on the bar is account-wide - claude.ai in the browser, the desktop app, and Claude Code all draw from it - but only Claude Code writes a local record. A period you spent on claude.ai therefore shows a high percentage with no local tokens to report, and the panel says so rather than claiming zero usage. The panel repeats this caveat as a footnote every time it opens.
+**These transcripts cover Claude Code only.** The quota percentage on the bar is account-wide - claude.ai in the browser, the desktop app, and Claude Code all draw from it - but only Claude Code writes a local record. A period you spent on claude.ai therefore shows a high percentage with no local tokens to report, and the panel says so rather than claiming zero usage. The caveat appears as a footnote under the longest window's panel - the weekly one - so it is shown once even with both panels open, and under any panel whose period is empty, where it explains the zero.
 
 The window scanned matches the bar's own period: for a bar with a reset time, `[reset time − period, reset time)`; for one that has not reset yet in this account (see [Hidden popup fields](#hidden-popup-fields) above), the last *period* ending now. Retried or resumed turns that appear twice in a transcript are only counted once.
 
@@ -171,16 +171,19 @@ An **estimated total** is shown alongside the token count once the bar's utiliza
 
 There is no setting to turn this off - it reads local files only when the panel is clicked, so it costs nothing until asked for. Only `five_hour` and `seven_day` support it; a model-scoped or unlabeled quota (`seven_day_opus`, `nimbus_quill`, ...) has no local-log equivalent, and its bar is not clickable.
 
-## Popup font and view
+## Popup view
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `popup_font` | `"pretendard"` | Detail popup typeface: bundled `"pretendard"` or `"system"` (Windows sans-serif stack). The tray menu applies the selection to an open popup and saves it. Bar mode uses the system stack at its smaller size. Older `"pixel"` and `"mono"` values migrate to `"pretendard"` in memory. |
 | `popup_view` | `"detail"` | Popup view: `"detail"` or `"bar"`. The popup's view buttons save this choice. The bar stays open without pinning, can be dragged by its clock, and has detail-view and close buttons |
+
+Earlier versions also offered a `popup_font` choice. The popup now always renders in the bundled Pretendard, so an existing `popup_font` key is ignored and left in the file untouched.
 
 ## Popup position
 
 The popup is anchored to the corner nearest the tray, staying clear of both the monitor work area edge and the taskbar window's own rectangle - whichever is stricter. The second bound covers an auto-hiding taskbar, which Windows does not subtract from the work area at all. A third-party bar drawn as its own window is still not accounted for; `popup_margin` widens the gap for that case.
+
+A pinned popup or a bar you have dragged keeps its place instead of returning to the tray. When its content changes height - switching the bar back to the detail view, or expanding a card - it keeps the edge nearer to where it sits: in the lower half of the screen the bottom edge stays put and the window grows upward. If it would still leave its monitor, it is moved back inside the work area.
 
 | Key | Default | Description |
 |-----|---------|-------------|

@@ -28,9 +28,10 @@ let installationsVisible = false;
 // does not rebuild it.
 let viewMode = 'detail';
 let viewSwitchBusy = false;
-// Whether the bar's percentages read as used or as remaining. Per session:
-// it is a way of looking at the same number, not a setting.
-let barShowsRemaining = false;
+// Agents whose bar card reads as remaining rather than used. Each card flips
+// on its own, so one agent's headroom can sit beside the other's usage. Per
+// session: it is a way of looking at the same number, not a setting.
+let barRemainingProviders = new Set();
 let clockTimerId = null;
 let clockDateFormat = null;
 let clockTimeFormat = null;
@@ -174,7 +175,9 @@ function init(config) {
 
     translations = config.t;
     compactHide = config.compact_hide || [];
-    setFont(config.font);
+    // The stylesheet sets heading tracking by :lang(), so this has to be the
+    // app's language, not the static attribute.
+    document.documentElement.lang = config.lang_tag;
     setupClock(config.lang_tag, config.time_format);
     document.getElementById('title').addEventListener('click', () => selectProvider('claude'));
     document.getElementById('codexBtn').addEventListener('click', () => selectProvider('codex'));
@@ -254,21 +257,6 @@ function setupDisclosureButtons() {
         els.installRows.hidden = !installationsVisible;
         els.installToggle.setAttribute('aria-expanded', String(installationsVisible));
     });
-}
-
-/**
- * Point the detail layout at one of the two typefaces in the stylesheet.
- *
- * Called by Python: once from init(), and again whenever the font is changed
- * from the tray menu while this window is open. The name is also written to
- * the body. The smaller bar view always uses the system stack.
- *
- * @param {string} font - 'system' or 'pretendard'; the bar always uses system fonts.
- */
-function setFont(font) {
-    const name = font === 'system' ? 'system' : 'pretendard';
-    document.documentElement.style.setProperty('--font-stack', `var(--font-${name})`);
-    document.body.dataset.font = name;
 }
 
 /**
@@ -565,23 +553,24 @@ function renderBarView() {
     renderClock();
 
     const providers = [
-        {name: 'CLAUDE', usage: lastData?.usage, status: lastData?.status},
-        {name: 'CODEX', usage: codexData?.account?.usage, status: codexData?.account?.status, error: codexReadError},
+        {key: 'claude', name: 'CLAUDE', usage: lastData?.usage, status: lastData?.status},
+        {key: 'codex', name: 'CODEX', usage: codexData?.account?.usage, status: codexData?.account?.status, error: codexReadError},
     ];
     if (!els.barCards.children.length) {
-        els.barCards.replaceChildren(...providers.map((provider) => buildBarCard(provider.name)));
+        els.barCards.replaceChildren(...providers.map(buildBarCard));
     }
 
     providers.forEach((provider, index) => {
         const card = els.barCards.children[index];
         const entries = barWindows(provider.usage);
+        const showsRemaining = barRemainingProviders.has(provider.key);
         const rows = card.querySelectorAll('.bar-row');
-        rows.forEach((row, rowIndex) => updateBarRow(row, entries[rowIndex]));
+        rows.forEach((row, rowIndex) => updateBarRow(row, entries[rowIndex], showsRemaining));
         const status = provider.status;
         const error = provider.error || status?.error || (status?.is_error ? status.text : null);
         card.classList.toggle('stale', !!error);
         card.title = error || (!entries.some(Boolean) ? status?.text || translations.status_refreshing : '');
-        card.setAttribute('aria-pressed', barShowsRemaining);
+        card.setAttribute('aria-pressed', showsRemaining);
         card.setAttribute('aria-label', [provider.name, ...Array.from(rows, row => row.title), card.title].filter(Boolean).join(', '));
     });
 }
@@ -598,23 +587,25 @@ function barWindows(entries) {
     return [session, weekly];
 }
 
-function buildBarCard(name) {
+function buildBarCard(provider) {
     const card = document.createElement('div');
     card.className = 'bar-card';
+    // The stylesheet colors the name by this, in the agent's signature color.
+    card.dataset.provider = provider.key;
     card.setAttribute('role', 'button');
     card.setAttribute('tabindex', '0');
 
     const label = document.createElement('div');
     label.className = 'bar-card-name';
-    label.textContent = name;
+    label.textContent = provider.name;
 
     card.append(label, buildBarRow(false), buildBarRow(true));
 
-    card.addEventListener('click', toggleBarRemaining);
+    card.addEventListener('click', () => toggleBarRemaining(provider.key));
     card.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            toggleBarRemaining();
+            toggleBarRemaining(provider.key);
         }
     });
 
@@ -633,30 +624,33 @@ function buildBarRow(weekly) {
     return row;
 }
 
-function updateBarRow(row, entry) {
+function updateBarRow(row, entry, showsRemaining) {
     row.classList.toggle('empty', !entry);
     const pct = row.querySelector('.bar-row-pct');
-    pct.textContent = entry ? (barShowsRemaining ? entry.left_text : entry.pct_text) : '\u2014';
+    pct.textContent = entry ? (showsRemaining ? entry.left_text : entry.pct_text) : '\u2014';
     pct.classList.toggle('warn', !!entry?.warn);
     updateBarContainer(row.querySelector('.bar-container'), entry);
 
     row.title = '';
     if (entry) {
-        const template = barShowsRemaining ? translations.bar_left : translations.bar_used;
+        const template = showsRemaining ? translations.bar_left : translations.bar_used;
         row.title = template.replace('{label}', entry.label).replace('{pct}', pct.textContent);
     }
 
 }
 
 /**
- * Flip every percentage in the bar between used and remaining.
+ * Flip one agent's percentages in the bar between used and remaining.
  *
- * Only the numbers flip. The fill still measures what has been used, because
- * it is read against the elapsed-time marker beside it - inverting the fill
- * would leave that marker comparing against nothing.
+ * Only that card's numbers flip; the other agent keeps whichever reading it
+ * had. The fill still measures what has been used, because it is read
+ * against the elapsed-time marker beside it - inverting the fill would leave
+ * that marker comparing against nothing.
+ *
+ * @param {string} provider - 'claude' or 'codex'.
  */
-function toggleBarRemaining() {
-    barShowsRemaining = !barShowsRemaining;
+function toggleBarRemaining(provider) {
+    if (!barRemainingProviders.delete(provider)) barRemainingProviders.add(provider);
     renderBarView();
 }
 
@@ -1025,6 +1019,7 @@ function createBarElement(entry) {
     div.className = 'usage-entry';
     div.dataset.key = entry.key;
     div.dataset.detailSeconds = String(entry.detail_seconds || '');
+    div.dataset.periodSeconds = String(entry.period_seconds || '');
 
     const header = document.createElement('div');
     header.className = 'bar-header';
@@ -1262,7 +1257,22 @@ function renderDetail(div, result) {
         panel.appendChild(list);
     }
 
-    panel.appendChild(createSourceNote(result.source));
+    if (carriesSourceNote(div)) panel.appendChild(createSourceNote(result.source));
+}
+
+/**
+ * Return true when this bar's panel should carry the source note.
+ *
+ * The note reads the same under every panel, so with the session and the
+ * weekly panel open it would appear twice.  It goes under the longest
+ * window among the expandable bars - the weekly one - and nowhere else.  An
+ * empty period is the exception and keeps it (see renderDetail): there the
+ * note is what explains the zero.
+ */
+function carriesSourceNote(div) {
+    const own = Number(div.dataset.periodSeconds) || 0;
+    const bars = div.parentNode ? Array.from(div.parentNode.children) : [div];
+    return bars.every((bar) => !bar.classList.contains('detail-toggleable') || (Number(bar.dataset.periodSeconds) || 0) <= own);
 }
 
 /** Footnote naming where these numbers come from, and what they exclude. */

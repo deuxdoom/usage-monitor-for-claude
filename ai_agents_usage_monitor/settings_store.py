@@ -27,7 +27,7 @@ __all__ = ['STORED_KEYS', 'save_setting', 'store_paths']
 # The keys the running app writes.  Everything else in the settings file is
 # hand-written and only ever read, which is what keeps the file something a
 # user can still own after the app has touched it.
-STORED_KEYS = frozenset({'poll_interval', 'popup_font', 'popup_view', 'tray_provider'})
+STORED_KEYS = frozenset({'poll_interval', 'popup_view', 'tray_provider'})
 
 # Serializes the read-modify-write cycle.  Choices arrive from the tray menu
 # thread and from pywebview's per-call bridge threads, so two saves landing

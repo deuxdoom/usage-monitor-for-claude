@@ -2,8 +2,8 @@
 
 VSVersionInfo(
     ffi=FixedFileInfo(
-        filevers=(3, 0, 0, 0),
-        prodvers=(3, 0, 0, 0),
+        filevers=(3, 1, 0, 0),
+        prodvers=(3, 1, 0, 0),
         mask=0x3F,
         flags=0x0,
         OS=0x40004,          # VOS_NT_WINDOWS32
@@ -17,11 +17,11 @@ VSVersionInfo(
                 [
                     StringStruct('CompanyName', 'deuxdoom'),
                     StringStruct('FileDescription', 'AI Agents Usage Monitor'),
-                    StringStruct('FileVersion', '3.0.0.0'),
+                    StringStruct('FileVersion', '3.1.0.0'),
                     StringStruct('InternalName', 'AIAgentsUsageMonitor'),
                     StringStruct('OriginalFilename', 'AIAgentsUsageMonitor.exe'),
                     StringStruct('ProductName', 'AI Agents Usage Monitor'),
-                    StringStruct('ProductVersion', '3.0.0.0'),
+                    StringStruct('ProductVersion', '3.1.0.0'),
                 ],
             ),
         ]),

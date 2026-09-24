@@ -58,10 +58,6 @@
 <body>
 <div class="dev-controls">
     <select id="langSelect" title="Language"></select>
-    <select id="fontSelect" title="Popup font (the tray menu's own choice)">
-        <option value="system">Font: system</option>
-        <option value="pretendard" selected>Font: Pretendard (detail only)</option>
-    </select>
     <select id="codexSelect" title="What the Codex read does (reloads the preview)">
         <option value="ok">Codex read: data (1.2s)</option>
         <option value="slow">Codex read: data (4s)</option>
@@ -179,7 +175,6 @@ const CODEX = {
 
 const iframe = document.getElementById('popup');
 const langSelect = document.getElementById('langSelect');
-const fontSelect = document.getElementById('fontSelect');
 const codexSelect = document.getElementById('codexSelect');
 const win = () => iframe.contentWindow;
 const now = () => Date.now() / 1000;
@@ -398,8 +393,8 @@ async function applyLanguage(code) {
     const compactHide = ['account', 'extra_usage', 'claude_code', 'status', 'seven_day_opus'];
     iframe.style.width = VIEW_WIDTHS[currentView] + 'px';
     win().init({
-        colors: COLORS, t: buildTranslations(currentLocale), app_version: '3.0.0',
-        compact_hide: compactHide, font: fontSelect.value, view: currentView,
+        colors: COLORS, t: buildTranslations(currentLocale), app_version: '3.1.0',
+        compact_hide: compactHide, view: currentView,
         lang_tag: currentLang, time_format: '24h',
         data: resolveData(currentPreset, currentLocale),
     });
@@ -438,7 +433,6 @@ for (const [code, name] of LANGS) {
 }
 langSelect.value = currentLang;
 langSelect.addEventListener('change', () => applyLanguage(langSelect.value));
-fontSelect.addEventListener('change', () => win().setFont(fontSelect.value));
 // popup.js keeps the first Codex response for the life of the page, so reload
 // the frame - the tab switch is only pending once per load.
 codexSelect.addEventListener('change', () => applyLanguage(currentLang));
