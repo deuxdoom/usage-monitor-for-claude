@@ -20,7 +20,7 @@ The module names follow the same split: `claude_api.py` / `codex_api.py`, `claud
 |---|---|
 | [configuration.md](configuration.md) | Settings-file locations, every key, and which menu and popup choices are saved automatically |
 | [event-commands.md](event-commands.md) | Running your own command when a quota resets, a threshold is crossed, the app starts, or you double-click the tray icon |
-| [automatic-update-check.md](automatic-update-check.md) | A worked example: a script that tells you when a new release is out |
+| [automatic-update-check.md](automatic-update-check.md) | Startup release checks, the consent prompt, verified download and separate update process |
 
 ## References
 

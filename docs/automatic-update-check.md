@@ -1,117 +1,18 @@
-# Automatic Update Check
+# Automatic updates
 
-The app itself never contacts GitHub - it communicates exclusively with `api.anthropic.com`. Update checking is available as an optional PowerShell script that you run via [event commands](event-commands.md). This keeps the security model intact while giving you full control over when and how updates are checked.
+Starting with version 3.0.0, the frozen Windows EXE checks GitHub's latest stable release once after each launch. The check runs on a background thread, so the tray and usage polling can start normally. Running from Python source skips the check.
 
-The script queries the GitHub Releases API, compares the latest version against the running app version, and shows a Windows toast notification if a newer release exists. Clicking the notification opens the download page in your browser. If no update is available or the network is unreachable, nothing happens.
+If a newer release has an uploaded `AIAgentsUsageMonitor.exe`, a size and a SHA-256 digest, the app asks whether to install it. Choosing No leaves the app running. The app does not silently download or replace itself.
 
-## Setup
+Choosing Yes copies the running EXE to a temporary helper EXE and starts that copy as a separate process. The helper shows preparation, download, verification, waiting, installation and completion states. The main app exits. The helper downloads the exact EXE named by the release, checks its byte count and SHA-256 digest against the release metadata, waits for the running process to close, then atomically replaces the EXE in its current folder. Click **Close** after completion; the app does not automatically restart.
 
-### 1. Save the script
+If the download, verification or replacement fails, the original EXE remains in place and the helper shows the error. The target folder must be writable for replacement. If another running instance still holds the same EXE, close it and retry at the next launch. A helper copy left in the operating system's temporary folder is scheduled for removal at the next reboot.
 
-Save the following as `check-update.ps1` next to your `AIAgentsUsageMonitor.exe` (or in the project root when running from source):
+## Network and data
 
-```powershell
-$currentVersion = if ($env:USAGE_MONITOR_VERSION) { $env:USAGE_MONITOR_VERSION } else { '0.0.0' }
+- `api.github.com` is queried for public release metadata at startup. No account information, usage data or credentials are included.
+- After consent, the helper requests the release asset from `github.com` and accepts HTTPS redirects only to GitHub's release-asset hosts.
+- TLS certificate verification remains enabled through the Windows certificate store. The downloaded file must match the release's size and SHA-256 digest before it can replace the existing EXE.
+- The updater writes a temporary helper and temporary download, then replaces the app EXE. It does not edit `config.json`, credentials or usage records.
 
-$releaseUrl = 'https://api.github.com/repos/deuxdoom/usage-monitor-for-claude/releases/latest'
-
-try {
-    $release = Invoke-RestMethod -Uri $releaseUrl -TimeoutSec 10
-    $latest = $release.tag_name -replace '^v', ''
-
-    if ([version]$latest -gt [version]$currentVersion) {
-        # Windows requires a registered app ID for toast notifications
-        $notifierAppId = 'Microsoft.Windows.ControlPanel'
-
-        [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
-        [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom, ContentType = WindowsRuntime] > $null
-
-        $xml = [Windows.Data.Xml.Dom.XmlDocument]::new()
-        $xml.LoadXml("<toast activationType='protocol' launch='$($release.html_url)'>
-            <visual><binding template='ToastGeneric'>
-                <text>AI Agents Usage Monitor</text>
-                <text>Version $latest available (current: $currentVersion)</text>
-            </binding></visual>
-        </toast>")
-
-        [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($notifierAppId).Show(
-            [Windows.UI.Notifications.ToastNotification]::new($xml)
-        )
-    }
-}
-catch {
-    # Silently ignore - update check is optional
-}
-```
-
-The app automatically sets the `USAGE_MONITOR_VERSION` environment variable for all event commands, so the script always knows the currently running version without hardcoding it.
-
-### 2. Configure the event command
-
-Add the script to your [`config.json`](configuration.md). Choose when to check based on your preference:
-
-**Check on every quota reset** (session resets roughly every 5 hours):
-
-```json
-{
-  "on_reset_command": "powershell -ExecutionPolicy Bypass -File .\\check-update.ps1"
-}
-```
-
-**Check only on weekly resets** (once every 7 days):
-
-```json
-{
-  "on_reset_command": "powershell -ExecutionPolicy Bypass -File .\\check-update.ps1 && if not \"%USAGE_MONITOR_VARIANT%\"==\"seven_day\" exit /b"
-}
-```
-
-> [!NOTE]
-> If you already have an `on_reset_command`, use an array to run both:
-> ```json
-> {
->   "on_reset_command": [
->     "your-existing-command",
->     "powershell -ExecutionPolicy Bypass -File .\\check-update.ps1"
->   ]
-> }
-> ```
-
-### 3. Start the app again
-
-Quit from the tray context menu and start the app again to load the new settings.
-
-## How it works
-
-1. On each configured event, the app launches the script as a background process (no console window, no focus stealing)
-2. The script sends a single HTTPS request to `https://api.github.com/repos/deuxdoom/usage-monitor-for-claude/releases/latest`
-3. If the latest release tag is newer than `USAGE_MONITOR_VERSION`, a toast notification appears
-4. Clicking the notification opens the GitHub release page in your default browser
-5. If the request fails (no internet, API down, rate-limited), the script exits silently
-
-The script never downloads or installs anything automatically.
-
-## Customizing the notification appearance
-
-Toast notifications display the icon and name of a registered Windows app. The script uses `Microsoft.Windows.ControlPanel` by default, which shows as "Settings" with a gear icon.
-
-To use a different app's appearance, change the `$notifierAppId` value in the script. Find available app IDs on your system with:
-
-```powershell
-Get-StartApps
-```
-
-Some examples:
-
-| `$notifierAppId` | Appears as |
-|---|---|
-| `Microsoft.Windows.ControlPanel` | Settings (gear icon) |
-| `{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe` | Windows PowerShell |
-
-## Security notes
-
-- The script is a plain text file - you can read and verify every line before using it
-- The only network request goes to `api.github.com` (GitHub's public API, no authentication required)
-- No data is sent to GitHub beyond the standard HTTPS request
-- The script never writes files, modifies settings, or downloads executables
-- Errors are silently ignored - a failed update check never affects the app
+See [PRIVACY.md](../PRIVACY.md) for the complete data and file-access inventory.

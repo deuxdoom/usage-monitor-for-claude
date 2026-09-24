@@ -5,8 +5,15 @@ import ctypes
 import logging
 import os
 import sys
+import threading
 import traceback
 from pathlib import Path
+
+# The copied helper must bypass configuration, single-instance and tray startup.
+if len(sys.argv) > 1 and sys.argv[1] == '--apply-update':
+    from ai_agents_usage_monitor.updater import run_update_helper
+
+    sys.exit(run_update_helper(*sys.argv[2:]) if len(sys.argv) == 6 else 2)
 
 from ai_agents_usage_monitor.instance_id import parse_config_dir
 
@@ -52,6 +59,7 @@ import webview  # type: ignore[import-untyped]  # no type stubs available
 from ai_agents_usage_monitor.app import AIAgentsUsageMonitor, crash_log
 from ai_agents_usage_monitor.notification_identity import register_notification_identity
 from ai_agents_usage_monitor.single_instance import ensure_single_instance
+from ai_agents_usage_monitor.updater import check_and_offer_update
 
 if _verbose:
     logging.basicConfig(
@@ -77,6 +85,8 @@ def _run_app() -> None:
         _verbose_step('AIAgentsUsageMonitor()...')
         app = AIAgentsUsageMonitor()
         _verbose_step('AIAgentsUsageMonitor()... OK')
+
+        threading.Thread(target=check_and_offer_update, args=(app,), daemon=True).start()
 
         _verbose_step('app.run...')
         app.run()

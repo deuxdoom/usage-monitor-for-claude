@@ -539,9 +539,14 @@ class TestSettingsValidation(unittest.TestCase):
         self.assertNotIn('popup_font', result)
         mock.windll.user32.MessageBoxW.assert_called_once()
 
-    def test_previous_mono_choice_falls_back_to_system_without_an_error(self):
+    def test_previous_mono_choice_uses_pretendard_without_an_error(self):
         result, mock = self._run_validate({'popup_font': 'mono'})
-        self.assertEqual(result['popup_font'], 'system')
+        self.assertEqual(result['popup_font'], 'pretendard')
+        mock.windll.user32.MessageBoxW.assert_not_called()
+
+    def test_previous_pixel_choice_uses_pretendard_without_an_error(self):
+        result, mock = self._run_validate({'popup_font': 'pixel'})
+        self.assertEqual(result['popup_font'], 'pretendard')
         mock.windll.user32.MessageBoxW.assert_not_called()
 
     def test_popup_view_accepts_both_views(self):

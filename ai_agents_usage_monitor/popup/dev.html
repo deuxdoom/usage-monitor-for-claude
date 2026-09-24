@@ -19,7 +19,7 @@
         display: flex;
         justify-content: center;
         align-items: center;
-        background: #0a0a0a;
+        background: #dce3dc;
         font-family: system-ui, sans-serif;
     }
 
@@ -33,15 +33,15 @@
 
         & button, & select {
             padding: 6px 14px;
-            background: #333;
-            color: #ccc;
-            border: 1px solid #555;
+            background: #fbfaf6;
+            color: #202e2a;
+            border: 1px solid #bfcac0;
             border-radius: 4px;
             cursor: pointer;
             font-size: 13px;
         }
 
-        & button:hover, & select:hover { background: #444; }
+        & button:hover, & select:hover { background: #edf3ec; }
 
         & select { margin-bottom: 8px; }
     }
@@ -49,7 +49,7 @@
     iframe {
         border: none;
         width: 340px;
-        background: #1e1e1e;
+        background: #101316;
         visibility: hidden;
         transition: width 0.15s ease;
     }
@@ -60,7 +60,7 @@
     <select id="langSelect" title="Language"></select>
     <select id="fontSelect" title="Popup font (the tray menu's own choice)">
         <option value="system">Font: system</option>
-        <option value="pixel">Font: pixel (detail only)</option>
+        <option value="pretendard" selected>Font: Pretendard (detail only)</option>
     </select>
     <select id="codexSelect" title="What the Codex read does (reloads the preview)">
         <option value="ok">Codex read: data (1.2s)</option>
@@ -79,9 +79,9 @@
 
 <script>
 const COLORS = {
-    bg: '#1e1e1e', fg: '#cccccc', fg_dim: '#888888', fg_heading: '#ffffff', fg_link: '#4a9eff',
-    bar_bg: '#333333', bar_fg: '#4a9eff', bar_fg_alt: '#e0a34a', bar_fg_warn: '#e05050',
-    bar_divider: '#000c', bar_marker: '#fffc',
+    bg: '#101316', fg: '#cbd3d3', fg_dim: '#879397', fg_heading: '#f3f5f2', fg_link: '#88b7d1',
+    bar_bg: '#30393b', bar_fg: '#72d2af', bar_fg_alt: '#dbb477', bar_fg_warn: '#ef8177',
+    bar_divider: '#c9d9d04d', bar_marker: '#e2eee8cc',
 };
 
 // Widths the app applies per view, mirrored here so the preview's frame
@@ -98,7 +98,7 @@ const PRESETS = {
         profile: { email: 'user@example.com', name: 'Max Clau', plan: 'Max (Team)' },
         usage: [
             { unit: 'hour', period: 5, pct: 42, warn: false,
-              reset: { kind: 'in', duration: '2h 30m' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.35 },
+              reset: { kind: 'in', duration: '2h 30m' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.5 },
             { unit: 'week', period: 7, pct: 65, warn: true,
               reset: { kind: 'date', month: 1, day: 18, clock: '12:00' }, dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.55 },
             { unit: 'week', suffix: 'Sonnet', pct: 30, warn: false,
@@ -141,7 +141,7 @@ const PRESETS = {
         profile: { email: 'user@example.com', name: 'Max Clau', plan: 'Max (Team)' },
         usage: [
             { unit: 'hour', period: 5, pct: 42, warn: false,
-              reset: { kind: 'in', duration: '2h 30m' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.35 },
+              reset: { kind: 'in', duration: '2h 30m' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.5 },
         ],
         extra: null,
         installations: [{ name: 'CLI', version: '2.1.69' }],
@@ -184,17 +184,20 @@ const codexSelect = document.getElementById('codexSelect');
 const win = () => iframe.contentWindow;
 const now = () => Date.now() / 1000;
 
-let currentLang = 'en';
+const previewParams = new URLSearchParams(location.search);
+let currentLang = LANGS.some(([code]) => code === previewParams.get('lang')) ? previewParams.get('lang') : 'en';
 let currentLocale = null;
 let currentPreset = 'full';
 // Which view the preview opens in, so the stored-view path is exercised too.
-let currentView = 'detail';
+let currentView = previewParams.get('view') === 'bar' ? 'bar' : 'detail';
 
 // Map locale JSON keys onto the compact translation object popup.js expects.
 function buildTranslations(loc) {
     return {
         title: loc.app_name, account: loc.account, email: loc.email, plan: loc.plan,
+        show_more_limits: loc.show_more_limits, show_fewer_limits: loc.show_fewer_limits,
         usage: loc.usage, extra_usage: loc.extra_usage, claude_code: loc.claude_code, changelog: loc.changelog,
+        project_on_github: loc.menu_project,
         pin_popup: loc.pin_popup, unpin_popup: loc.unpin_popup, close_popup: loc.close_popup, refresh: loc.refresh,
         view_bar: loc.view_bar, view_detail: loc.view_detail,
         bar_used: loc.bar_used, bar_left: loc.bar_left,
@@ -347,7 +350,7 @@ async function applyLanguage(code) {
     currentLang = code;
     currentLocale = await loadLocale(code);
     await reloadFrame();
-    win().pywebview = { api: { close() {}, open_url() {},
+    win().pywebview = { api: { close() {}, open_url() {}, open_project() {},
         // Fake latency so the refresh button's spinner is visible in the preview.
         refresh() { return new Promise((resolve) => setTimeout(() => resolve(true), 900)); },
         // Fake session-log detail so the click-to-expand behavior is previewable
@@ -395,7 +398,7 @@ async function applyLanguage(code) {
     const compactHide = ['account', 'extra_usage', 'claude_code', 'status', 'seven_day_opus'];
     iframe.style.width = VIEW_WIDTHS[currentView] + 'px';
     win().init({
-        colors: COLORS, t: buildTranslations(currentLocale), app_version: '2.1.0',
+        colors: COLORS, t: buildTranslations(currentLocale), app_version: '3.0.0',
         compact_hide: compactHide, font: fontSelect.value, view: currentView,
         lang_tag: currentLang, time_format: '24h',
         data: resolveData(currentPreset, currentLocale),
@@ -444,6 +447,9 @@ codexSelect.addEventListener('change', () => applyLanguage(currentLang));
     const hash = location.hash.slice(1);
     if (PRESETS[hash]) currentPreset = hash;
     await applyLanguage(currentLang);
+    if (previewParams.get('provider') === 'codex' && currentView === 'detail') {
+        win().selectProvider('codex');
+    }
     if (hash === 'randomize') randomize();
 })();
 </script>

@@ -162,6 +162,8 @@ class TestCodexAccountFormatting(unittest.TestCase):
             self.assertEqual(open_link.call_args.args[0], 'https://github.com/openai/codex/releases')
             api.open_url('https://untrusted.example')
             self.assertEqual(open_link.call_args.args[0], 'https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md')
+            api.open_project()
+            self.assertEqual(open_link.call_args.args[0], 'https://github.com/deuxdoom/usage-monitor-for-claude')
 
     def test_detail_period_follows_duration_not_primary_secondary_name(self):
         snapshot = {'profile': None, 'windows': [
@@ -803,8 +805,8 @@ class TestInitConfig(unittest.TestCase):
 
     def test_font_and_view_are_the_running_app_choices_when_given(self):
         """The tray menu changes the font mid-run, so the caller's value wins."""
-        config = _init_config(_snap(), font='pixel', view='bar')
-        self.assertEqual(config['font'], 'pixel')
+        config = _init_config(_snap(), font='pretendard', view='bar')
+        self.assertEqual(config['font'], 'pretendard')
         self.assertEqual(config['view'], 'bar')
 
     def test_clock_reads_in_the_app_language(self):
@@ -1272,8 +1274,8 @@ class TestApplyFont(unittest.TestCase):
 
     def test_the_page_is_restyled(self):
         popup = self._popup()
-        popup.apply_font('pixel')
-        popup._window.evaluate_js.assert_called_once_with('setFont("pixel")')
+        popup.apply_font('pretendard')
+        popup._window.evaluate_js.assert_called_once_with('setFont("pretendard")')
 
     def test_a_closing_window_does_not_raise(self):
         """The window can be torn down between the click and the call."""

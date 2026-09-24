@@ -24,15 +24,29 @@ SOFTWARE.
 
 ## Third-party components
 
-### Galmuri11
+### Pretendard
 
-The pixel typeface bundled with the popup (`ai_agents_usage_monitor/popup/Galmuri11.woff2`)
-is Galmuri11 by Minseo Lee, Copyright (c) 2019-2023, licensed under the
-SIL Open Font License, Version 1.1. The full licence text ships alongside the
-font as `Galmuri11-OFL.txt` and is available at https://openfontlicense.org.
+The typeface bundled with the popup (`ai_agents_usage_monitor/popup/PretendardVariable.woff2`)
+is Pretendard by Kil Hyung-jin and contributors, licensed under the SIL Open
+Font License, Version 1.1. The full licence and copyright notices ship beside
+the font as `Pretendard-OFL.txt`.
 
 The font is redistributed unmodified. The MIT terms above cover this
 application's own source; they do not apply to the font.
+
+### NanumSquare Neo
+
+The popup headings and project page use NanumSquare Neo by NAVER Corporation,
+licensed under the SIL Open Font License, Version 1.1. The bundled font and full
+copyright/license notice are `ai_agents_usage_monitor/popup/NanumSquareNeo.woff2`
+and `NanumSquareNeo-OFL.txt`.
+Source: https://campaign.naver.com/nanumsquare_neo/
+
+### JetBrains Mono
+
+The project page uses JetBrains Mono by the JetBrains Mono Project Authors,
+licensed under the SIL Open Font License, Version 1.1. Its font and full notice
+are `assets/JetBrainsMono-Regular.ttf` and `assets/JetBrainsMono-OFL.txt`.
 
 ### Fluent UI System Icons
 
@@ -40,3 +54,10 @@ The inline popup icons are from Microsoft's Fluent UI System Icons (16px regular
 Copyright (c) 2020 Microsoft Corporation, licensed under the MIT License.
 The full licence text is bundled as `ai_agents_usage_monitor/popup/FluentUI-MIT.txt`.
 Source: https://github.com/microsoft/fluentui-system-icons
+
+### Primer Octicons
+
+The GitHub mark linked from the popup and project page is the `mark-github`
+Octicon by GitHub, Inc., licensed under the MIT License. The full notice ships
+as `ai_agents_usage_monitor/popup/Octicons-MIT.txt`.
+Source: https://github.com/primer/octicons

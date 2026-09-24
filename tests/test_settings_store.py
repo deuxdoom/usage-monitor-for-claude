@@ -69,10 +69,10 @@ class TestSaveSetting(unittest.TestCase):
             target = Path(tmp) / 'config.json'
             target.write_text(json.dumps({'bg': '#000000', 'alert_thresholds_five_hour': [50, 90]}), encoding='utf-8')
             with _paths(target):
-                store.save_setting('popup_font', 'pixel')
+                store.save_setting('popup_font', 'pretendard')
             self.assertEqual(
                 json.loads(target.read_text(encoding='utf-8')),
-                {'bg': '#000000', 'alert_thresholds_five_hour': [50, 90], 'popup_font': 'pixel'},
+                {'bg': '#000000', 'alert_thresholds_five_hour': [50, 90], 'popup_font': 'pretendard'},
             )
 
     def test_replaces_a_previous_value_of_the_same_key(self):
@@ -137,7 +137,7 @@ class TestDamagedFile(unittest.TestCase):
             target = Path(tmp) / 'config.json'
             target.write_text('{"bg": "#000000",', encoding='utf-8')
             with _paths(target):
-                self.assertFalse(store.save_setting('popup_font', 'pixel'))
+                self.assertFalse(store.save_setting('popup_font', 'pretendard'))
             self.assertEqual(target.read_text(encoding='utf-8'), '{"bg": "#000000",')
 
     def test_a_json_array_is_not_a_settings_file(self):
@@ -145,7 +145,7 @@ class TestDamagedFile(unittest.TestCase):
             target = Path(tmp) / 'config.json'
             target.write_text('[1, 2, 3]', encoding='utf-8')
             with _paths(target):
-                self.assertFalse(store.save_setting('popup_font', 'pixel'))
+                self.assertFalse(store.save_setting('popup_font', 'pretendard'))
             self.assertEqual(target.read_text(encoding='utf-8'), '[1, 2, 3]')
 
     def test_damage_does_not_send_the_choice_to_the_fallback_file(self):
@@ -155,7 +155,7 @@ class TestDamagedFile(unittest.TestCase):
             fallback = Path(tmp) / 'home.json'
             damaged.write_text('not json', encoding='utf-8')
             with _paths(damaged, fallback):
-                self.assertFalse(store.save_setting('popup_font', 'pixel'))
+                self.assertFalse(store.save_setting('popup_font', 'pretendard'))
             self.assertFalse(fallback.exists())
 
 
@@ -209,7 +209,7 @@ class TestStoredKeys(unittest.TestCase):
         from ai_agents_usage_monitor import settings
 
         values = {
-            'poll_interval': 180, 'popup_font': 'pixel', 'popup_view': 'bar', 'tray_provider': 'codex',
+            'poll_interval': 180, 'popup_font': 'pretendard', 'popup_view': 'bar', 'tray_provider': 'codex',
         }
         for font in settings.POPUP_FONTS:
             with self.subTest(font=font), patch.object(settings, 'ctypes'):

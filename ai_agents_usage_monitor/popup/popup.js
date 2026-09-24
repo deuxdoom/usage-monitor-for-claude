@@ -20,6 +20,8 @@ let codexPending = false;
 // clickable - and Codex adds its own prefixed keys, so the two views cannot
 // collide and an expanded panel stays open only in the tab it belongs to.
 let expandedDetail = new Set();
+let allQuotasVisible = false;
+let installationsVisible = false;
 // 'detail' is the full window, 'bar' the single row showing both agents at
 // once. The detail view's own state - selected provider, expanded panels,
 // revealed email - is left untouched while the bar is up, so switching back
@@ -49,6 +51,8 @@ function selectProvider(provider) {
     if (selectedProvider === provider) return;
 
     emailRevealed = false;
+    allQuotasVisible = false;
+    installationsVisible = false;
     selectedProvider = provider;
     document.getElementById('title').setAttribute('aria-pressed', provider === 'claude');
     document.getElementById('codexBtn').setAttribute('aria-pressed', provider === 'codex');
@@ -196,6 +200,10 @@ function init(config) {
     const appVersion = document.getElementById('appVersion');
     appVersion.textContent = config.app_version;
     appVersion.title = `${translations.title} v${config.app_version}`;
+    const projectBtn = document.getElementById('projectBtn');
+    projectBtn.title = translations.project_on_github;
+    projectBtn.setAttribute('aria-label', translations.project_on_github);
+    projectBtn.addEventListener('click', () => pywebview.api.open_project());
 
     els = {
         accountSection: document.getElementById('accountSection'),
@@ -206,12 +214,15 @@ function init(config) {
         usageSection: document.getElementById('usageSection'),
         headingUsage: document.getElementById('headingUsage'),
         usageBars: document.getElementById('usageBars'),
+        moreQuotasBtn: document.getElementById('moreQuotasBtn'),
+        moreQuotasText: document.getElementById('moreQuotasText'),
         extraSection: document.getElementById('extraSection'),
         extraSpent: document.getElementById('extraSpent'),
         extraPct: document.getElementById('extraPct'),
         extraBarContainer: document.getElementById('extraBarContainer'),
         extraFill: document.getElementById('extraFill'),
         installSection: document.getElementById('installSection'),
+        installToggle: document.getElementById('installToggle'),
         installRows: document.getElementById('installRows'),
         statusSection: document.getElementById('statusSection'),
         statusText: document.getElementById('statusText'),
@@ -220,6 +231,7 @@ function init(config) {
         clockTime: document.getElementById('clockTime'),
     };
 
+    setupDisclosureButtons();
     updateData(config.data);
 
     // The stored view is applied without telling Python: it is the side that
@@ -229,7 +241,19 @@ function init(config) {
         applyViewMode('bar');
     }
 
-    requestAnimationFrame(() => document.body.classList.add('open'));
+    document.fonts.ready.then(() => requestAnimationFrame(() => document.body.classList.add('open')));
+}
+
+function setupDisclosureButtons() {
+    els.moreQuotasBtn.addEventListener('click', () => {
+        allQuotasVisible = !allQuotasVisible;
+        updateQuotaDisclosure(els.usageBars.children.length);
+    });
+    els.installToggle.addEventListener('click', () => {
+        installationsVisible = !installationsVisible;
+        els.installRows.hidden = !installationsVisible;
+        els.installToggle.setAttribute('aria-expanded', String(installationsVisible));
+    });
 }
 
 /**
@@ -237,13 +261,12 @@ function init(config) {
  *
  * Called by Python: once from init(), and again whenever the font is changed
  * from the tray menu while this window is open. The name is also written to
- * the body, because the bar view substitutes the system stack for the pixel
- * face - too small there to stay legible - and needs to know which was chosen.
+ * the body. The smaller bar view always uses the system stack.
  *
- * @param {string} font - 'system' or 'pixel'; the bar always uses system fonts.
+ * @param {string} font - 'system' or 'pretendard'; the bar always uses system fonts.
  */
 function setFont(font) {
-    const name = font === 'pixel' ? 'pixel' : 'system';
+    const name = font === 'system' ? 'system' : 'pretendard';
     document.documentElement.style.setProperty('--font-stack', `var(--font-${name})`);
     document.body.dataset.font = name;
 }
@@ -822,6 +845,8 @@ function updateData(data) {
 function renderInstallations(installations, provider) {
     document.getElementById('headingClaudeCode').textContent = provider === 'codex' ? 'CODEX' : translations.claude_code;
     els.installSection.classList.toggle('visible', (installations.length > 0 || provider === 'codex') && !compactHidden('claude_code'));
+    els.installRows.hidden = !installationsVisible;
+    els.installToggle?.setAttribute('aria-expanded', String(installationsVisible));
     els.installRows.replaceChildren(...installations.map(inst => {
         const row = document.createElement('div');
         const name = document.createElement('dt');
@@ -978,6 +1003,21 @@ function updateUsageBars(entries) {
             updateBarElement(els.usageBars.children[i], entries[i]);
         }
     }
+    updateQuotaDisclosure(entries.length);
+}
+
+function updateQuotaDisclosure(count) {
+    const extraCount = Math.max(0, count - 2);
+    if (!extraCount) allQuotasVisible = false;
+    for (let i = 0; i < count; i++) {
+        els.usageBars.children[i].classList.toggle('secondary-hidden', i >= 2 && !allQuotasVisible);
+    }
+    if (!els.moreQuotasBtn) return;
+    els.moreQuotasBtn.hidden = extraCount === 0;
+    els.moreQuotasBtn.setAttribute('aria-expanded', String(allQuotasVisible));
+    els.moreQuotasText.textContent = allQuotasVisible
+        ? translations.show_fewer_limits
+        : translations.show_more_limits.replace('{count}', extraCount);
 }
 
 function createBarElement(entry) {

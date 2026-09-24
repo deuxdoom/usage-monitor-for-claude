@@ -1932,43 +1932,43 @@ class TestFontMenu(unittest.TestCase):
 
     def test_every_face_is_offered_as_a_radio_entry(self):
         _app, entries = self._font_items()
-        self.assertEqual([entry.text for entry in entries], [T['font_system'], T['font_pixel']])
+        self.assertEqual([entry.text for entry in entries], [T['font_system'], T['font_pretendard']])
         self.assertTrue(all(entry.radio for entry in entries))
 
     def test_the_mark_follows_the_face_in_use(self):
         app, entries = self._font_items()
-        system, pixel = entries
+        system, pretendard = entries
+        self.assertTrue(pretendard.checked)
+        app._popup_font = 'system'
         self.assertTrue(system.checked)
-        app._popup_font = 'pixel'
-        self.assertTrue(pixel.checked)
-        self.assertFalse(system.checked)
+        self.assertFalse(pretendard.checked)
 
     def test_clicking_an_entry_changes_the_face_and_stores_it(self):
         app, entries = self._font_items()
         _save_setting.reset_mock()
-        entries[1](app.icon)
-        self.assertEqual(app._popup_font, 'pixel')
-        _save_setting.assert_called_once_with('popup_font', 'pixel')
+        entries[0](app.icon)
+        self.assertEqual(app._popup_font, 'system')
+        _save_setting.assert_called_once_with('popup_font', 'system')
 
     def test_re_picking_the_current_face_changes_nothing(self):
         """Radio items fire on every click, so the no-op has to be caught here."""
         app, entries = self._font_items()
         _save_setting.reset_mock()
-        entries[0](app.icon)
+        entries[1](app.icon)
         _save_setting.assert_not_called()
 
     def test_an_open_popup_is_restyled_in_place(self):
         """A pinned popup can be up for days; it must not wait for a reopen."""
         app, entries = self._font_items()
         app._popup = MagicMock()
-        entries[1](app.icon)
-        app._popup.apply_font.assert_called_once_with('pixel')
+        entries[0](app.icon)
+        app._popup.apply_font.assert_called_once_with('system')
 
     def test_no_open_popup_is_not_an_error(self):
         app, entries = self._font_items()
         app._popup = None
-        entries[1](app.icon)
-        self.assertEqual(app._popup_font, 'pixel')
+        entries[0](app.icon)
+        self.assertEqual(app._popup_font, 'system')
 
     def test_an_unknown_face_is_refused(self):
         app, _entries = self._font_items()

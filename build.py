@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).parent
@@ -30,7 +31,8 @@ def build() -> None:
     version = check_versions()
 
     print(f'Starting PyInstaller build (version {version}) ...')
-    cmd = [sys.executable, '-m', 'PyInstaller', '--clean', '--noconfirm', str(SPEC)]
+    workpath = Path(tempfile.gettempdir()) / 'ai-agents-usage-monitor-build'
+    cmd = [sys.executable, '-m', 'PyInstaller', '--clean', '--noconfirm', '--workpath', str(workpath), str(SPEC)]
     subprocess.check_call(cmd, cwd=str(ROOT))
 
     exe = DIST / 'AIAgentsUsageMonitor.exe'

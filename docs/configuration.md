@@ -175,7 +175,7 @@ There is no setting to turn this off - it reads local files only when the panel 
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `popup_font` | `"system"` | Detail popup typeface: `"system"` (sans-serif) or `"pixel"` (bundled Galmuri11). The tray menu's "Popup font" selection applies to an open popup and is saved. Bar mode always uses the system font for legibility; an older `"mono"` value falls back to `"system"` |
+| `popup_font` | `"pretendard"` | Detail popup typeface: bundled `"pretendard"` or `"system"` (Windows sans-serif stack). The tray menu applies the selection to an open popup and saves it. Bar mode uses the system stack at its smaller size. Older `"pixel"` and `"mono"` values migrate to `"pretendard"` in memory. |
 | `popup_view` | `"detail"` | Popup view: `"detail"` or `"bar"`. The popup's view buttons save this choice. The bar stays open without pinning, can be dragged by its clock, and has detail-view and close buttons |
 
 ## Popup position
@@ -330,14 +330,14 @@ Override individual channels as RGBA arrays `[R, G, B, A]` (0-255). Unspecified 
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `bg` | `"#1e1e1e"` | Background |
-| `fg` | `"#cccccc"` | Text |
-| `fg_dim` | `"#888888"` | Dimmed text (labels, reset times) |
-| `fg_heading` | `"#ffffff"` | Section headings |
-| `fg_link` | `"#4a9eff"` | Link text (e.g. changelog) |
-| `bar_bg` | `"#333333"` | Progress bar background |
-| `bar_fg` | `"#4a9eff"` | Progress bar fill |
-| `bar_fg_alt` | `"#e0a34a"` | Weekly row fill in bar mode; warnings still use `bar_fg_warn` |
-| `bar_fg_warn` | `"#e05050"` | Progress bar fill when usage outpaces elapsed time, error text |
-| `bar_divider` | `"#000c"` | Time dividers on progress bars (hour marks on the session bar, midnights on weekly bars) |
-| `bar_marker` | `"#fffc"` | Time-position marker on progress bars |
+| `bg` | `"#101316"` | Popup background; panels are derived from this color and `fg` |
+| `fg` | `"#cbd3d3"` | Text |
+| `fg_dim` | `"#879397"` | Dimmed text (labels, reset times) |
+| `fg_heading` | `"#f3f5f2"` | Section headings |
+| `fg_link` | `"#88b7d1"` | Link text (e.g. changelog) |
+| `bar_bg` | `"#30393b"` | Progress bar background |
+| `bar_fg` | `"#72d2af"` | Progress bar fill |
+| `bar_fg_alt` | `"#dbb477"` | Weekly row fill in bar mode; warnings still use `bar_fg_warn` |
+| `bar_fg_warn` | `"#ef8177"` | Progress bar fill when usage outpaces elapsed time, error text |
+| `bar_divider` | `"#c9d9d04d"` | Time dividers on progress bars (hour marks on the session bar, midnights on weekly bars) |
+| `bar_marker` | `"#e2eee8cc"` | Time-position marker on progress bars |

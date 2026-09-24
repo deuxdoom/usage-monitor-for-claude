@@ -1,20 +1,22 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html { overflow: hidden; }
+[hidden] { display: none !important; }
 
-/* Pixel face for the whole popup, Latin and Hangul alike.
- *
- * Galmuri11 carries all 11,172 precomposed Hangul syllables together with Latin
- * and symbols in one 492 KB file, so both scripts share a look instead of the
- * Korean text falling back to a system face and reading as a different font
- * beside the English. Whatever the font does not carry falls through to the
- * system stack on its own, so no unicode-range is needed and nothing renders
- * as tofu.
- *
- * SIL Open Font License 1.1, (c) 2019-2023 Minseo Lee - see Galmuri11-OFL.txt.
- */
+/* Bundled variable font for consistent Latin and Hangul rendering offline.
+   WebView2 keeps Windows' native text rasterization, including ClearType. */
 @font-face {
-    font-family: 'Galmuri11';
-    src: url('Galmuri11.woff2') format('woff2');
+    font-family: 'Pretendard';
+    src: url('PretendardVariable.woff2') format('woff2');
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: block;
+}
+@font-face {
+    font-family: 'NanumSquareNeo';
+    src: url('NanumSquareNeo.woff2') format('woff2');
+    font-style: normal;
+    font-weight: 100 900;
+    font-display: block;
 }
 
 /* The two faces the tray menu offers. Only --font-stack is read by the
@@ -22,21 +24,26 @@ html { overflow: hidden; }
    rather than a rule per element. Each stack ends in a generic family so
    scripts missing from the named faces can fall back to installed fonts. */
 :root {
-    --font-pixel: 'Galmuri11', system-ui, sans-serif;
+    --font-pretendard: 'Pretendard', 'Malgun Gothic', system-ui, sans-serif;
     --font-system: 'Helvetica Neue', Helvetica, Avenir, Tahoma, 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif;
-    --font-stack: var(--font-system);
+    --font-display: 'NanumSquareNeo', 'Yu Gothic', 'Malgun Gothic', 'Segoe UI Variable Display', 'Segoe UI', sans-serif;
+    --font-stack: var(--font-pretendard);
+    --surface: color-mix(in srgb, var(--bg) 91%, var(--fg) 9%);
+    --stroke: color-mix(in srgb, var(--fg) 14%, transparent);
+    --hover: color-mix(in srgb, var(--fg) 9%, transparent);
 }
 
 body {
+    position: relative;
     background: var(--bg);
     color: var(--fg);
     font-family: var(--font-stack);
     font-size: 13px;
-    line-height: 1.3;
+    line-height: 1.35;
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    padding: 12px 16px 16px;
+    gap: 8px;
+    padding: 12px 12px 10px;
     user-select: none;
     -webkit-user-select: none;
     opacity: 0;
@@ -45,41 +52,67 @@ body {
     &.open { opacity: 1; }
 }
 
+body:not(.bar-mode)::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 2px;
+    background: linear-gradient(90deg, #c47759 0 49%, #698bd5 51% 100%);
+}
+
 header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
 
     & .provider-switch {
         display: flex;
-        gap: 8px;
+        gap: 2px;
+        padding: 2px;
+        border: 1px solid var(--stroke);
+        border-radius: 9px;
+        background: color-mix(in srgb, var(--bg) 72%, var(--fg) 28%);
 
         & button {
             width: auto;
-            height: 26px;
-            padding: 2px 5px;
-            font-size: 15px;
+            height: 25px;
+            padding: 0 9px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 650;
+            gap: 6px;
+
+            &::before {
+                content: '';
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: #c9795b;
+            }
+
+            &#codexBtn::before { background: #5875c7; }
 
             &[aria-pressed="true"] {
                 color: var(--fg-heading);
-                border-bottom: 2px solid var(--fg-link);
+                background: var(--surface);
+                box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
             }
         }
     }
 
     & button {
-        font-size: 18px;
         color: var(--fg-dim);
         cursor: pointer;
-        width: 20px;
-        height: 20px;
+        width: 25px;
+        height: 25px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
         line-height: 1;
         background: none;
         border: none;
+        border-radius: 8px;
         font-family: inherit;
 
         & svg {
@@ -87,7 +120,7 @@ header {
             height: 16px;
         }
 
-        &:hover { color: var(--fg-heading); }
+        &:hover, &:focus-visible { color: var(--fg-heading); background: var(--hover); }
 
         /* Buttons that mean two things carry both glyphs and hide one, so the
            state is a class toggle rather than a path swapped in from JS. */
@@ -95,7 +128,8 @@ header {
             & .icon-unpin { display: none; }
 
             &.pinned {
-                color: var(--fg-heading);
+                color: var(--fg-link);
+                background: var(--hover);
 
                 & .icon-pin { display: none; }
                 & .icon-unpin { display: inline; }
@@ -129,7 +163,7 @@ header {
 .window-controls {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 1px;
     flex-shrink: 0;
 }
 
@@ -140,15 +174,15 @@ header {
  * to the detail window. The detail view's state is left exactly as it was -
  * hidden, not torn down - so switching back does not have to rebuild it.
  *
- * Galmuri11 is drawn for 11px and up, and this row is smaller than that, where
- * a pixel face turns to mush. The pixel choice is therefore substituted for the
- * system stack here. The selected font applies only to the detail view.
+ * At this smaller size the system stack stays clearest. The menu's selected
+ * typeface applies to the detail view.
  */
 body.bar-mode {
     padding: 0;
     gap: 0;
     font-size: 11px;
     line-height: 1.2;
+    background: var(--bg);
 
     --font-stack: var(--font-system);
 
@@ -163,6 +197,8 @@ body.bar-mode {
 #barView {
     flex-direction: row;
     gap: 0;
+    min-height: 58px;
+    background: var(--surface);
 }
 
 /* Date and time also provide the bar's drag handle. */
@@ -170,10 +206,10 @@ body.bar-mode {
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 2px;
+    gap: 3px;
     flex: none;
-    padding: 6px 8px;
-    border-right: 1px solid var(--bar-bg);
+    padding: 7px 10px;
+    border-right: 1px solid var(--stroke);
     text-align: center;
 }
 
@@ -192,8 +228,8 @@ body.bar-mode #clockWidget {
 }
 
 #clockTime {
-    font-size: 14px;
-    font-weight: 700;
+    font-size: 15px;
+    font-weight: 750;
     font-variant-numeric: tabular-nums;
     color: var(--fg-heading);
     line-height: 1.1;
@@ -212,10 +248,10 @@ body.bar-mode #clockWidget {
 
 #barControls {
     flex: none;
-    width: 28px;
+    width: 30px;
     display: flex;
     flex-direction: column;
-    border-left: 1px solid var(--bar-bg);
+    border-left: 1px solid var(--stroke);
 
     & button {
         flex: 1;
@@ -229,7 +265,7 @@ body.bar-mode #clockWidget {
         justify-content: center;
 
         & svg { width: 14px; height: 14px; }
-        &:hover { color: var(--fg-heading); background: rgba(255, 255, 255, 0.05); }
+        &:hover, &:focus-visible { color: var(--fg-heading); background: var(--hover); }
     }
 }
 
@@ -240,24 +276,24 @@ body.bar-mode #clockWidget {
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 2px;
+    gap: 4px;
     flex: 1;
     min-width: 0;
-    padding: 4px 6px;
+    padding: 6px 8px;
     cursor: pointer;
     outline: none;
 
-    & + .bar-card { border-left: 1px solid var(--bar-bg); }
+    & + .bar-card { border-left: 1px solid var(--stroke); }
 
-    &:hover, &:focus-visible { background: rgba(255, 255, 255, 0.05); }
+    &:hover, &:focus-visible { background: var(--hover); }
 }
 
 .bar-card-name {
-    font-size: 9px;
-    line-height: 11px;
-    font-weight: 700;
-    color: var(--fg-dim);
-    letter-spacing: 0.05em;
+    font-size: 10px;
+    line-height: 12px;
+    font-weight: 750;
+    color: var(--fg-heading);
+    letter-spacing: 0.01em;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -271,12 +307,12 @@ body.bar-mode #clockWidget {
 .bar-row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
 }
 
 .bar-row-pct {
     flex: none;
-    width: 30px;
+    width: 31px;
     font-size: 11px;
     line-height: 14px;
     font-weight: 700;
@@ -291,7 +327,7 @@ body.bar-mode #clockWidget {
 .bar-row > .bar-container {
     flex: 1;
     min-width: 0;
-    height: 6px;
+    height: 5px;
 }
 
 /* The weekly quota is the second color. :not(.warn) keeps an over-pace bar red
@@ -308,7 +344,7 @@ body.bar-mode #clockWidget {
 section, footer {
     display: none;
     flex-direction: column;
-    gap: 6px;
+    gap: 7px;
 
     &.visible { display: flex; }
 }
@@ -320,45 +356,83 @@ section.stale { opacity: 0.4; }
    so the window resizes once - when there is Codex content to replace it with. */
 body.pending > section, body.pending > footer { opacity: 0.4; }
 
-section.visible ~ section.visible, section.visible ~ footer.visible {
-    border-top: 1px solid var(--bar-bg);
-    padding-top: 12px;
-}
-
 h2 {
-    padding-bottom: 6px;
-    font-size: 12px;
-    font-weight: 700;
+    font-family: var(--font-display);
+    font-size: 10px;
+    font-weight: 750;
     color: var(--fg-dim);
     text-transform: uppercase;
+    letter-spacing: 0.08em;
 }
+
+#accountSection, #extraSection, #installSection {
+    padding: 9px 11px;
+    border: 1px solid var(--stroke);
+    border-radius: 10px;
+    background: var(--surface);
+}
+
+#accountSection.visible {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+}
+
+body.bar-mode > #accountSection { display: none; }
+
+#accountSection h2 { color: var(--fg-link); }
 
 .heading-row {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
 
-    & > span {
-        font-size: 12px;
-        color: var(--fg-link);
-        text-decoration: underline;
+    & button {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 0;
+        background: none;
+        color: var(--fg-dim);
+        font: inherit;
+        letter-spacing: inherit;
         cursor: pointer;
+
+        &:hover, &:focus-visible { color: var(--fg-heading); }
+    }
+
+    & > span {
+        font-size: 11px;
+        color: var(--fg-link);
+        cursor: pointer;
+
+        &:hover, &:focus-visible { text-decoration: underline; }
     }
 }
 
 dl {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 7px;
 }
 
 dl > div {
     display: flex;
     justify-content: space-between;
-    font-size: 13px;
+    font-size: 12px;
+    gap: 10px;
 
     & > dt { color: var(--fg-dim); }
-    & > dd { margin: 0; }
+    & > dd {
+        margin: 0;
+        max-width: 72%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--fg-heading);
+        font-weight: 600;
+    }
 }
 
 /* The account row hides the email until clicked. */
@@ -380,25 +454,44 @@ dl > div {
 #usageBars {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 6px;
 }
 
 .usage-entry {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px 8px;
+    padding: 9px 10px 10px 12px;
+    border: 1px solid var(--stroke);
+    border-left: 3px solid var(--bar-fg);
+    border-radius: 9px;
+    background: var(--surface);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.025);
 }
+
+.usage-entry:has(.bar-pct.warn) { border-left-color: var(--bar-fg-warn); }
 
 .bar-header {
     display: flex;
     justify-content: space-between;
     font-size: 13px;
     align-items: center;
+    gap: 8px;
+    grid-column: 1 / -1;
+
+    & > span:first-child {
+        min-width: 0;
+        color: var(--fg-heading);
+        font-weight: 650;
+        font-family: var(--font-display);
+    }
 }
 
 .bar-pct {
-    font-size: 18px;
-    font-weight: 700;
+    flex: none;
+    font-size: 24px;
+    font-weight: 750;
+    letter-spacing: -0.04em;
     font-variant-numeric: tabular-nums;
     color: var(--bar-fg);
     transition: color 0.3s ease;
@@ -407,19 +500,22 @@ dl > div {
 }
 
 .pace-text {
-    font-size: 11px;
+    min-width: 0;
+    font-size: 10px;
     color: var(--fg-dim);
+    line-height: 1.3;
 
     &.warn { color: var(--bar-fg-warn); }
 }
 
-.usage-entry > .bar-container { height: 10px; }
+.usage-entry > .bar-container { grid-column: 1 / -1; height: 7px; }
 
 .bar-container {
     position: relative;
     height: 8px;
     background: var(--bar-bg);
     overflow: hidden;
+    border-radius: 100px;
 
     & .bar-fill {
         position: absolute;
@@ -427,6 +523,7 @@ dl > div {
         left: 0;
         height: 100%;
         background: var(--bar-fg);
+        border-radius: inherit;
         transition: width 0.3s ease, background-color 0.3s ease;
 
         &.warn { background: var(--bar-fg-warn); }
@@ -454,20 +551,46 @@ dl > div {
 }
 
 .reset-text {
-    font-size: 12px;
+    font-size: 10px;
     color: var(--fg-dim);
+    text-align: right;
 }
 
 .detail-toggleable {
     cursor: pointer;
     outline: none;
-    border-radius: 4px;
-    margin: -4px;
-    padding: 4px;
-    transition: background-color 0.15s ease;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
-    &:hover, &:focus-visible { background: rgba(255, 255, 255, 0.05); }
+    &:hover, &:focus-visible {
+        border-color: color-mix(in srgb, var(--bar-fg) 50%, var(--stroke));
+        background: color-mix(in srgb, var(--surface) 90%, var(--bar-fg) 10%);
+    }
 }
+
+.usage-entry.secondary-hidden { display: none; }
+
+#moreQuotasBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 27px;
+    border: 1px solid var(--stroke);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--fg-link);
+    font: inherit;
+    font-size: 11px;
+    font-weight: 650;
+    cursor: pointer;
+
+    &:hover, &:focus-visible { color: var(--fg-heading); border-color: var(--fg-dim); }
+}
+
+.disclosure-arrow { display: inline-block; font-size: 15px; line-height: 0.8; transition: transform 0.15s ease; }
+[aria-expanded="true"] > .disclosure-arrow { transform: rotate(180deg); }
+
+#installRows { margin-top: 3px; }
 
 .usage-detail {
     display: flex;
@@ -475,9 +598,10 @@ dl > div {
     gap: 6px;
     margin-top: 2px;
     padding-top: 8px;
-    border-top: 1px dashed var(--bar-bg);
+    border-top: 1px solid var(--stroke);
     font-size: 12px;
     color: var(--fg-dim);
+    grid-column: 1 / -1;
 
     &.error { color: var(--bar-fg-warn); }
 }
@@ -523,6 +647,7 @@ dl > div {
     height: 5px;
     background: var(--bar-bg);
     overflow: hidden;
+    border-radius: 100px;
 
     & .detail-model-bar-fill {
         position: absolute;
@@ -530,6 +655,7 @@ dl > div {
         left: 0;
         height: 100%;
         background: var(--bar-fg);
+        border-radius: inherit;
     }
 }
 
@@ -545,7 +671,8 @@ dl > div {
 }
 
 footer {
-    font-size: 12px;
+    padding: 0 2px;
+    font-size: 11px;
     color: var(--fg-dim);
     flex-direction: row;
     justify-content: space-between;
@@ -559,7 +686,7 @@ footer {
         white-space: nowrap;
     }
 
-    & > #appVersion { flex-shrink: 0; }
+    & > #versionCluster { flex-shrink: 0; }
 
     &.error > #statusText { color: var(--bar-fg-warn); }
 }
@@ -574,3 +701,28 @@ footer {
     header button#refreshBtn.spinning svg { animation: none; }
     .clock-separator.off { visibility: visible; }
 }
+
+#versionCluster { display: inline-flex; align-items: center; gap: 6px; }
+#projectBtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-dim);
+    cursor: pointer;
+}
+#projectBtn svg { width: 13px; height: 13px; }
+#projectBtn:hover, #projectBtn:focus-visible { color: var(--fg-heading); background: var(--hover); }
+
+#extraPct {
+    color: var(--bar-fg);
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+    font-family: 'Segoe UI Variable Display', 'Segoe UI', var(--font-pretendard);
+}
+
+#installRows dd { font-variant-numeric: tabular-nums; }

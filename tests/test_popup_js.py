@@ -623,6 +623,40 @@ const NOW = Date.now() / 1000;
 class TestUsageBarUpdates(unittest.TestCase):
     """Tests for updateUsageBars/updateBarElement in popup.js."""
 
+    def test_extra_quotas_and_installations_start_collapsed_and_expand(self):
+        result = _run_scenario(r'''
+translations = {show_more_limits: 'Show {count} more limits', show_fewer_limits: 'Show fewer limits'};
+els.moreQuotasBtn = document.createElement('button');
+els.moreQuotasText = document.createElement('span');
+els.installToggle = document.createElement('button');
+els.installRows = document.createElement('dl');
+els.installRows.hidden = true;
+setupDisclosureButtons();
+updateUsageBars([
+    makeEntry({key: 'five_hour'}), makeEntry({key: 'seven_day'}),
+    makeEntry({key: 'seven_day_sonnet'}), makeEntry({key: 'seven_day_opus'}),
+]);
+const initial = {
+    hidden: els.usageBars.children.slice(2).every(bar => bar.classList.contains('secondary-hidden')),
+    label: els.moreQuotasText.textContent,
+    expanded: els.moreQuotasBtn.getAttribute('aria-expanded'),
+    installsHidden: els.installRows.hidden,
+};
+els.moreQuotasBtn.dispatchEvent('click');
+els.installToggle.dispatchEvent('click');
+const opened = {
+    hidden: els.usageBars.children.slice(2).some(bar => bar.classList.contains('secondary-hidden')),
+    label: els.moreQuotasText.textContent,
+    expanded: els.moreQuotasBtn.getAttribute('aria-expanded'),
+    installsHidden: els.installRows.hidden,
+};
+console.log(JSON.stringify({initial, opened}));
+''')
+        self.assertEqual(result, {
+            'initial': {'hidden': True, 'label': 'Show 2 more limits', 'expanded': 'false', 'installsHidden': True},
+            'opened': {'hidden': False, 'label': 'Show fewer limits', 'expanded': 'true', 'installsHidden': False},
+        })
+
     def test_percentage_and_bar_colors_follow_time_budget_together(self):
         result = _run_scenario(r'''
 updateUsageBars([makeEntry({key: 'codex_primary', pct_text: '51%', fill_pct: 0.51, warn: true, pace_text: 'Elapsed 50% - ahead'})]);

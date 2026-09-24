@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#102c2a">
+    <meta name="description" content="Claude와 Codex의 사용량, 초기화 시각, 작업 속도를 Windows 트레이에서 한눈에 확인하는 가벼운 오픈소스 앱.">
+    <title>AI Agents Usage Monitor — 작업의 흐름을 한눈에</title>
+    <link rel="icon" href="ai_agents_usage_monitor.ico" sizes="any">
+    <style>
+        @font-face { font-family: Pretendard; src: url('ai_agents_usage_monitor/popup/PretendardVariable.woff2') format('woff2'); font-style: normal; font-weight: 100 900; font-display: swap; }
+        @font-face { font-family: NanumSquareNeo; src: url('ai_agents_usage_monitor/popup/NanumSquareNeo.woff2') format('woff2'); font-style: normal; font-weight: 100 900; font-display: swap; }
+        @font-face { font-family: JetBrainsMono; src: url('assets/JetBrainsMono-Regular.ttf') format('truetype'); font-style: normal; font-weight: 400; font-display: swap; }
+        :root {
+            color-scheme: dark;
+            --ink: #f2f4f2;
+            --muted: #a0afb0;
+            --paper: #101316;
+            --line: #313c3d;
+            --green: #82d6b7;
+            --orange: #dbb477;
+        }
+
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; scroll-padding-top: 100px; }
+        body {
+            margin: 0;
+            background: var(--paper);
+            color: var(--ink);
+            font-family: Pretendard, "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+            line-height: 1.55;
+        }
+        a { color: inherit; text-decoration: none; }
+        button, a { -webkit-tap-highlight-color: transparent; }
+        a:focus-visible { outline: 3px solid #83ccac; outline-offset: 4px; }
+        img { display: block; max-width: 100%; }
+        .shell { width: min(1180px, calc(100% - 48px)); margin-inline: auto; }
+
+        .hero-wrap {
+            position: relative;
+            overflow: hidden;
+            min-height: 720px;
+            background:
+                radial-gradient(circle at 83% 22%, #233d3b 0, transparent 37%),
+                radial-gradient(circle at 0% 96%, #222c31 0, transparent 33%),
+                #101316;
+            color: #f5faf4;
+        }
+        .hero-wrap::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            opacity: .19;
+            background-image: radial-gradient(#d6e7d8 0.7px, transparent 0.7px);
+            background-size: 20px 20px;
+            mask-image: linear-gradient(90deg, transparent 8%, black 80%);
+            pointer-events: none;
+        }
+        .site-header, .hero { position: relative; z-index: 1; }
+        .site-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 86px;
+            gap: 24px;
+        }
+        .brand { display: inline-flex; align-items: center; gap: 11px; font-size: 15px; font-weight: 750; letter-spacing: -.02em; }
+        .brand-mark {
+            display: flex;
+            align-items: end;
+            gap: 3px;
+            width: 29px;
+            height: 29px;
+            padding: 7px;
+            border-radius: 9px;
+            background: #d5efda;
+            transform: rotate(-6deg);
+        }
+        .brand-mark i { display: block; width: 4px; border-radius: 4px; background: #1e715f; }
+        .brand-mark i:nth-child(1) { height: 7px; }
+        .brand-mark i:nth-child(2) { height: 14px; }
+        .brand-mark i:nth-child(3) { height: 10px; }
+        .site-nav { display: flex; align-items: center; gap: 28px; color: #c9dbd2; font-size: 13px; font-weight: 600; }
+        .site-nav a:hover { color: white; }
+        .site-nav .nav-download { padding: 10px 15px; border: 1px solid #6a9687; border-radius: 10px; color: white; }
+        .site-nav .nav-download:hover { background: #ffffff16; }
+
+        .hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(410px, 1fr);
+            align-items: center;
+            gap: clamp(40px, 7vw, 105px);
+            padding-block: 72px 90px;
+        }
+        .eyebrow {
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            font-size: 11px;
+            font-weight: 750;
+            letter-spacing: .16em;
+            text-transform: uppercase;
+        }
+        .eyebrow::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #6bd3a4; box-shadow: 0 0 0 5px #6bd3a42a; }
+        h1, h2, h3, p { margin-top: 0; }
+        h1 { margin-block: 26px 22px; font-size: clamp(44px, 5vw, 70px); line-height: 1.16; letter-spacing: -.075em; word-break: keep-all; }
+        h1 em { color: #b5e1c3; font-style: normal; }
+        .hero-copy > p { max-width: 530px; color: #bbcec3; font-size: 17px; line-height: 1.8; word-break: keep-all; }
+        .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 35px; }
+        .button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 13px;
+            min-height: 48px;
+            padding: 12px 18px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 750;
+            transition: transform .2s ease, background-color .2s ease;
+        }
+        .button:hover { transform: translateY(-2px); }
+        .button.primary { background: #dcf3dc; color: #173c31; }
+        .button.primary:hover { background: white; }
+        .button.ghost { border: 1px solid #688d7f; color: #edf7ee; }
+        .button.ghost:hover { background: #ffffff14; }
+        .hero-facts { display: flex; flex-wrap: wrap; gap: 10px 24px; margin-top: 38px; padding: 0; list-style: none; color: #aec7b9; font-size: 12px; }
+        .hero-facts li::before { content: "↗"; margin-right: 7px; color: #b9e2c3; }
+        .hero-visual { position: relative; min-width: 0; }
+        .visual-frame {
+            position: relative;
+            height: auto;
+            overflow: visible;
+            border: 1px solid #ffffff30;
+            border-radius: 28px;
+            background: linear-gradient(155deg, #5d7d71, #27443d 55%, #18362f);
+            box-shadow: 0 35px 80px #061e1d85;
+        }
+        .visual-frame::after { display: none; }
+        .visual-frame img { position: relative; width: 340px; max-width: calc(100% - 60px); height: auto; margin: 34px auto; border-radius: 2px; box-shadow: 0 24px 55px #0a252280; }
+        .bar-float { position: absolute; left: -34px; right: 2px; bottom: 28px; z-index: 1; padding: 13px; border: 1px solid #ffffff5c; border-radius: 17px; background: #ffffffd9; box-shadow: 0 22px 48px #092c287d; backdrop-filter: blur(12px); }
+        .bar-float img { width: 100%; }
+        .visual-note { margin: 12px 0 0; color: #b8d0c3; text-align: right; font-size: 11px; }
+
+        main > section { padding-block: 105px; }
+        .section-intro { max-width: 660px; }
+        .kicker { margin-bottom: 18px; color: var(--green); font-size: 11px; font-weight: 800; letter-spacing: .15em; }
+        h2 { margin-bottom: 20px; font-size: clamp(33px, 4vw, 49px); line-height: 1.28; letter-spacing: -.065em; word-break: keep-all; }
+        .section-intro > p, .section-copy > p { color: var(--muted); font-size: 16px; line-height: 1.8; word-break: keep-all; }
+        .feature-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 44px; }
+        .feature-card { min-height: 230px; padding: 24px; border: 1px solid var(--line); border-radius: 20px; background: #fff; box-shadow: 0 7px 20px #18332308; }
+        .feature-index { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 10px; background: #e9f2e9; color: #277b62; font-size: 11px; font-weight: 800; }
+        .feature-card:nth-child(2) .feature-index { background: #f7ecdf; color: #a86e3b; }
+        .feature-card:nth-child(3) .feature-index { background: #e8edf9; color: #5d75ae; }
+        .feature-card:nth-child(4) .feature-index { background: #f5e8e1; color: #b87053; }
+        .feature-card h3 { margin: 32px 0 10px; font-size: 18px; letter-spacing: -.04em; }
+        .feature-card p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.75; word-break: keep-all; }
+
+        .views-section { background: #eaf0e9; }
+        .views-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); align-items: center; gap: clamp(36px, 8vw, 110px); }
+        .section-copy { max-width: 455px; }
+        .view-points { display: grid; gap: 22px; margin: 34px 0 0; padding: 0; list-style: none; }
+        .view-points li { display: grid; grid-template-columns: 28px 1fr; gap: 12px; color: var(--muted); font-size: 14px; line-height: 1.65; }
+        .view-points strong { display: block; margin-bottom: 3px; color: var(--ink); font-size: 15px; }
+        .view-points b { color: var(--green); font-size: 13px; }
+        .view-demo { min-width: 0; padding: 34px; border: 1px solid #d6e3d6; border-radius: 26px; background: #f8fbf7; box-shadow: 0 24px 60px #244c3120; }
+        .view-demo-label { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 24px; color: #72887b; font-size: 11px; font-weight: 750; letter-spacing: .08em; }
+        .view-demo-label span:last-child { font-weight: 500; letter-spacing: 0; }
+        .bar-image { width: 100%; border: 1px solid #dce5dd; box-shadow: 0 12px 25px #263a2c19; }
+        .detail-link { display: block; width: 240px; max-width: 68%; margin: 29px auto 0; }
+        .detail-link img { width: 100%; height: auto; box-shadow: 0 16px 32px #263a2c27; }
+        .detail-link span { display: block; padding-top: 10px; color: #3f6959; text-align: right; font-size: 11px; font-weight: 700; }
+
+        .privacy-section { padding-block: 96px; }
+        .privacy-panel { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 70px; padding: clamp(32px, 5vw, 66px); border-radius: 26px; background: #19352f; color: #ecf5ec; }
+        .privacy-panel .kicker { color: #98d1a9; }
+        .privacy-panel h2 { margin-bottom: 16px; }
+        .privacy-panel p { color: #b6cdc0; line-height: 1.8; word-break: keep-all; }
+        .privacy-list { display: grid; gap: 12px; align-content: center; margin: 0; padding: 0; list-style: none; }
+        .privacy-list li { padding: 16px 18px; border: 1px solid #ffffff23; border-radius: 13px; background: #ffffff0b; font-size: 13px; }
+        .privacy-list strong { display: block; margin-bottom: 4px; color: #d8f0db; font-size: 14px; }
+        .privacy-list span { color: #acc6b5; }
+        .text-link { display: inline-flex; gap: 8px; align-items: center; margin-top: 15px; color: #c9ebcf; font-size: 13px; font-weight: 750; }
+        .text-link:hover { text-decoration: underline; }
+
+        .start-section { padding-top: 20px; padding-bottom: 112px; text-align: center; }
+        .start-section .section-intro { margin: auto; }
+        .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 44px 0 36px; text-align: left; }
+        .step { padding: 24px; border-top: 2px solid #368368; background: white; border-radius: 0 0 15px 15px; }
+        .step small { color: #318165; font-weight: 800; letter-spacing: .1em; }
+        .step strong { display: block; margin: 15px 0 8px; font-size: 16px; }
+        .step p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
+        .start-section .button { background: #1e715b; color: white; }
+        .start-section .button:hover { background: #15503f; }
+        .start-note { margin: 13px 0 0; color: var(--muted); font-size: 12px; }
+
+        .site-footer { border-top: 1px solid var(--line); }
+        .footer-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-block: 27px; }
+        .site-footer .brand { color: var(--ink); font-size: 13px; }
+        .footer-links { display: flex; flex-wrap: wrap; gap: 12px 23px; color: var(--muted); font-size: 12px; }
+        .footer-links a:hover { color: var(--green); text-decoration: underline; }
+
+        @media (max-width: 1000px) {
+            .hero { grid-template-columns: minmax(0, 1fr) minmax(345px, .9fr); gap: 35px; }
+            .feature-grid { grid-template-columns: repeat(2, 1fr); }
+            .feature-card { min-height: 200px; }
+        }
+        @media (max-width: 760px) {
+            .shell { width: min(560px, calc(100% - 36px)); }
+            .site-header { min-height: 72px; }
+            .site-nav { gap: 13px; }
+            .site-nav a:not(.nav-download):not(.cat-link) { display: none; }
+            .hero { grid-template-columns: 1fr; padding-block: 52px 74px; }
+            .hero-copy > p { font-size: 15px; }
+            .hero-visual { margin-top: 12px; }
+            .visual-frame { height: 530px; }
+            .visual-frame img { width: 300px; }
+            .bar-float { left: 5px; right: 5px; bottom: 23px; }
+            main > section { padding-block: 75px; }
+            .views-grid, .privacy-panel { grid-template-columns: 1fr; gap: 36px; }
+            .privacy-section { padding-block: 70px; }
+            .start-section { padding-top: 8px; }
+        }
+        @media (max-width: 520px) {
+            .shell { width: calc(100% - 30px); }
+            .brand { font-size: 12px; }
+            .brand-mark { flex: none; }
+            .site-nav .nav-download { padding: 8px 10px; font-size: 11px; }
+            h1 { font-size: clamp(40px, 10vw, 52px); }
+            .hero-facts { gap: 8px 16px; }
+            .feature-grid, .steps { grid-template-columns: 1fr; }
+            .feature-card { min-height: 0; }
+            .feature-card h3 { margin-top: 22px; }
+            .view-demo { padding: 18px; }
+            .detail-link { max-width: 75%; }
+            .privacy-panel { padding: 26px; }
+            .footer-inner { align-items: start; flex-direction: column; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            html { scroll-behavior: auto; }
+            .button { transition: none; }
+        }
+        /* 3.0: a dark instrument panel with type and structure distinct from the app UI. */
+        .hero-wrap { min-height: 0; border-bottom: 1px solid var(--line); }
+        .hero-wrap::before { opacity: .1; background-size: 28px 28px; }
+        .site-header { border-bottom: 1px solid #ffffff19; }
+        .brand-mark { background: #88d9b7; }
+        .site-nav { color: #a3b3b2; }
+        .site-nav .nav-download { border-color: #536365; }
+        .hero { gap: clamp(28px, 5vw, 80px); padding-block: 72px 82px; }
+        .eyebrow, .kicker, .feature-index, .view-demo-label, .step small, .hero-facts, .visual-note {
+            font-family: JetBrainsMono, Consolas, monospace;
+        }
+        .eyebrow { color: #9fb8b1; }
+        .eyebrow.latest-release { transition: color .2s ease; }
+        .eyebrow.latest-release::before { transition: background-color .2s ease, box-shadow .2s ease; }
+        .eyebrow.latest-release:hover, .eyebrow.latest-release:focus-visible { color: #f4d486; }
+        .eyebrow.latest-release:hover::before, .eyebrow.latest-release:focus-visible::before {
+            background: #f4d486;
+            box-shadow: 0 0 0 5px #f4d4862b;
+        }
+        h1 { letter-spacing: -.065em; }
+        h1, h2, h3 { font-family: NanumSquareNeo, 'Yu Gothic', 'Malgun Gothic', Pretendard, sans-serif; }
+        h1 em { color: #92e0ba; }
+        .hero-copy > p { color: #aebfbc; }
+        .button { border-radius: 9px; }
+        .button.primary { background: #8be0b7; color: #12241e; }
+        .button.primary:hover { background: #b2f0ce; }
+        .button.ghost { border-color: #536b69; }
+        .button.icon-only { width: 48px; padding: 10px; }
+        .cat-icon { width: 20px; height: 20px; fill: currentColor; }
+        .site-nav .cat-link, .footer-links .cat-link { display: inline-flex; align-items: center; justify-content: center; }
+        .hero-facts {
+            color: #c4d6cd;
+            font-family: NanumSquareNeo, Pretendard, 'Malgun Gothic', sans-serif;
+            font-size: 13px;
+            font-weight: 650;
+            letter-spacing: -.025em;
+        }
+        .visual-frame { display: flex; align-items: center; justify-content: center; min-height: 0; padding: 24px; border-color: #445655; border-radius: 18px; background: #1e292b; box-shadow: 0 30px 70px #0008; }
+        .visual-frame img { width: min(100%, 340px); max-width: 100%; margin: 0; box-shadow: 0 18px 42px #0008; }
+        .bar-float { position: relative; inset: auto; width: min(100%, 378px); padding: 8px; margin: 12px 0 0 auto; border-color: #445655; border-radius: 10px; background: #1e292b; box-shadow: none; backdrop-filter: none; }
+        .bar-float img { width: 100%; height: auto; }
+        .visual-note { color: #91a5a2; }
+        main { background: var(--paper); }
+        .kicker { color: var(--green); }
+        .section-intro > p, .section-copy > p { color: var(--muted); }
+        .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+        .feature-card { display: grid; grid-template-columns: 38px minmax(0, 1fr); align-content: start; column-gap: 18px; min-height: 164px; padding: 25px; border-color: var(--line); border-radius: 12px; background: #1b2124; box-shadow: none; }
+        .feature-index, .feature-card:nth-child(n) .feature-index { width: 35px; height: 35px; border: 1px solid #405851; border-radius: 7px; background: #27352f; color: #97dbb6; }
+        .feature-card:nth-child(2) .feature-index { border-color: #5e4c38; background: #3b3128; color: #edbd83; }
+        .feature-card:nth-child(3) .feature-index { border-color: #405272; background: #2a3445; color: #abc1eb; }
+        .feature-card:nth-child(4) .feature-index { border-color: #60463d; background: #3b2c2a; color: #e7a493; }
+        .feature-card h3 { align-self: center; margin: 0; color: var(--ink); }
+        .feature-card p { grid-column: 2; margin-top: 12px; color: var(--muted); }
+        .views-section { background: #171d20; border-block: 1px solid var(--line); }
+        .view-points li { color: var(--muted); }
+        .view-points strong { color: var(--ink); }
+        .view-points b { color: var(--green); font-family: JetBrainsMono, Consolas, monospace; }
+        .view-demo { border-color: #405050; border-radius: 16px; background: #222b2d; box-shadow: 0 25px 50px #0005; }
+        .view-demo-label { color: #a8bcba; }
+        .bar-image { width: min(100%, 360px); height: auto; margin-inline: auto; border: 0; box-shadow: 0 12px 28px #0006; }
+        .detail-link { width: 230px; max-width: 80%; }
+        .detail-link img { box-shadow: 0 18px 35px #0007; }
+        .detail-link span { color: #a5d9c2; }
+        .privacy-panel { border: 1px solid #384b45; border-radius: 16px; background: #1c2b28; }
+        .privacy-panel .kicker { color: #9be1b9; }
+        .privacy-panel p, .privacy-list span { color: #b2c7bf; }
+        .privacy-list li { border-color: #ffffff1d; background: #ffffff0a; }
+        .privacy-list strong { color: #e1f2e8; }
+        .text-link { color: #a9e2bf; }
+        .step { border-top-color: #82d6b7; border-radius: 0 0 10px 10px; background: #1b2224; }
+        .step strong { color: var(--ink); }
+        .step small { color: var(--green); }
+        .step p, .start-note { color: var(--muted); }
+        .start-section .button { background: #8be0b7; color: #10241d; }
+        .start-section .button:hover { background: #b2f0ce; }
+        .site-footer { border-color: var(--line); background: #0d1012; }
+        .footer-links { color: var(--muted); }
+        .site-header {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            width: 100%;
+            min-height: 0;
+            border-bottom: 1px solid #ffffff22;
+            background: rgb(16 19 22 / 88%);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+        }
+        .header-inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 76px; }
+        @media (max-width: 760px) { .visual-frame { padding: 18px; } .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (max-width: 520px) { .feature-grid { grid-template-columns: 1fr; } .feature-card { min-height: 0; } .feature-card h3 { margin: 0; } }
+        @media (max-width: 760px) { html { scroll-padding-top: 82px; } .header-inner { min-height: 66px; } }
+
+        /* Each card owns one accent so the color shift has a clear meaning. */
+        .feature-card {
+            --accent: #82d6b7;
+            position: relative;
+            isolation: isolate;
+            overflow: hidden;
+            transition: transform .32s cubic-bezier(.2,.8,.2,1), border-color .32s ease, box-shadow .32s ease, background-color .32s ease;
+        }
+        .feature-card:nth-child(2) { --accent: #edbd83; }
+        .feature-card:nth-child(3) { --accent: #abc1eb; }
+        .feature-card:nth-child(4) { --accent: #e7a493; }
+        .feature-card::before {
+            content: "";
+            position: absolute;
+            z-index: -1;
+            inset: 0;
+            background: radial-gradient(circle at 7% 2%, color-mix(in srgb, var(--accent) 19%, transparent), transparent 70%);
+            opacity: 0;
+            transition: opacity .38s ease;
+        }
+        .feature-card::after {
+            content: "";
+            position: absolute;
+            inset: 0 auto 0 0;
+            width: 2px;
+            background: var(--accent);
+            transform: scaleY(0);
+            transform-origin: top;
+            transition: transform .32s cubic-bezier(.2,.8,.2,1);
+        }
+        .feature-index { transition: transform .32s ease, border-color .32s ease, background-color .32s ease; }
+        .step { transition: border-color .25s ease, background-color .25s ease, transform .25s ease; }
+        .button, .nav-download, .detail-link img, .visual-frame, .bar-float {
+            transition: transform .3s cubic-bezier(.2,.8,.2,1), border-color .3s ease, box-shadow .3s ease, background-color .3s ease;
+        }
+        .site-nav a:not(.nav-download), .footer-links a { transition: color .2s ease; }
+
+        @media (hover: hover) and (pointer: fine) {
+            .feature-card:hover {
+                transform: translateY(-5px);
+                border-color: color-mix(in srgb, var(--accent) 52%, var(--line));
+                background-color: #222b2d;
+                box-shadow: 0 18px 40px #0005;
+            }
+            .feature-card:hover::before { opacity: 1; }
+            .feature-card:hover::after { transform: scaleY(1); }
+            .feature-card:hover .feature-index { transform: translateY(-2px); border-color: var(--accent); }
+            .step:hover { transform: translateY(-3px); border-top-color: #b6ebce; background: #222d2c; }
+            .visual-frame:hover { border-color: #719a8a; box-shadow: 0 36px 78px #000a; }
+            .bar-float:hover { transform: translateY(-3px); border-color: #719a8a; }
+            .detail-link:hover img { transform: translateY(-4px); box-shadow: 0 24px 45px #0009; }
+            .button:hover, .nav-download:hover { box-shadow: 0 9px 24px #0005; }
+        }
+
+        @keyframes hero-enter {
+            from { opacity: 0; transform: translateY(18px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes reveal-on-view {
+            from { opacity: .55; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fade-on-view {
+            from { opacity: .55; }
+            to { opacity: 1; }
+        }
+        @media (prefers-reduced-motion: no-preference) {
+            .hero-copy { animation: hero-enter .7s cubic-bezier(.2,.8,.2,1) both; }
+            .hero-visual { animation: hero-enter .8s .12s cubic-bezier(.2,.8,.2,1) both; }
+            @supports (animation-timeline: view()) {
+                .section-intro, .section-copy, .view-demo, .privacy-panel {
+                    animation: reveal-on-view 1ms linear both;
+                    animation-timeline: view();
+                    animation-range: entry 0% cover 24%;
+                }
+                .feature-card, .step {
+                    animation: fade-on-view 1ms linear both;
+                    animation-timeline: view();
+                    animation-range: entry 0% cover 24%;
+                }
+            }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .feature-card, .feature-card::before, .feature-card::after, .feature-index,
+            .step, .button, .nav-download, .detail-link img, .visual-frame, .bar-float,
+            .site-nav a:not(.nav-download), .footer-links a, .eyebrow.latest-release,
+            .eyebrow.latest-release::before { animation: none; transition: none; }
+            .feature-card:hover, .step:hover, .button:hover, .bar-float:hover, .detail-link:hover img { transform: none; }
+        }
+    </style>
+</head>
+<body>
+    <svg xmlns="http://www.w3.org/2000/svg" width="0" height="0" aria-hidden="true" style="position:absolute"><symbol id="cat-mark" viewBox="0 0 24 24"><path d="M10.226 17.284c-2.965-.36-5.054-2.493-5.054-5.256 0-1.123.404-2.336 1.078-3.144-.292-.741-.247-2.314.09-2.965.898-.112 2.111.36 2.83 1.01.853-.269 1.752-.404 2.853-.404 1.1 0 1.999.135 2.807.382.696-.629 1.932-1.1 2.83-.988.315.606.36 2.179.067 2.942.72.854 1.101 2 1.101 3.167 0 2.763-2.089 4.852-5.098 5.234.763.494 1.28 1.572 1.28 2.807v2.336c0 .674.561 1.056 1.235.786 4.066-1.55 7.255-5.615 7.255-10.646C23.5 6.188 18.334 1 11.978 1 5.62 1 .5 6.188.5 12.545c0 4.986 3.167 9.12 7.435 10.669.606.225 1.19-.18 1.19-.786V20.63a2.9 2.9 0 0 1-1.078.224c-1.483 0-2.359-.808-2.987-2.313-.247-.607-.517-.966-1.034-1.033-.27-.023-.359-.135-.359-.27 0-.27.45-.471.898-.471.652 0 1.213.404 1.797 1.235.45.651.921.943 1.483.943.561 0 .92-.202 1.437-.719.382-.381.674-.718.944-.943"/></symbol></svg>
+    <header class="site-header">
+        <div class="header-inner shell">
+            <a class="brand" href="#top" aria-label="AI Agents Usage Monitor, 맨 위로">
+                <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span>AI Agents Usage Monitor</span>
+            </a>
+            <nav class="site-nav" aria-label="주요 메뉴">
+                <a href="#features">기능</a>
+                <a href="#views">화면</a>
+                <a href="#privacy">데이터 처리</a>
+                <a class="cat-link" href="https://github.com/deuxdoom/usage-monitor-for-claude" aria-label="GitHub 소스 코드"><svg class="cat-icon" aria-hidden="true"><use href="#cat-mark"/></svg></a>
+                <a class="nav-download" href="https://github.com/deuxdoom/usage-monitor-for-claude/releases/latest/download/AIAgentsUsageMonitor.exe">EXE 다운로드 ↓</a>
+            </nav>
+        </div>
+    </header>
+
+    <div class="hero-wrap">
+        <div class="hero shell" id="top">
+            <div class="hero-copy">
+                <a class="eyebrow latest-release" id="latestRelease" href="https://github.com/deuxdoom/usage-monitor-for-claude/releases/latest" aria-label="GitHub 최신 릴리스 보기"><span id="latestReleaseLabel" aria-live="polite">LATEST RELEASE · GITHUB</span></a>
+                <h1>작업에 집중하고,<br><em>한도는 한눈에.</em></h1>
+                <p>Claude와 Codex의 사용량, 초기화 시각, 사용 속도를 트레이에서 바로 확인하세요. 숫자는 명확하게, 화면은 가볍게. 필요한 순간에만 열어 보는 작은 모니터입니다.</p>
+                <div class="hero-actions">
+                    <a class="button primary" href="https://github.com/deuxdoom/usage-monitor-for-claude/releases/latest/download/AIAgentsUsageMonitor.exe">Windows용 EXE 받기 <span aria-hidden="true">↓</span></a>
+                    <a class="button ghost release-check" href="https://github.com/deuxdoom/usage-monitor-for-claude/releases/latest">최신 릴리스 확인 <span aria-hidden="true">↗</span></a>
+                    <a class="button ghost icon-only" href="https://github.com/deuxdoom/usage-monitor-for-claude" aria-label="GitHub에서 코드 보기" title="GitHub에서 코드 보기"><svg class="cat-icon" aria-hidden="true"><use href="#cat-mark"/></svg></a>
+                </div>
+                <ul class="hero-facts" aria-label="앱 특징">
+                    <li>Claude + Codex</li>
+                    <li>기본 1분 갱신</li>
+                    <li>설치 없는 단일 EXE</li>
+                </ul>
+            </div>
+            <div class="hero-visual">
+                <div class="visual-frame">
+                    <img src="screenshot.png" width="680" height="1016" alt="Claude 사용량의 세션, 주간 한도, 초기화 시각을 카드로 보여주는 상세 팝업 예시" fetchpriority="high">
+                </div>
+                <div class="bar-float"><img src="screenshot2.png" width="720" height="120" alt="Claude와 Codex 사용률을 나란히 보여주는 한 줄 바 모드 예시"></div>
+                <p class="visual-note">제품 미리보기 · 화면의 수치는 예시 데이터</p>
+            </div>
+        </div>
+    </div>
+
+    <main>
+        <section class="shell" id="features" aria-labelledby="features-title">
+            <div class="section-intro">
+                <p class="kicker">01 / WHAT YOU SEE</p>
+                <h2 id="features-title">필요한 신호만<br>제자리에.</h2>
+                <p>에이전트를 오가며 작업해도 각 한도의 상태를 다시 찾을 필요가 없습니다. 지금 얼마나 썼는지와 언제 돌아오는지를 바로 읽을 수 있습니다.</p>
+            </div>
+            <div class="feature-grid">
+                <article class="feature-card"><span class="feature-index">01</span><h3>두 에이전트의 한도</h3><p>Claude와 Codex를 전환해 세션 및 주간 한도, 플랜과 초기화 시각을 확인합니다.</p></article>
+                <article class="feature-card"><span class="feature-index">02</span><h3>속도까지 읽는 막대</h3><p>시간 마커와 현재 사용률을 비교해 평소보다 빠르게 소진 중인지 알려줍니다.</p></article>
+                <article class="feature-card"><span class="feature-index">03</span><h3>작게 두는 바 모드</h3><p>두 에이전트의 주요 한도를 한 줄에 놓고, 사용률과 남은 비율을 눌러 바꿉니다.</p></article>
+                <article class="feature-card"><span class="feature-index">04</span><h3>알림과 안전한 업데이트</h3><p>임계값·초기화를 알리고, 새 버전은 동의한 뒤 검증해 교체합니다. 화면이 닫히면 불필요한 사용량 조회도 줄입니다.</p></article>
+            </div>
+        </section>
+
+        <section class="views-section" id="views" aria-labelledby="views-title">
+            <div class="shell views-grid">
+                <div class="section-copy">
+                    <p class="kicker">02 / TWO WAYS TO WATCH</p>
+                    <h2 id="views-title">자세히 볼 때도,<br>곁에 둘 때도.</h2>
+                    <p>상세 팝업에는 계정, 사용 구간, 로컬 토큰 상세와 설치 버전을 담았습니다. 바 모드는 시계 옆에 두 에이전트의 핵심 수치만 남깁니다. 보고 싶은 방식은 앱이 기억합니다.</p>
+                    <ul class="view-points">
+                        <li><b>01</b><span><strong>클릭하면 더 깊게</strong>사용량 카드를 펼쳐 로컬 기록의 모델별 토큰을 확인합니다.</span></li>
+                        <li><b>02</b><span><strong>열어 둔 채로 가볍게</strong>바 모드는 드래그해 원하는 위치에 놓을 수 있습니다.</span></li>
+                        <li><b>03</b><span><strong>한 번 선택하면 그대로</strong>보기 모드와 글꼴, 새로고침 주기를 다음 실행에도 유지합니다.</span></li>
+                    </ul>
+                </div>
+                <div class="view-demo">
+                    <div class="view-demo-label"><span>COMPACT VIEW</span><span>Claude + Codex</span></div>
+                    <img class="bar-image" src="screenshot2.png" width="720" height="120" alt="날짜와 시간, 두 에이전트의 세션 및 주간 사용률이 나란히 표시된 바 화면" loading="lazy">
+                    <a class="detail-link" href="screenshot.png" aria-label="상세 팝업 전체 이미지 보기">
+                        <img src="screenshot.png" width="680" height="1016" alt="카드로 정리된 상세 팝업 화면" loading="lazy">
+                        <span>상세 화면 전체 보기 ↗</span>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <section class="privacy-section shell" id="privacy" aria-labelledby="privacy-title">
+            <div class="privacy-panel">
+                <div>
+                    <p class="kicker">03 / CLEAR ABOUT DATA</p>
+                    <h2 id="privacy-title">무엇을 읽는지<br>알 수 있게.</h2>
+                    <p>사용량을 보여주기 위해 필요한 범위만 다룹니다. 앱은 오픈소스이며, 인증 정보와 로컬 기록을 다루는 방식을 직접 확인할 수 있습니다.</p>
+                    <a class="text-link" href="https://github.com/deuxdoom/usage-monitor-for-claude/blob/main/PRIVACY.md">데이터 처리 방식 자세히 보기 <span aria-hidden="true">↗</span></a>
+                </div>
+                <ul class="privacy-list">
+                    <li><strong>Claude 사용량</strong><span>Claude Code의 로그인 정보를 읽고 Anthropic 사용량 API를 조회합니다.</span></li>
+                    <li><strong>Codex 사용량</strong><span>설치된 Codex App Server에 계정과 한도 조회를 위임합니다.</span></li>
+                    <li><strong>로컬 토큰 상세</strong><span>세션 기록을 기기에서 읽어 계산하며 외부로 보내지 않습니다.</span></li>
+                    <li><strong>앱 업데이트</strong><span>시작할 때 공개 GitHub 릴리스를 확인하고, 설치에 동의한 경우에만 EXE를 받습니다.</span></li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="start-section shell" id="download" aria-labelledby="start-title">
+            <div class="section-intro">
+                <p class="kicker">04 / GET STARTED</p>
+                <h2 id="start-title">다운로드하고,<br>트레이에서 시작하세요.</h2>
+                <p>Windows 10/11 x64에서 실행합니다. Claude Code와 Codex에 이미 로그인했다면 별도의 API 키를 입력할 필요가 없습니다.</p>
+            </div>
+            <div class="steps">
+                <div class="step"><small>STEP 01</small><strong>EXE 다운로드</strong><p>최신 릴리스에서 실행 파일을 받아 원하는 폴더에 둡니다.</p></div>
+                <div class="step"><small>STEP 02</small><strong>트레이에서 열기</strong><p>앱을 실행하고 트레이 아이콘을 클릭해 상세 팝업을 엽니다.</p></div>
+                <div class="step"><small>STEP 03</small><strong>내 방식으로 보기</strong><p>상세/바 보기와 갱신 주기, 글꼴을 원하는 대로 고릅니다.</p></div>
+            </div>
+            <a class="button" href="https://github.com/deuxdoom/usage-monitor-for-claude/releases/latest/download/AIAgentsUsageMonitor.exe">최신 EXE 다운로드 <span aria-hidden="true">↓</span></a>
+            <p class="start-note">무료 · 오픈소스 · Windows x64</p>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="shell footer-inner">
+            <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>AI Agents Usage Monitor</span></a>
+            <nav class="footer-links" aria-label="추가 정보">
+                <a href="https://github.com/deuxdoom/usage-monitor-for-claude/blob/main/README.md">사용 안내</a>
+                <a href="https://github.com/deuxdoom/usage-monitor-for-claude/blob/main/CHANGELOG.md">변경 내역</a>
+                <a href="https://github.com/deuxdoom/usage-monitor-for-claude/blob/main/PRIVACY.md">개인정보 처리</a>
+                <a class="cat-link" href="https://github.com/deuxdoom/usage-monitor-for-claude" aria-label="GitHub 소스 코드" title="GitHub"><svg class="cat-icon" aria-hidden="true"><use href="#cat-mark"/></svg></a>
+            </nav>
+        </div>
+    </footer>
+    <script>
+        (async () => {
+            const badge = document.getElementById('latestRelease');
+            const label = document.getElementById('latestReleaseLabel');
+            try {
+                const response = await fetch('https://api.github.com/repos/deuxdoom/usage-monitor-for-claude/releases/latest', {
+                    headers: { Accept: 'application/vnd.github+json' },
+                });
+                if (!response.ok) return;
+                const release = await response.json();
+                if (typeof release.tag_name !== 'string' || !/^v?\d+\.\d+\.\d+$/.test(release.tag_name)) return;
+                const version = `v${release.tag_name.replace(/^v/, '')}`;
+                label.textContent = `LATEST RELEASE · ${version}`;
+                badge.setAttribute('aria-label', `GitHub 최신 릴리스 ${version} 보기`);
+            } catch { /* The fixed releases/latest link still works offline or when rate limited. */ }
+        })();
+    </script>
+</body>
+</html>

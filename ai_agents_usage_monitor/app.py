@@ -232,8 +232,8 @@ class AIAgentsUsageMonitor:
         self._poll_interval = seconds
         save_setting('poll_interval', seconds)
 
-    def on_font_pixel(self, icon: Any = None, item: Any = None) -> None:
-        self._set_popup_font('pixel')
+    def on_font_pretendard(self, icon: Any = None, item: Any = None) -> None:
+        self._set_popup_font('pretendard')
 
     def on_font_system(self, icon: Any = None, item: Any = None) -> None:
         self._set_popup_font('system')

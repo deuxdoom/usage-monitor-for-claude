@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This changelog covers 1.30.0 onwards, the point from which this project builds independently.
 
 
+## [3.0.0] - 배포 예정
+
+### Added
+
+- EXE 시작 시 GitHub 최신 안정 릴리스를 확인하고, 새 버전이 있으면 설치 여부를 묻습니다. 동의하면 별도 프로세스가 진행 상태를 표시하며 파일 크기와 SHA-256을 검증한 뒤 실행 중인 앱이 닫히면 EXE를 교체합니다
+- 추가 한도와 CLI·IDE 설치 목록을 필요할 때만 펼치는 버튼을 추가했습니다
+- 팝업 버전 옆에 GitHub 공식 `mark-github` Octicon을 넣어 프로젝트 페이지를 바로 열 수 있습니다
+- 프로젝트 루트에 실제 화면, 핵심 기능, 데이터 처리 범위와 다운로드 경로를 소개하는 반응형 `index.html`을 추가했습니다
+- 소개 페이지는 GitHub 최신 릴리스 버전을 표시하고 EXE 직접 다운로드와 릴리스 확인을 분리했습니다. 고정 메뉴, 카드 호버와 지원 브라우저의 스크롤 등장 효과를 적용하며 움직임 감소 설정을 존중합니다
+
+### Changed
+
+- 기본 팝업을 검정 계열의 간결한 계정 패널과 신호색이 있는 한도 카드로 다시 구성했습니다. 기본 화면은 주요 한도 두 개를 먼저 보여 주고, 모델별 토큰 상세는 기존처럼 카드를 눌러 확인합니다
+- 기본 상세 글꼴을 갈무리11에서 포함된 Pretendard로 바꾸고, 제목에 나눔스퀘어 네오를 적용했습니다. 저장된 `popup_font=pixel` 및 `mono` 값은 Pretendard로 이어집니다
+- 한 줄 바 모드의 제공자 구분과 수치 대비를 다듬고, 기존 사용률·남은 비율 전환과 시간 마커 동작은 유지했습니다
+
+
 ## [2.1.0] - 2026-09-13
 
 ### Added

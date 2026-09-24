@@ -76,8 +76,8 @@ def build_menu(monitor: Any) -> pystray.Menu:
                 checked=lambda item: monitor._popup_font == 'system', radio=True,
             ),
             pystray.MenuItem(
-                T['font_pixel'], monitor.on_font_pixel,
-                checked=lambda item: monitor._popup_font == 'pixel', radio=True,
+                T['font_pretendard'], monitor.on_font_pretendard,
+                checked=lambda item: monitor._popup_font == 'pretendard', radio=True,
             ),
         )),
         pystray.MenuItem(

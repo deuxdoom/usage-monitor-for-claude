@@ -78,7 +78,7 @@ _VALID_ICON_STYLES = frozenset({'number+bars', 'numbers'})
 # and the popup's own mode button present them.  Public because the menu
 # handlers validate against them too: a second copy of either list is how the
 # menu and the file would come to disagree about what a valid choice is.
-POPUP_FONTS = ('system', 'pixel')
+POPUP_FONTS = ('pretendard', 'system')
 POPUP_VIEWS = ('detail', 'bar')
 _COMMAND_KEYS = frozenset({
     'on_double_click_command', 'on_reset_command', 'on_startup_command', 'on_threshold_command', 'quick_action_command',
@@ -232,8 +232,8 @@ def _validate(data: dict, path: Path) -> dict:
                 drop.append(key)
 
         elif key == 'popup_font':
-            if value == 'mono':
-                data[key] = POPUP_FONTS[0]
+            if value in {'mono', 'pixel'}:
+                data[key] = 'pretendard'
                 continue
             if value not in POPUP_FONTS:
                 errors.append(f'  {key}: must be one of {", ".join(POPUP_FONTS)}, got {value!r}')
@@ -386,20 +386,20 @@ MAX_BACKOFF = _S.get('max_backoff', 900)
 IDLE_PAUSE = _S.get('idle_pause', 300)
 
 # Popup theme
-BG = _S.get('bg', '#1e1e1e')
-FG = _S.get('fg', '#cccccc')
-FG_DIM = _S.get('fg_dim', '#888888')
-FG_HEADING = _S.get('fg_heading', '#ffffff')
-FG_LINK = _S.get('fg_link', '#4a9eff')
-BAR_BG = _S.get('bar_bg', '#333333')
-BAR_FG = _S.get('bar_fg', '#4a9eff')
+BG = _S.get('bg', '#101316')
+FG = _S.get('fg', '#cbd3d3')
+FG_DIM = _S.get('fg_dim', '#879397')
+FG_HEADING = _S.get('fg_heading', '#f3f5f2')
+FG_LINK = _S.get('fg_link', '#88b7d1')
+BAR_BG = _S.get('bar_bg', '#30393b')
+BAR_FG = _S.get('bar_fg', '#72d2af')
 # Second bar color, used by the single-row view to tell the weekly quota apart
 # from the session at a glance - the two rows there carry no labels of their
 # own, so the color is what distinguishes them.
-BAR_FG_ALT = _S.get('bar_fg_alt', '#e0a34a')
-BAR_FG_WARN = _S.get('bar_fg_warn', '#e05050')
-BAR_DIVIDER = _S.get('bar_divider', '#000c')
-BAR_MARKER = _S.get('bar_marker', '#fffc')
+BAR_FG_ALT = _S.get('bar_fg_alt', '#dbb477')
+BAR_FG_WARN = _S.get('bar_fg_warn', '#ef8177')
+BAR_DIVIDER = _S.get('bar_divider', '#c9d9d04d')
+BAR_MARKER = _S.get('bar_marker', '#e2eee8cc')
 
 # Tray icon colors
 ICON_LIGHT = _icon_colors('icon_light', {
@@ -458,8 +458,8 @@ POPUP_MARGIN: int = _S.get('popup_margin', 12)
 # Sections and usage bars hidden while the popup is pinned (compact view)
 COMPACT_HIDE: list[str] = _S.get('compact_hide', [])
 
-# Detail popup typeface: 'system' is the default sans-serif stack and 'pixel'
-# is the bundled Galmuri11. The bar always uses the system stack.
+# Detail popup typeface: bundled Pretendard by default or the system stack.
+# The bar always uses the system stack for small-text legibility.
 POPUP_FONT: str = _S.get('popup_font', POPUP_FONTS[0])
 
 # Which view the popup opens in: 'detail' is the full window, 'bar' the

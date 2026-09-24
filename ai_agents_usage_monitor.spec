@@ -16,8 +16,11 @@ a = Analysis(
         ('ai_agents_usage_monitor/popup/popup.html', 'ai_agents_usage_monitor/popup'),
         ('ai_agents_usage_monitor/popup/popup.css', 'ai_agents_usage_monitor/popup'),
         ('ai_agents_usage_monitor/popup/popup.js', 'ai_agents_usage_monitor/popup'),
-        ('ai_agents_usage_monitor/popup/Galmuri11.woff2', 'ai_agents_usage_monitor/popup'),
-        ('ai_agents_usage_monitor/popup/Galmuri11-OFL.txt', 'ai_agents_usage_monitor/popup'),
+        ('ai_agents_usage_monitor/popup/PretendardVariable.woff2', 'ai_agents_usage_monitor/popup'),
+        ('ai_agents_usage_monitor/popup/Pretendard-OFL.txt', 'ai_agents_usage_monitor/popup'),
+        ('ai_agents_usage_monitor/popup/NanumSquareNeo.woff2', 'ai_agents_usage_monitor/popup'),
+        ('ai_agents_usage_monitor/popup/NanumSquareNeo-OFL.txt', 'ai_agents_usage_monitor/popup'),
+        ('ai_agents_usage_monitor/popup/Octicons-MIT.txt', 'ai_agents_usage_monitor/popup'),
         ('ai_agents_usage_monitor/popup/FluentUI-MIT.txt', 'ai_agents_usage_monitor/popup'),
     ],
     hiddenimports=[

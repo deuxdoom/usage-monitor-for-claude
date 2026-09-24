@@ -24,7 +24,7 @@ import webview  # type: ignore[import-untyped]  # no type stubs available
 from . import __version__
 from . import claude_sessions
 from .claude_api import CLAUDE_CONFIG_DIR
-from .claude_cli import CHANGELOG_URL, find_installations
+from .claude_cli import CHANGELOG_URL, PROJECT_URL, find_installations
 from .codex_cli import CODEX_CHANGELOG_URL
 from .codex_sessions import CodexUsage
 from .formatting import (
@@ -370,8 +370,9 @@ def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None,
         't': {
             'title': T['app_name'], 'account': T['account'], 'email': T['email'], 'plan': T['plan'],
             'usage': T['usage'], 'extra_usage': T['extra_usage'], 'name': T['name'],
+            'show_more_limits': T['show_more_limits'], 'show_fewer_limits': T['show_fewer_limits'],
             'reveal_email': T['reveal_email'], 'hide_email': T['hide_email'],
-            'claude_code': T['claude_code'], 'changelog': T['changelog'],
+            'claude_code': T['claude_code'], 'changelog': T['changelog'], 'project_on_github': T['menu_project'],
             'pin_popup': T['pin_popup'], 'unpin_popup': T['unpin_popup'], 'close_popup': T['close_popup'], 'refresh': T['refresh'],
             'view_bar': T['view_bar'], 'view_detail': T['view_detail'],
             'bar_used': T['bar_used'], 'bar_left': T['bar_left'],
@@ -411,6 +412,9 @@ class _PopupApi:
 
     def open_url(self, provider: str = 'claude') -> None:
         webbrowser.open(CODEX_CHANGELOG_URL if provider == 'codex' else CHANGELOG_URL)
+
+    def open_project(self) -> None:
+        webbrowser.open(PROJECT_URL)
 
     def refresh(self) -> bool:
         return self._popup._manual_refresh()
