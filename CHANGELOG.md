@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This changelog covers 1.30.0 onwards, the point from which this project builds independently.
 
 
-## [3.0.0] - 배포 예정
+## [3.0.0] - 2026-09-25
 
 ### Added
 
