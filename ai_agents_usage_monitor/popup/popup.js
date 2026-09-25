@@ -179,6 +179,7 @@ function init(config) {
     // app's language, not the static attribute.
     document.documentElement.lang = config.lang_tag;
     setupClock(config.lang_tag, config.time_format);
+    document.getElementById('clockWidget').title = translations.drag_to_move;
     document.getElementById('title').addEventListener('click', () => selectProvider('claude'));
     document.getElementById('codexBtn').addEventListener('click', () => selectProvider('codex'));
     document.getElementById('headingAccount').textContent = translations.account;
@@ -564,12 +565,15 @@ function renderBarView() {
         const card = els.barCards.children[index];
         const entries = barWindows(provider.usage);
         const showsRemaining = barRemainingProviders.has(provider.key);
+        card.querySelector('.bar-card-mode').textContent = showsRemaining ? translations.bar_mode_left : translations.bar_mode_used;
         const rows = card.querySelectorAll('.bar-row');
         rows.forEach((row, rowIndex) => updateBarRow(row, entries[rowIndex], showsRemaining));
         const status = provider.status;
         const error = provider.error || status?.error || (status?.is_error ? status.text : null);
         card.classList.toggle('stale', !!error);
-        card.title = error || (!entries.some(Boolean) ? status?.text || translations.status_refreshing : '');
+        card.title = [error || (!entries.some(Boolean) ? status?.text || translations.status_refreshing : ''),
+            translations.bar_toggle_hint, translations.bar_fill_hint].filter(Boolean).join('\n');
+        if (error) rows.forEach((row) => { row.title = [row.title, error].filter(Boolean).join('\n'); });
         card.setAttribute('aria-pressed', showsRemaining);
         card.setAttribute('aria-label', [provider.name, ...Array.from(rows, row => row.title), card.title].filter(Boolean).join(', '));
     });
@@ -599,7 +603,16 @@ function buildBarCard(provider) {
     label.className = 'bar-card-name';
     label.textContent = provider.name;
 
-    card.append(label, buildBarRow(false), buildBarRow(true));
+    const heading = document.createElement('div');
+    heading.className = 'bar-card-heading';
+    const alert = document.createElement('span');
+    alert.className = 'bar-card-alert';
+    alert.textContent = '!';
+    alert.setAttribute('aria-hidden', 'true');
+    const mode = document.createElement('span');
+    mode.className = 'bar-card-mode';
+    heading.append(label, alert, mode);
+    card.append(heading, buildBarRow(false), buildBarRow(true));
 
     card.addEventListener('click', () => toggleBarRemaining(provider.key));
     card.addEventListener('keydown', (event) => {
@@ -619,13 +632,16 @@ function buildBarRow(weekly) {
 
     const pct = document.createElement('span');
     pct.className = 'bar-row-pct';
-    row.append(pct, createBarContainer(null));
+    const period = document.createElement('span');
+    period.className = 'bar-row-period';
+    row.append(period, pct, createBarContainer(null));
 
     return row;
 }
 
 function updateBarRow(row, entry, showsRemaining) {
     row.classList.toggle('empty', !entry);
+    row.querySelector('.bar-row-period').textContent = barPeriodLabel(entry?.period_seconds);
     const pct = row.querySelector('.bar-row-pct');
     pct.textContent = entry ? (showsRemaining ? entry.left_text : entry.pct_text) : '\u2014';
     pct.classList.toggle('warn', !!entry?.warn);
@@ -635,8 +651,18 @@ function updateBarRow(row, entry, showsRemaining) {
     if (entry) {
         const template = showsRemaining ? translations.bar_left : translations.bar_used;
         row.title = template.replace('{label}', entry.label).replace('{pct}', pct.textContent);
+        row.title = [row.title, entry.reset_text, showsRemaining ? translations.bar_fill_hint : ''].filter(Boolean).join('\n');
     }
 
+}
+
+/** Compact, exact durations; provider field names never determine the label. */
+function barPeriodLabel(seconds) {
+    if (!Number.isFinite(seconds) || seconds <= 0) return '';
+    for (const [unit, suffix] of [[86400, 'd'], [3600, 'h'], [60, 'm'], [1, 's']]) {
+        if (seconds % unit === 0) return `${seconds / unit}${suffix}`;
+    }
+    return `${seconds}s`;
 }
 
 /**
@@ -1024,7 +1050,10 @@ function createBarElement(entry) {
     const header = document.createElement('div');
     header.className = 'bar-header';
     const label = document.createElement('span');
-    label.textContent = entry.label;
+    label.className = 'quota-label';
+    const labelText = document.createElement('span');
+    labelText.textContent = entry.label;
+    label.appendChild(labelText);
     const pct = document.createElement('span');
     pct.className = 'bar-pct';
     pct.textContent = entry.pct_text;
@@ -1044,6 +1073,10 @@ function createBarElement(entry) {
     }
 
     if (DETAIL_FIELDS.has(entry.key) || entry.detail_seconds) {
+        const arrow = document.createElement('span');
+        arrow.className = 'disclosure-arrow';
+        arrow.setAttribute('aria-hidden', 'true');
+        label.appendChild(arrow);
         div.classList.add('detail-toggleable');
         div.setAttribute('role', 'button');
         div.setAttribute('tabindex', '0');
@@ -1215,11 +1248,12 @@ function renderDetail(div, result) {
     if (result.tokens === '0' && result.messages === '0') {
         // Not "you used nothing" - the local logs only cover Claude Code, so
         // a period spent on claude.ai or the desktop app reads as empty here.
-        // The source note below spells that out.
+        // The message names Claude Code for that reason, which lets the source
+        // note follow the same once-per-list rule as a panel with data.
         const empty = document.createElement('div');
         empty.textContent = translations.detail_no_usage;
         panel.appendChild(empty);
-        panel.appendChild(createSourceNote());
+        if (carriesSourceNote(div)) panel.appendChild(createSourceNote(result.source));
         return;
     }
 
@@ -1265,9 +1299,8 @@ function renderDetail(div, result) {
  *
  * The note reads the same under every panel, so with the session and the
  * weekly panel open it would appear twice.  It goes under the longest
- * window among the expandable bars - the weekly one - and nowhere else.  An
- * empty period is the exception and keeps it (see renderDetail): there the
- * note is what explains the zero.
+ * window among the expandable bars - the weekly one - and nowhere else,
+ * whether or not that bar's period is empty.
  */
 function carriesSourceNote(div) {
     const own = Number(div.dataset.periodSeconds) || 0;

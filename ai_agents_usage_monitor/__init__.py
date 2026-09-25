@@ -14,4 +14,4 @@ own authentication.
 """
 from __future__ import annotations
 
-__version__ = '3.1.0'
+__version__ = '3.2.0'

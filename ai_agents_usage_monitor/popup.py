@@ -388,6 +388,8 @@ def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None, view:
             'pin_popup': T['pin_popup'], 'unpin_popup': T['unpin_popup'], 'close_popup': T['close_popup'], 'refresh': T['refresh'],
             'view_bar': T['view_bar'], 'view_detail': T['view_detail'],
             'bar_used': T['bar_used'], 'bar_left': T['bar_left'],
+            'bar_mode_used': T['bar_mode_used'], 'bar_mode_left': T['bar_mode_left'],
+            'bar_toggle_hint': T['bar_toggle_hint'], 'bar_fill_hint': T['bar_fill_hint'], 'drag_to_move': T['drag_to_move'],
             'detail_tokens': T['detail_tokens'], 'detail_messages': T['detail_messages'],
             'detail_estimated': T['detail_estimated'], 'detail_models': T['detail_models'],
             'detail_loading': T['detail_loading'], 'detail_unavailable': T['detail_unavailable'],

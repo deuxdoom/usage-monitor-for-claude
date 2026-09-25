@@ -196,6 +196,8 @@ function buildTranslations(loc) {
         pin_popup: loc.pin_popup, unpin_popup: loc.unpin_popup, close_popup: loc.close_popup, refresh: loc.refresh,
         view_bar: loc.view_bar, view_detail: loc.view_detail,
         bar_used: loc.bar_used, bar_left: loc.bar_left,
+        bar_mode_used: loc.bar_mode_used, bar_mode_left: loc.bar_mode_left,
+        bar_toggle_hint: loc.bar_toggle_hint, bar_fill_hint: loc.bar_fill_hint, drag_to_move: loc.drag_to_move,
         detail_tokens: loc.detail_tokens, detail_messages: loc.detail_messages,
         detail_estimated: loc.detail_estimated, detail_models: loc.detail_models,
         detail_loading: loc.detail_loading, detail_unavailable: loc.detail_unavailable,
@@ -393,7 +395,7 @@ async function applyLanguage(code) {
     const compactHide = ['account', 'extra_usage', 'claude_code', 'status', 'seven_day_opus'];
     iframe.style.width = VIEW_WIDTHS[currentView] + 'px';
     win().init({
-        colors: COLORS, t: buildTranslations(currentLocale), app_version: '3.1.0',
+        colors: COLORS, t: buildTranslations(currentLocale), app_version: '3.2.0',
         compact_hide: compactHide, view: currentView,
         lang_tag: currentLang, time_format: '24h',
         data: resolveData(currentPreset, currentLocale),

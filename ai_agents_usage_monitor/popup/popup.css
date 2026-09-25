@@ -19,16 +19,19 @@ html { overflow: hidden; }
 
 /* Each agent's signature color, owned here once for the provider-switch
    dots, the top strip and the bar's agent names. Both clear 4.5:1 on the
-   black bar, hovered included, so its 10 px names stay legible. Claude is a
+   layered bar, hovered included, so its 10 px names stay legible. Claude is a
    muted brown rather than the brand's orange: the orange sat too close to
    --bar-fg-warn, so the name read as a warning beside the red percentages. */
 :root {
     --claude-signature: #b9835a;
     --codex-signature: #7e9bef;
     --font-ui: 'Pretendard JP', 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif;
-    --surface: color-mix(in srgb, var(--bg) 91%, var(--fg) 9%);
-    --stroke: color-mix(in srgb, var(--fg) 14%, transparent);
+    --surface: color-mix(in srgb, var(--bg) 93%, var(--fg) 7%);
+    --surface-quiet: color-mix(in srgb, var(--bg) 65%, transparent);
+    --surface-selected: color-mix(in srgb, var(--bg) 87%, var(--fg) 13%);
+    --stroke: color-mix(in srgb, var(--fg) 11%, transparent);
     --hover: color-mix(in srgb, var(--fg) 9%, transparent);
+    --glass-sheen: linear-gradient(135deg, color-mix(in srgb, var(--fg) 4%, transparent), transparent 65%);
 }
 
 body {
@@ -54,8 +57,18 @@ body:not(.bar-mode)::before {
     content: '';
     position: absolute;
     inset: 0 0 auto;
-    height: 2px;
+    height: 1px;
     background: linear-gradient(90deg, var(--claude-signature) 0 49%, var(--codex-signature) 51% 100%);
+}
+
+/* Layered surfaces suggest glass while the native window and all text stay
+   opaque. Every tint comes from the configured theme or provider colors. */
+body, body.bar-mode {
+    background:
+        radial-gradient(ellipse 95% 240px at 100% 0, color-mix(in srgb, var(--codex-signature) 13%, transparent), transparent 72%),
+        radial-gradient(ellipse 80% 200px at 0 0, color-mix(in srgb, var(--claude-signature) 10%, transparent), transparent 72%),
+        var(--bg);
+    box-shadow: inset 0 0 0 1px var(--stroke);
 }
 
 header {
@@ -70,7 +83,7 @@ header {
         padding: 2px;
         border: 1px solid var(--stroke);
         border-radius: 9px;
-        background: color-mix(in srgb, var(--bg) 72%, var(--fg) 28%);
+        background: var(--surface-quiet);
 
         & button {
             width: auto;
@@ -93,8 +106,8 @@ header {
 
             &[aria-pressed="true"] {
                 color: var(--fg-heading);
-                background: var(--surface);
-                box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+                background: linear-gradient(145deg, color-mix(in srgb, var(--fg) 6%, transparent), transparent), var(--surface-selected);
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), inset 0 1px 0 var(--stroke);
             }
         }
     }
@@ -177,7 +190,6 @@ body.bar-mode {
     gap: 0;
     font-size: 11px;
     line-height: 1.2;
-    background: var(--bg);
 
     & > header, & > section, & > footer { display: none; }
 
@@ -187,12 +199,12 @@ body.bar-mode {
     }
 }
 
-/* The same black as the detail popup, so switching views keeps one look. */
+/* The body supplies the same layered backdrop in both views. */
 #barView {
     flex-direction: row;
     gap: 0;
     min-height: 58px;
-    background: var(--bg);
+    background: transparent;
 }
 
 /* Date and time also provide the bar's drag handle. */
@@ -205,6 +217,7 @@ body.bar-mode {
     padding: 7px 10px;
     border-right: 1px solid var(--stroke);
     text-align: center;
+    background: var(--surface-quiet);
 }
 
 /* The header is hidden here, so the clock takes over as the drag handle. */
@@ -246,6 +259,7 @@ body.bar-mode #clockWidget {
     display: flex;
     flex-direction: column;
     border-left: 1px solid var(--stroke);
+    background: var(--surface-quiet);
 
     & button {
         flex: 1;
@@ -263,9 +277,8 @@ body.bar-mode #clockWidget {
     }
 }
 
-/* One agent. Both quota rows are shown at once and told apart by color, so
-   neither needs a label of its own in a row this small. Clicking the card
-   flips every percentage between used and remaining. */
+/* Period labels and the current reading keep both rows interpretable even
+   when warning colors replace the normal session/weekly colors. */
 .bar-card {
     display: flex;
     flex-direction: column;
@@ -276,10 +289,12 @@ body.bar-mode #clockWidget {
     padding: 6px 8px;
     cursor: pointer;
     outline: none;
+    background: var(--glass-sheen);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg) 4%, transparent);
 
     & + .bar-card { border-left: 1px solid var(--stroke); }
 
-    &:hover, &:focus-visible { background: var(--hover); }
+    &:hover, &:focus-visible { background: color-mix(in srgb, var(--fg) 4%, transparent); }
 }
 
 .bar-card-name {
@@ -293,19 +308,55 @@ body.bar-mode #clockWidget {
     text-overflow: ellipsis;
 }
 
+.bar-card-heading {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 12px;
+}
+
+.bar-card-mode {
+    margin-left: auto;
+    font-size: 9px;
+    line-height: 12px;
+    color: var(--fg-dim);
+    white-space: nowrap;
+}
+
+.bar-card[aria-pressed="true"] .bar-card-mode { color: var(--fg-heading); }
+
+.bar-card-alert {
+    display: none;
+    color: var(--bar-fg-warn);
+    font-size: 10px;
+    font-weight: 750;
+}
+
 .bar-card[data-provider="claude"] { --signature: var(--claude-signature); }
 .bar-card[data-provider="codex"] { --signature: var(--codex-signature); }
 
-/* More specific than the name rule, so a failed read still reads as one. */
+/* Keep the last known numbers readable; the alert distinguishes a failed
+   read from a quota warning without changing the provider's identity. */
 .bar-card.stale {
-    & .bar-row { opacity: 0.4; }
-    & .bar-card-name { color: var(--bar-fg-warn); }
+    & .bar-container { opacity: 0.5; }
+    & .bar-card-alert { display: inline; }
 }
 
 .bar-row {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 4px;
+}
+
+.bar-row-period {
+    width: 18px;
+    flex: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 9px;
+    color: var(--fg-dim);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
 .bar-row-pct {
@@ -348,7 +399,8 @@ section, footer {
 }
 
 section, footer { transition: opacity 0.5s ease; }
-section.stale { opacity: 0.4; }
+section.stale .bar-container { opacity: 0.5; }
+section.stale .usage-entry { border-left-style: dashed; }
 
 /* First Codex read: the outgoing view is held on screen rather than emptied,
    so the window resizes once - when there is Codex content to replace it with. */
@@ -370,7 +422,8 @@ h2 {
     padding: 9px 11px;
     border: 1px solid var(--stroke);
     border-radius: 10px;
-    background: var(--surface);
+    background: linear-gradient(140deg, color-mix(in srgb, var(--fg) 3%, transparent), transparent 65%), var(--surface-quiet);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg) 3%, transparent);
 }
 
 #accountSection.visible {
@@ -403,7 +456,11 @@ body.bar-mode > #accountSection { display: none; }
         &:hover, &:focus-visible { color: var(--fg-heading); }
     }
 
-    & > span {
+    & > #changelogLink {
+        border: 0;
+        background: none;
+        font-family: inherit;
+        padding: 3px 0 3px 6px;
         font-size: 11px;
         color: var(--fg-link);
         cursor: pointer;
@@ -464,10 +521,11 @@ dl > div {
     gap: 5px 8px;
     padding: 9px 10px 10px 12px;
     border: 1px solid var(--stroke);
-    border-left: 3px solid var(--bar-fg);
-    border-radius: 9px;
-    background: var(--surface);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.025);
+    border-left: 2px solid var(--bar-fg);
+    border-radius: 11px;
+    background: var(--glass-sheen),
+        color-mix(in srgb, var(--surface) 88%, transparent);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg) 4%, transparent), 0 2px 6px rgba(0, 0, 0, 0.10);
 }
 
 .usage-entry:has(.bar-pct.warn) { border-left-color: var(--bar-fg-warn); }
@@ -491,7 +549,7 @@ dl > div {
     flex: none;
     font-size: 24px;
     font-weight: 750;
-    letter-spacing: -0.04em;
+    letter-spacing: -0.025em;
     font-variant-numeric: tabular-nums;
     color: var(--bar-fg);
     transition: color 0.3s ease;
@@ -503,7 +561,7 @@ dl > div {
     min-width: 0;
     font-size: 10px;
     color: var(--fg-dim);
-    line-height: 1.3;
+    line-height: 1.4;
 
     &.warn { color: var(--bar-fg-warn); }
 }
@@ -551,7 +609,7 @@ dl > div {
 }
 
 .reset-text {
-    font-size: 10px;
+    font-size: 11px;
     color: var(--fg-dim);
     text-align: right;
 }
@@ -562,8 +620,11 @@ dl > div {
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
     &:hover, &:focus-visible {
-        border-color: color-mix(in srgb, var(--bar-fg) 50%, var(--stroke));
-        background: color-mix(in srgb, var(--surface) 90%, var(--bar-fg) 10%);
+        border-top-color: color-mix(in srgb, var(--fg) 24%, transparent);
+        border-right-color: color-mix(in srgb, var(--fg) 24%, transparent);
+        border-bottom-color: color-mix(in srgb, var(--fg) 24%, transparent);
+        background: var(--glass-sheen),
+            color-mix(in srgb, var(--surface) 97%, var(--fg) 3%);
     }
 }
 
@@ -600,6 +661,14 @@ dl > div {
 }
 [aria-expanded="true"] > .disclosure-arrow { transform: translateY(1.5px) rotate(225deg); }
 
+.bar-header > .quota-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+.quota-label .disclosure-arrow { color: var(--fg-dim); }
+.usage-entry[aria-expanded="true"] .disclosure-arrow { transform: translateY(1.5px) rotate(225deg); }
+
 #installRows { margin-top: 3px; }
 
 .usage-detail {
@@ -624,7 +693,6 @@ dl > div {
 
 .detail-estimated {
     color: var(--fg-dim);
-    opacity: 0.8;
 }
 
 .detail-models-heading {
@@ -677,7 +745,7 @@ dl > div {
 .detail-source {
     margin-top: 2px;
     font-size: 11px;
-    opacity: 0.65;
+    line-height: 1.5;
 }
 
 footer {
@@ -708,6 +776,7 @@ footer {
 
 /* Respect the OS "reduce motion" setting: no spin, just the dimmed state. */
 @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; }
     header button#refreshBtn.spinning svg { animation: none; }
     .clock-separator.off { visibility: visible; }
 }
@@ -735,3 +804,11 @@ footer {
 }
 
 #installRows dd { font-variant-numeric: tabular-nums; }
+
+button:focus-visible, [role="button"]:focus-visible {
+    outline: 2px solid var(--fg-link);
+    outline-offset: 2px;
+}
+.bar-card:focus-visible, #barControls button:focus-visible { outline-offset: -2px; }
+#emailValue:focus-visible { outline: none; }
+#emailRow:has(#emailValue:focus-visible) { outline: 2px solid var(--fg-link); outline-offset: 2px; border-radius: 3px; }
