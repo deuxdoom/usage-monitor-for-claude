@@ -271,7 +271,7 @@ def _glass_layer() -> Any:
     """The compiled glass layer, loaded into pywebview's .NET runtime on first use."""
     import clr  # type: ignore[import-not-found]  # pythonnet, loaded by pywebview's WinForms backend
 
-    clr.AddReference(str(_GLASS_LAYER))
+    clr.AddReference(str(_GLASS_LAYER))  # type: ignore[attr-defined]  # added by pythonnet at runtime
     from AIAgentsUsageMonitor import GlassLayer  # type: ignore[import-not-found]  # .NET class in glass_layer.dll
 
     return GlassLayer

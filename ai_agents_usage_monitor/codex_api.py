@@ -116,8 +116,10 @@ def _fetch(binary: Path) -> tuple[dict[str, str], list[dict[str, Any]], dict[str
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         creationflags=subprocess.CREATE_NO_WINDOW,
     )
+    stdin, stdout = process.stdin, process.stdout
+    assert stdin is not None and stdout is not None  # both were requested as pipes
     responses: queue.Queue = queue.Queue()
-    reader = threading.Thread(target=_read_responses, args=(process.stdout, responses), daemon=True)
+    reader = threading.Thread(target=_read_responses, args=(stdout, responses), daemon=True)
     reader.start()
     deadline = time.monotonic() + _TIMEOUT
     try:
@@ -125,8 +127,8 @@ def _fetch(binary: Path) -> tuple[dict[str, str], list[dict[str, Any]], dict[str
             'clientInfo': {'name': 'usage_monitor', 'version': '1.0.0'},
             'capabilities': {'experimentalApi': False},
         })
-        process.stdin.write(b'{"method":"initialized"}\n')
-        process.stdin.flush()
+        stdin.write(b'{"method":"initialized"}\n')
+        stdin.flush()
         result = _request(process, responses, deadline, 2, 'account/read', {'refreshToken': False})
         account = result.get('account')
         if not isinstance(account, dict):
@@ -138,8 +140,9 @@ def _fetch(binary: Path) -> tuple[dict[str, str], list[dict[str, Any]], dict[str
         if confirmed.get('account') != account:
             raise _ReadError('codex_account_error')
         windows = _windows(limits)
+        email = account.get('email')
         return {
-            'email': account.get('email') if isinstance(account.get('email'), str) else '',
+            'email': email if isinstance(email, str) else '',
             'name': '',
             'plan': _plan_label(account.get('planType')),
         }, windows, _credits(limits)
@@ -152,8 +155,8 @@ def _fetch(binary: Path) -> tuple[dict[str, str], list[dict[str, Any]], dict[str
             process.kill()
             process.wait(timeout=3)
         reader.join(timeout=1)
-        process.stdin.close()
-        process.stdout.close()
+        stdin.close()
+        stdout.close()
 
 
 def _plan_label(plan_type: Any) -> str:
@@ -247,9 +250,12 @@ def _credits(result: dict) -> dict[str, Any] | None:
     if credits.get('hasCredits') is not True:
         return None
 
+    balance_text = credits.get('balance')
+    if not isinstance(balance_text, str):
+        return None
     try:
-        balance = float(credits.get('balance'))
-    except (TypeError, ValueError):
+        balance = float(balance_text)
+    except ValueError:
         return None
     if not math.isfinite(balance) or balance < 0:
         return None
@@ -269,11 +275,12 @@ def _windows(result: dict) -> list[dict[str, Any]]:
         used = value.get('usedPercent')
         minutes = value.get('windowDurationMins')
         reset = value.get('resetsAt')
-        if type(used) not in (int, float) or not math.isfinite(used) or used < 0:
+        if isinstance(used, bool) or not isinstance(used, (int, float)) or not math.isfinite(used) or used < 0:
             continue
         if type(minutes) is not int or not 0 < minutes <= 525600:
             continue
-        if reset is not None and (type(reset) not in (int, float) or not math.isfinite(reset) or not 0 < reset < 253402300800):
+        if reset is not None and (isinstance(reset, bool) or not isinstance(reset, (int, float))
+                                  or not math.isfinite(reset) or not 0 < reset < 253402300800):
             continue
         windows.append({'key': 'codex_' + key, 'used': used, 'seconds': minutes * 60, 'resets_at': reset})
     return sorted(windows, key=lambda window: window['seconds'])

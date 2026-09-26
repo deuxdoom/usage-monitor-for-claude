@@ -607,7 +607,7 @@ class UsagePopup:
         api = _PopupApi(self)
 
         # pywebview's default minimum height would leave space below the bar.
-        self._window = webview.create_window(
+        window = webview.create_window(
             '', url=str(_POPUP_DIR / 'popup.html'),
             width=self._width, height=initial_height,
             resizable=False, frameless=True, shadow=False, min_size=(200, 1),
@@ -616,6 +616,10 @@ class UsagePopup:
             background_color=BG,
             js_api=api,
         )
+        # None only when a handler of events.initialized cancels the window,
+        # and none is registered here.
+        assert window is not None
+        self._window = window
         self._shown = False
         self._window.events.loaded += self._on_loaded
         self._window.events.closed += self._on_window_closed
@@ -624,8 +628,10 @@ class UsagePopup:
 
     def _on_loaded(self) -> None:
         """Inject config and show the window transparently for layout."""
-        self._popup_hwnd = self._window.native.Handle.ToInt32()
-        release_window_icon(self._window.native)
+        native = self._window.native
+        assert native is not None  # the WinForms form exists once the page has loaded
+        self._popup_hwnd = native.Handle.ToInt32()
+        release_window_icon(native)
 
         # The glass layer goes on before the page is told to draw glass, so
         # the material the page draws is always one the window can carry.

@@ -1,9 +1,0 @@
-{
-    "venvPath": ".",
-    "venv": ".venv",
-    "reportUnknownMemberType": false,
-    "reportUnknownParameterType": false,
-    "reportUnknownArgumentType": false,
-    "reportUnknownVariableType": false,
-    "reportAttributeAccessIssue": "none"
-}

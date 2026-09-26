@@ -385,10 +385,10 @@ class AIAgentsUsageMonitor:
         and swaps in :meth:`_on_tray_message`, keeping the original handler for
         right-click and every other message.
         """
-        self._pystray_on_notify = self.icon._on_notify
-        for code, handler in self.icon._message_handlers.items():
+        self._pystray_on_notify = self.icon._on_notify  # type: ignore[attr-defined]  # pystray private API
+        for code, handler in self.icon._message_handlers.items():  # type: ignore[attr-defined]  # pystray private API
             if handler == self._pystray_on_notify:
-                self.icon._message_handlers[code] = self._on_tray_message
+                self.icon._message_handlers[code] = self._on_tray_message  # type: ignore[attr-defined]  # pystray private API
                 break
 
     def _on_tray_message(self, wparam: int, lparam: int) -> int:
@@ -608,7 +608,8 @@ class AIAgentsUsageMonitor:
         # returns a different account UUID, preventing a false quota-reset notification.
         self.cache.ensure_profile()
         current_profile = self.cache.profile
-        current_account_uuid = (current_profile.get('account') or {}).get('uuid') if isinstance(current_profile, dict) else None
+        current_account = (current_profile.get('account') or {}) if isinstance(current_profile, dict) else {}
+        current_account_uuid = current_account.get('uuid')
 
         # Unknown identity with a known baseline: the profile fetch failed
         # after a token change, so this usage data may already belong to a
@@ -619,7 +620,7 @@ class AIAgentsUsageMonitor:
             return
 
         if self._prev_account_uuid is not None and current_account_uuid is not None and current_account_uuid != self._prev_account_uuid:
-            email = (current_profile.get('account') or {}).get('email', '')
+            email = current_account.get('email', '')
             message = T['notify_account_switched'].format(email=email) if email else T['notify_account_switched_title']
             self._notify_or_defer('account_switched', message, T['notify_account_switched_title'])
             self._prev_utilization = {}
@@ -774,7 +775,7 @@ class AIAgentsUsageMonitor:
             if ALERT_TIME_AWARE and highest_exceeded > last_notified and highest_exceeded < ALERT_TIME_AWARE_BELOW:
                 period = periods.get(variant_key) if periods is not None else field_period(variant_key)
                 if period:
-                    time_pct = elapsed_pct(entry.get('resets_at'), period)
+                    time_pct = elapsed_pct(entry.get('resets_at') or '', period)
                     if time_pct is not None and pct <= time_pct:
                         self._notified_thresholds[variant_key] = highest_exceeded
                         continue

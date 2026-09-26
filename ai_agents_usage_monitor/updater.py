@@ -119,7 +119,8 @@ def _version_parts(value: str) -> tuple[int, int, int] | None:
     match = _VERSION_RE.fullmatch(value)
     if not match:
         return None
-    return tuple(int(part) for part in match.groups())
+    major, minor, patch = match.groups()
+    return int(major), int(minor), int(patch)
 
 
 def _release_info(payload: dict[str, Any], current_version: str) -> ReleaseInfo | None:
@@ -138,7 +139,8 @@ def _release_info(payload: dict[str, Any], current_version: str) -> ReleaseInfo 
 
     version = '.'.join(str(part) for part in latest)
     expected_url = f'{RELEASE_DOWNLOAD_PREFIX}{tag}/{ASSET_NAME}'
-    notes = payload.get('body') if isinstance(payload.get('body'), str) else ''
+    body = payload.get('body')
+    notes = body if isinstance(body, str) else ''
     for asset in assets:
         if not isinstance(asset, dict) or asset.get('name') != ASSET_NAME or asset.get('state') != 'uploaded':
             continue
@@ -151,7 +153,7 @@ def _release_info(payload: dict[str, Any], current_version: str) -> ReleaseInfo 
             continue
         if url != expected_url:
             continue
-        return ReleaseInfo(version, url, match.group(1).lower(), size, notes)
+        return ReleaseInfo(version, expected_url, match.group(1).lower(), size, notes)
 
     return None
 
@@ -416,6 +418,9 @@ def run_update_helper(target_arg: str, expected_version: str, parent_pid_arg: st
         frameless=True, easy_drag=False, shadow=True, on_top=True, hidden=True,
         background_color=_WINDOW_BACKGROUND,
     )
+    # None only when a handler of events.initialized cancels the window,
+    # and none is registered here.
+    assert window is not None
     api._window = window
     # Alt+F4 and the taskbar close go through here too: while files are being
     # swapped, closing the window would strand the user without an app.

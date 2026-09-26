@@ -268,7 +268,8 @@ def _merge_scoped_limits(data: dict[str, Any]) -> dict[str, Any]:
             continue
         model = (limit.get('scope') or {}).get('model') or {}
         display_name = model.get('display_name')
-        prefix = group_prefix.get(limit.get('group'))
+        group = limit.get('group')
+        prefix = group_prefix.get(group) if isinstance(group, str) else None
         if not display_name or not prefix:
             continue
 
