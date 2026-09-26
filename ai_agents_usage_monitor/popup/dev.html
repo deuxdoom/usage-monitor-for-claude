@@ -52,12 +52,35 @@
         background: #101316;
         visibility: hidden;
         transition: width 0.15s ease;
+        /* The app passes framed: true on Windows 11, where DWM rounds the
+           window and draws its shadow, with no border line. */
+        border-radius: 8px;
+        box-shadow: 0 8px 24px #0000003d;
+    }
+
+    /* Glass: a busy wallpaper behind the frame and a filter standing in for
+       the native glass layer, which only a real window gets. Blur and
+       saturation are the layer's own; the layer caps each pixel's brightness
+       at 0.35 instead, which CSS cannot express - brightness(0.35) matches it
+       over the white stripes and darkens the colored ones more than the
+       real window does. */
+    body.glass {
+        background: repeating-linear-gradient(115deg, #ff5a36 0 60px, #ffd23f 60px 120px, #3fb8ff 120px 180px, #ffffff 180px 240px);
+
+        & iframe {
+            background: transparent;
+            backdrop-filter: blur(3px) saturate(1.5) brightness(0.35);
+        }
     }
 </style>
 </head>
 <body>
 <div class="dev-controls">
     <select id="langSelect" title="Language"></select>
+    <select id="materialSelect" title="Popup material (reloads the preview)">
+        <option value="matte">Material: matte</option>
+        <option value="glass">Material: glass</option>
+    </select>
     <select id="codexSelect" title="What the Codex read does (reloads the preview)">
         <option value="ok">Codex read: data (1.2s)</option>
         <option value="slow">Codex read: data (4s)</option>
@@ -185,6 +208,8 @@ let currentLocale = null;
 let currentPreset = 'full';
 // Which view the preview opens in, so the stored-view path is exercised too.
 let currentView = previewParams.get('view') === 'bar' ? 'bar' : 'detail';
+const materialSelect = document.getElementById('materialSelect');
+materialSelect.value = previewParams.get('material') === 'glass' ? 'glass' : 'matte';
 
 // Map locale JSON keys onto the compact translation object popup.js expects.
 function buildTranslations(loc) {
@@ -346,6 +371,7 @@ function reloadFrame() {
 async function applyLanguage(code) {
     currentLang = code;
     currentLocale = await loadLocale(code);
+    document.body.classList.toggle('glass', materialSelect.value === 'glass');
     await reloadFrame();
     win().pywebview = { api: { close() {}, open_url() {}, open_project() {},
         // Fake latency so the refresh button's spinner is visible in the preview.
@@ -397,6 +423,7 @@ async function applyLanguage(code) {
     win().init({
         colors: COLORS, t: buildTranslations(currentLocale), app_version: '3.2.0',
         compact_hide: compactHide, view: currentView,
+        material: materialSelect.value, framed: true,
         lang_tag: currentLang, time_format: '24h',
         data: resolveData(currentPreset, currentLocale),
     });
@@ -438,6 +465,7 @@ langSelect.addEventListener('change', () => applyLanguage(langSelect.value));
 // popup.js keeps the first Codex response for the life of the page, so reload
 // the frame - the tab switch is only pending once per load.
 codexSelect.addEventListener('change', () => applyLanguage(currentLang));
+materialSelect.addEventListener('change', () => applyLanguage(currentLang));
 
 (async () => {
     const hash = location.hash.slice(1);

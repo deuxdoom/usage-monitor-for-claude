@@ -1,0 +1,101 @@
+/* Glass, the beta surface material. Everything glass draws lives in this
+   file: the tokens it overrides from matte.css and the light it adds. Python
+   sets data-material="glass" only once the window carries the native glass
+   layer (window_backdrop.py) - over a window without it, the translucent
+   layers would show black.
+
+   What lies behind the popup is drawn by Windows itself, not by this page:
+   the layer under the page blurs the desktop (3 px), lifts its saturation
+   (1.5) and caps every pixel's brightness at 0.35, so dark and colorful
+   backdrops show through as they are while a bright one is held down to an
+   even tone. The page adds one sheet of tint (40% of the theme background)
+   and zones recessed into it (a further 25%), darker than the sheet rather
+   than lighter, so they read as part of it instead of floating above it.
+
+   The cap is what holds contrast without looking at the screen: no backdrop
+   can show through brighter than 0.35 x 60%. Measured on real windows over a
+   dark IDE, a white document, the Windows wallpaper and a saturated photo,
+   in both views, every text color held 5.2:1 or better. Colored text is
+   lifted toward fg-heading, fills and markers keep the configured colors. */
+:root[data-material="glass"] {
+    --window: color-mix(in srgb, var(--bg) 40%, transparent);
+    --zone: color-mix(in srgb, var(--bg) 25%, transparent);
+    --surface: var(--zone);
+    --surface-hover: var(--zone);
+    --surface-quiet: var(--zone);
+    --surface-selected: color-mix(in srgb, var(--fg-heading) 14%, transparent);
+    --stroke: color-mix(in srgb, var(--fg-heading) 12%, transparent);
+    --stroke-strong: color-mix(in srgb, var(--fg-heading) 24%, transparent);
+    --hover: color-mix(in srgb, var(--fg-heading) 10%, transparent);
+    --highlight: inset 0 1px 0 color-mix(in srgb, var(--fg-heading) 8%, transparent);
+    --muted: color-mix(in srgb, var(--fg-dim) 35%, var(--fg));
+    --warn-text: color-mix(in srgb, var(--bar-fg-warn) 65%, var(--fg-heading));
+    --link-text: color-mix(in srgb, var(--fg-link) 70%, var(--fg-heading));
+    --glint: color-mix(in srgb, var(--fg-heading) 5%, transparent);
+
+    & .bar-card-name { color: color-mix(in srgb, var(--signature, var(--fg-heading)) 65%, var(--fg-heading)); }
+
+    /* Light works at the sheet's scale - one reflection across the whole
+       window, the same faint top edge on every zone (--highlight), a glint
+       under the pointer - so the popup reads as a single pane of glass. The
+       reflection is part of the sheet's own background, so the zones above it
+       soften it instead of it washing over their text. */
+    & body {
+        background:
+            linear-gradient(115deg, transparent 12%, color-mix(in srgb, var(--fg-heading) 6%, transparent) 34%, transparent 56%),
+            var(--window);
+        text-shadow: 0 1px 2px color-mix(in srgb, var(--bg) 50%, transparent);
+    }
+
+    /* Text directly on the sheet: the header icons, the usage heading and
+       the footer. An error in the footer keeps a trace of the warning color;
+       the full red would fall below 4.5:1 on the sheet. */
+    & .window-controls button, & #headingUsage, & footer { color: var(--fg-heading); }
+    & footer.error > #statusText { color: color-mix(in srgb, var(--bar-fg-warn) 30%, var(--fg-heading)); }
+    & header svg { filter: drop-shadow(0 1px 1px color-mix(in srgb, var(--bg) 60%, transparent)); }
+
+    /* The glint follows the pointer. popup.js records only the pointer's
+       viewport position, so the gradient is fixed to the viewport and lines
+       up on whichever zone is hovered. It answers the hand rather than
+       running on its own, so it stays under the OS "reduce motion" setting. */
+    & :is(.usage-entry, #accountSection, #extraSection, #installSection, #moreQuotasBtn, #clockWidget, #barControls, .bar-card) {
+        position: relative;
+        isolation: isolate;
+
+        &::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            border-radius: inherit;
+            background: radial-gradient(180px circle at var(--glint-x, 50%) var(--glint-y, 0px), var(--glint), transparent 70%) fixed;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            pointer-events: none;
+        }
+
+        &:hover::after { opacity: 1; }
+    }
+
+    & header .provider-switch button[aria-pressed="true"] {
+        box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg-heading) 25%, transparent);
+    }
+
+    /* Bars are recessed channels holding glossy fills; the large percentages
+       glow faintly in their own color. */
+    & .bar-container, & .detail-model-bar {
+        background: color-mix(in srgb, var(--bar-bg) 75%, transparent);
+        box-shadow: inset 0 1px 2px color-mix(in srgb, var(--bg) 70%, transparent);
+    }
+    & .bar-container .bar-fill, & .detail-model-bar .detail-model-bar-fill {
+        background-image: linear-gradient(180deg, color-mix(in srgb, var(--fg-heading) 40%, transparent), transparent 70%);
+    }
+    & .bar-pct {
+        text-shadow: 0 1px 2px color-mix(in srgb, var(--bg) 50%, transparent),
+            0 0 16px color-mix(in srgb, currentColor 45%, transparent);
+    }
+
+    /* The bar is one zone across the whole strip, with the same hairlines
+       around the clock and the controls as in matte. */
+    & #barView { background: var(--zone); box-shadow: var(--highlight); }
+}

@@ -38,6 +38,7 @@ from .settings import (
     POPUP_FIELDS, POPUP_MARGIN, POPUP_VIEW, POPUP_VIEWS, TIME_FORMAT,
 )
 from .settings_store import save_setting
+from .window_backdrop import frame_window, release_glass, release_window_icon, set_glass, set_glass_scale
 
 logger = logging.getLogger(__name__)
 
@@ -361,7 +362,9 @@ def _codex_account_to_dict(snapshot: dict[str, Any], local_periods: set[int],
     }
 
 
-def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None, view: str = POPUP_VIEW) -> dict[str, Any]:
+def _init_config(
+    snap: CacheSnapshot, next_poll_time: float | None = None, view: str = POPUP_VIEW, material: str = 'matte', framed: bool = False,
+) -> dict[str, Any]:
     """Build the config object passed to JS ``init()`` after the page loads.
 
     Parameters
@@ -372,6 +375,13 @@ def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None, view:
         Unix timestamp of the next scheduled poll, for the footer countdown.
     view : str
         One of ``POPUP_VIEWS`` - which view the page opens in.
+    material : str
+        One of ``POPUP_MATERIALS`` - the surface the page draws.  Matte by
+        default, because a page drawing glass over a window without the
+        glass layer shows black behind it.
+    framed : bool
+        True when DWM rounds the window, so the page leaves its own edge
+        stroke out.
     """
     return {
         'colors': {
@@ -402,6 +412,8 @@ def _init_config(snap: CacheSnapshot, next_poll_time: float | None = None, view:
         'app_version': __version__,
         'compact_hide': COMPACT_HIDE,
         'view': view,
+        'material': material,
+        'framed': framed,
         # The app's language rather than the system's: the bar clock formats
         # its date in it, and the page sets it as the document language so
         # heading tracking suits the script.
@@ -517,6 +529,11 @@ class UsagePopup:
         self._codex_usage = CodexUsage()
         self._running = True
         self._view = app._popup_view
+        # What the app asked for and what the window can actually draw: a
+        # refused glass layer leaves the page matte, and keeping the request
+        # apart stops the update loop from retrying it every tick.
+        self._requested_material = app._popup_material
+        self._material = 'matte'
         self._width = self.BAR_WIDTH if self._view == 'bar' else self.WIDTH
         self._pinned = False
         self._moved_by_user = False
@@ -563,12 +580,20 @@ class UsagePopup:
 
     def _on_loaded(self) -> None:
         """Inject config and show the window transparently for layout."""
+        self._popup_hwnd = self._window.native.Handle.ToInt32()
+        release_window_icon(self._window.native)
+
+        # The glass layer goes on before the page is told to draw glass, so
+        # the material the page draws is always one the window can carry.
+        framed = frame_window(self._popup_hwnd, BG)
+        if self._requested_material == 'glass' and set_glass(self._window.native, True, BG):
+            self._material = 'glass'
+
         config = _init_config(
             self.app.cache.snapshot, next_poll_time=self.app._next_poll_time, view=self._view,
+            material=self._material, framed=framed,
         )
         self._window.evaluate_js(f'init({json.dumps(config)})')
-
-        self._popup_hwnd = self._window.native.Handle.ToInt32()
 
         # Hide the taskbar icon and enable layered mode for opacity control.
         # WinForms sets WS_EX_APPWINDOW by default, which forces a taskbar
@@ -733,6 +758,14 @@ class UsagePopup:
     def _close(self) -> None:
         self._running = False
         self._post_pump_quit()
+        # Released while the form still exists; a popup closed another way is
+        # released by the next glass popup's attach instead.  A failure here
+        # must not keep the window from closing.
+        if self._material == 'glass':
+            try:
+                release_glass(self._window.native)
+            except Exception:
+                pass
         try:
             self._window.destroy()
         except Exception:
@@ -829,7 +862,8 @@ class UsagePopup:
         the popup mis-sized.  Re-asserting the size once, against the
         destination monitor's DPI, makes the final dimensions
         deterministic.  Position is preserved by ``resize``'s default
-        top-left fix point.
+        top-left fix point.  The glass layer's blur is set in physical
+        pixels, so it is matched to the new monitor too.
         """
         self._dragging = False
         if not self._popup_hwnd:
@@ -839,6 +873,8 @@ class UsagePopup:
         if current_dpi != self._drag_start_dpi:
             with self._geometry_lock:
                 self._window.resize(self._width, self._last_height)
+            if self._material == 'glass':
+                set_glass_scale(self._window.native)
 
     def _push_snapshot(self, snap: CacheSnapshot, next_poll_time: float | None, rescan_installations: bool) -> None:
         """Render *snap* into the open popup.
@@ -1024,6 +1060,8 @@ class UsagePopup:
             if not self._running:
                 break
             try:
+                if self.app._popup_material != self._requested_material:
+                    self._switch_material(self.app._popup_material)
                 snap = self.app.cache.snapshot
                 next_poll_time = self.app._next_poll_time
                 minute = int(time.time() // 60)
@@ -1038,6 +1076,33 @@ class UsagePopup:
                 # a pinned popup can live for days.  The destroyed-window
                 # case exits via the _running flag on the next iteration.
                 continue
+
+    def _switch_material(self, material: str) -> None:
+        """Move an open popup to another material without a flash.
+
+        Entering glass turns the glass layer on before the page drops its
+        opaque surface; leaving it restores the opaque surface before the
+        layer goes.  Either way something opaque or the glass is behind the text
+        at every step, where the reverse order shows the black form behind the
+        page for a frame.
+
+        Parameters
+        ----------
+        material : str
+            One of ``POPUP_MATERIALS``.
+        """
+        self._requested_material = material
+        if material == self._material:
+            return
+
+        if material == 'glass':
+            if not set_glass(self._window.native, True, BG):
+                return
+            self._window.evaluate_js("setMaterial('glass')")
+        else:
+            self._window.evaluate_js("setMaterial('matte')")
+            set_glass(self._window.native, False, BG)
+        self._material = material
 
     def _tray_position(self, physical_width: int, physical_height: int) -> tuple[int, int]:
         """Calculate popup position near the system tray.

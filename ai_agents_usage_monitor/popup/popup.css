@@ -26,17 +26,16 @@ html { overflow: hidden; }
     --claude-signature: #b9835a;
     --codex-signature: #7e9bef;
     --font-ui: 'Pretendard JP', 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif;
-    --surface: color-mix(in srgb, var(--bg) 93%, var(--fg) 7%);
-    --surface-quiet: color-mix(in srgb, var(--bg) 65%, transparent);
-    --surface-selected: color-mix(in srgb, var(--bg) 87%, var(--fg) 13%);
-    --stroke: color-mix(in srgb, var(--fg) 11%, transparent);
-    --hover: color-mix(in srgb, var(--fg) 9%, transparent);
-    --glass-sheen: linear-gradient(135deg, color-mix(in srgb, var(--fg) 4%, transparent), transparent 65%);
 }
+
+/* Surface values - every color a surface, stroke or muted text draws with -
+   come from the material files: matte.css sets them on :root, glass.css
+   overrides them under data-material="glass" and adds the light glass alone
+   draws. This file lays the page out and only reads those tokens. */
 
 body {
     position: relative;
-    background: var(--bg);
+    background: var(--window);
     color: var(--fg);
     font-family: var(--font-ui);
     font-size: 13px;
@@ -61,15 +60,10 @@ body:not(.bar-mode)::before {
     background: linear-gradient(90deg, var(--claude-signature) 0 49%, var(--codex-signature) 51% 100%);
 }
 
-/* Layered surfaces suggest glass while the native window and all text stay
-   opaque. Every tint comes from the configured theme or provider colors. */
-body, body.bar-mode {
-    background:
-        radial-gradient(ellipse 95% 240px at 100% 0, color-mix(in srgb, var(--codex-signature) 13%, transparent), transparent 72%),
-        radial-gradient(ellipse 80% 200px at 0 0, color-mix(in srgb, var(--claude-signature) 10%, transparent), transparent 72%),
-        var(--bg);
-    box-shadow: inset 0 0 0 1px var(--stroke);
-}
+/* The window's edge, drawn by the page only where Windows does not round the
+   window. A rounded window has no edge line at all: its shadow already sets it
+   apart, and a stroke would be cut at the corners. */
+:root:not([data-framed]) body { box-shadow: inset 0 0 0 1px var(--stroke); }
 
 header {
     display: flex;
@@ -80,8 +74,7 @@ header {
     & .provider-switch {
         display: flex;
         gap: 2px;
-        padding: 2px;
-        border: 1px solid var(--stroke);
+        padding: 3px;
         border-radius: 9px;
         background: var(--surface-quiet);
 
@@ -106,14 +99,14 @@ header {
 
             &[aria-pressed="true"] {
                 color: var(--fg-heading);
-                background: linear-gradient(145deg, color-mix(in srgb, var(--fg) 6%, transparent), transparent), var(--surface-selected);
-                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), inset 0 1px 0 var(--stroke);
+                background: var(--surface-selected);
+                box-shadow: var(--highlight);
             }
         }
     }
 
     & button {
-        color: var(--fg-dim);
+        color: var(--muted);
         cursor: pointer;
         width: 25px;
         height: 25px;
@@ -139,7 +132,7 @@ header {
             & .icon-unpin { display: none; }
 
             &.pinned {
-                color: var(--fg-link);
+                color: var(--link-text);
                 background: var(--hover);
 
                 & .icon-pin { display: none; }
@@ -151,7 +144,7 @@ header {
             /* Keep the icon visible but inert while a fetch is in flight. */
             &:disabled {
                 cursor: default;
-                color: var(--fg-dim);
+                color: var(--muted);
             }
 
             &.spinning svg {
@@ -199,7 +192,9 @@ body.bar-mode {
     }
 }
 
-/* The body supplies the same layered backdrop in both views. */
+/* The body supplies the window surface in both views, and the bar is one
+   zone: the clock, the agent cards and the controls share its background,
+   with hairlines only around the clock and the controls. */
 #barView {
     flex-direction: row;
     gap: 0;
@@ -217,7 +212,6 @@ body.bar-mode {
     padding: 7px 10px;
     border-right: 1px solid var(--stroke);
     text-align: center;
-    background: var(--surface-quiet);
 }
 
 /* The header is hidden here, so the clock takes over as the drag handle. */
@@ -230,7 +224,7 @@ body.bar-mode #clockWidget {
 
 #clockDate {
     font-size: 9px;
-    color: var(--fg-dim);
+    color: var(--muted);
     white-space: nowrap;
 }
 
@@ -259,12 +253,11 @@ body.bar-mode #clockWidget {
     display: flex;
     flex-direction: column;
     border-left: 1px solid var(--stroke);
-    background: var(--surface-quiet);
 
     & button {
         flex: 1;
         min-height: 24px;
-        color: var(--fg-dim);
+        color: var(--muted);
         background: none;
         border: none;
         cursor: pointer;
@@ -289,12 +282,8 @@ body.bar-mode #clockWidget {
     padding: 6px 8px;
     cursor: pointer;
     outline: none;
-    background: var(--glass-sheen);
-    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg) 4%, transparent);
 
-    & + .bar-card { border-left: 1px solid var(--stroke); }
-
-    &:hover, &:focus-visible { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+    &:hover, &:focus-visible { background: var(--hover); }
 }
 
 .bar-card-name {
@@ -319,7 +308,7 @@ body.bar-mode #clockWidget {
     margin-left: auto;
     font-size: 9px;
     line-height: 12px;
-    color: var(--fg-dim);
+    color: var(--muted);
     white-space: nowrap;
 }
 
@@ -327,7 +316,7 @@ body.bar-mode #clockWidget {
 
 .bar-card-alert {
     display: none;
-    color: var(--bar-fg-warn);
+    color: var(--warn-text);
     font-size: 10px;
     font-weight: 750;
 }
@@ -354,7 +343,7 @@ body.bar-mode #clockWidget {
     overflow: hidden;
     text-overflow: ellipsis;
     font-size: 9px;
-    color: var(--fg-dim);
+    color: var(--muted);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
@@ -370,7 +359,7 @@ body.bar-mode #clockWidget {
     color: var(--bar-fg);
     transition: color 0.3s ease;
 
-    &.warn { color: var(--bar-fg-warn); }
+    &.warn { color: var(--warn-text); }
 }
 
 .bar-row > .bar-container {
@@ -388,7 +377,7 @@ body.bar-mode #clockWidget {
 
 /* Nothing to show for this agent yet: the row keeps its place so the window
    does not change size when the first read lands. */
-.bar-row.empty .bar-row-pct { color: var(--fg-dim); }
+.bar-row.empty .bar-row-pct { color: var(--muted); }
 
 section, footer {
     display: none;
@@ -409,7 +398,7 @@ body.pending > section, body.pending > footer { opacity: 0.4; }
 h2 {
     font-size: 10px;
     font-weight: 750;
-    color: var(--fg-dim);
+    color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 0.08em;
 }
@@ -419,11 +408,10 @@ h2 {
 :root:lang(ko) h2, :root:lang(ja) h2 { letter-spacing: 0.02em; }
 
 #accountSection, #extraSection, #installSection {
-    padding: 9px 11px;
-    border: 1px solid var(--stroke);
+    padding: 10px 12px;
     border-radius: 10px;
-    background: linear-gradient(140deg, color-mix(in srgb, var(--fg) 3%, transparent), transparent 65%), var(--surface-quiet);
-    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg) 3%, transparent);
+    background: var(--surface);
+    box-shadow: var(--highlight);
 }
 
 #accountSection.visible {
@@ -435,7 +423,7 @@ h2 {
 
 body.bar-mode > #accountSection { display: none; }
 
-#accountSection h2 { color: var(--fg-link); }
+#accountSection h2 { color: var(--link-text); }
 
 .heading-row {
     display: flex;
@@ -448,7 +436,7 @@ body.bar-mode > #accountSection { display: none; }
         gap: 8px;
         border: 0;
         background: none;
-        color: var(--fg-dim);
+        color: var(--muted);
         font: inherit;
         letter-spacing: inherit;
         cursor: pointer;
@@ -462,7 +450,7 @@ body.bar-mode > #accountSection { display: none; }
         font-family: inherit;
         padding: 3px 0 3px 6px;
         font-size: 11px;
-        color: var(--fg-link);
+        color: var(--link-text);
         cursor: pointer;
 
         &:hover, &:focus-visible { text-decoration: underline; }
@@ -481,7 +469,7 @@ dl > div {
     font-size: 12px;
     gap: 10px;
 
-    & > dt { color: var(--fg-dim); }
+    & > dt { color: var(--muted); }
     & > dd {
         margin: 0;
         max-width: 72%;
@@ -519,13 +507,11 @@ dl > div {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 5px 8px;
-    padding: 9px 10px 10px 12px;
-    border: 1px solid var(--stroke);
+    padding: 10px 11px 11px 12px;
     border-left: 2px solid var(--bar-fg);
     border-radius: 11px;
-    background: var(--glass-sheen),
-        color-mix(in srgb, var(--surface) 88%, transparent);
-    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fg) 4%, transparent), 0 2px 6px rgba(0, 0, 0, 0.10);
+    background: var(--surface);
+    box-shadow: var(--highlight);
 }
 
 .usage-entry:has(.bar-pct.warn) { border-left-color: var(--bar-fg-warn); }
@@ -554,16 +540,16 @@ dl > div {
     color: var(--bar-fg);
     transition: color 0.3s ease;
 
-    &.warn { color: var(--bar-fg-warn); }
+    &.warn { color: var(--warn-text); }
 }
 
 .pace-text {
     min-width: 0;
     font-size: 10px;
-    color: var(--fg-dim);
+    color: var(--muted);
     line-height: 1.4;
 
-    &.warn { color: var(--bar-fg-warn); }
+    &.warn { color: var(--warn-text); }
 }
 
 .usage-entry > .bar-container { grid-column: 1 / -1; height: 7px; }
@@ -610,22 +596,16 @@ dl > div {
 
 .reset-text {
     font-size: 11px;
-    color: var(--fg-dim);
+    color: var(--muted);
     text-align: right;
 }
 
 .detail-toggleable {
     cursor: pointer;
     outline: none;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    transition: background-color 0.15s ease;
 
-    &:hover, &:focus-visible {
-        border-top-color: color-mix(in srgb, var(--fg) 24%, transparent);
-        border-right-color: color-mix(in srgb, var(--fg) 24%, transparent);
-        border-bottom-color: color-mix(in srgb, var(--fg) 24%, transparent);
-        background: var(--glass-sheen),
-            color-mix(in srgb, var(--surface) 97%, var(--fg) 3%);
-    }
+    &:hover, &:focus-visible { background: var(--surface-hover); }
 }
 
 .usage-entry.secondary-hidden { display: none; }
@@ -636,16 +616,16 @@ dl > div {
     justify-content: center;
     gap: 8px;
     min-height: 27px;
-    border: 1px solid var(--stroke);
+    border: 0;
     border-radius: 8px;
-    background: transparent;
-    color: var(--fg-link);
+    background: var(--surface-quiet);
+    color: var(--link-text);
     font: inherit;
     font-size: 11px;
     font-weight: 650;
     cursor: pointer;
 
-    &:hover, &:focus-visible { color: var(--fg-heading); border-color: var(--fg-dim); }
+    &:hover, &:focus-visible { color: var(--fg-heading); background: var(--surface-hover); }
 }
 
 /* Drawn from two borders rather than a glyph: Pretendard has no chevron, and
@@ -666,7 +646,7 @@ dl > div {
     align-items: center;
     gap: 8px;
 }
-.quota-label .disclosure-arrow { color: var(--fg-dim); }
+.quota-label .disclosure-arrow { color: var(--muted); }
 .usage-entry[aria-expanded="true"] .disclosure-arrow { transform: translateY(1.5px) rotate(225deg); }
 
 #installRows { margin-top: 3px; }
@@ -679,10 +659,10 @@ dl > div {
     padding-top: 8px;
     border-top: 1px solid var(--stroke);
     font-size: 12px;
-    color: var(--fg-dim);
+    color: var(--muted);
     grid-column: 1 / -1;
 
-    &.error { color: var(--bar-fg-warn); }
+    &.error { color: var(--warn-text); }
 }
 
 .detail-counts {
@@ -692,13 +672,13 @@ dl > div {
 }
 
 .detail-estimated {
-    color: var(--fg-dim);
+    color: var(--muted);
 }
 
 .detail-models-heading {
     margin-top: 2px;
     font-weight: 600;
-    color: var(--fg-dim);
+    color: var(--muted);
 }
 
 .detail-models {
@@ -751,7 +731,7 @@ dl > div {
 footer {
     padding: 0 2px;
     font-size: 11px;
-    color: var(--fg-dim);
+    color: var(--muted);
     flex-direction: row;
     justify-content: space-between;
     align-items: baseline;
@@ -766,7 +746,7 @@ footer {
 
     & > #versionCluster { flex-shrink: 0; }
 
-    &.error > #statusText { color: var(--bar-fg-warn); }
+    &.error > #statusText { color: var(--warn-text); }
 }
 
 @keyframes refresh-spin {
@@ -774,11 +754,13 @@ footer {
     to { transform: rotate(360deg); }
 }
 
-/* Respect the OS "reduce motion" setting: no spin, just the dimmed state. */
+/* Respect the OS "reduce motion" setting: no spin, just the dimmed state.
+   The clock's separator keeps blinking: it switches on and off once a second
+   rather than moving, and Windows reports this setting for everyone who
+   switches off animation effects, which is not a request to stop the clock. */
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition: none !important; }
     header button#refreshBtn.spinning svg { animation: none; }
-    .clock-separator.off { visibility: visible; }
 }
 
 #versionCluster { display: inline-flex; align-items: center; gap: 6px; }
@@ -791,7 +773,7 @@ footer {
     border: 0;
     border-radius: 4px;
     background: transparent;
-    color: var(--fg-dim);
+    color: var(--muted);
     cursor: pointer;
 }
 #projectBtn svg { width: 13px; height: 13px; }

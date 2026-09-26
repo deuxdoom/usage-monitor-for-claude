@@ -1,0 +1,25 @@
+/* Matte, the default surface material. Every value the popup's surfaces draw
+   with is set here as a token; popup.css only lays the page out and reads
+   them, and glass.css overrides the same tokens under data-material="glass".
+
+   Matte follows Linear: an opaque window, zones one lightness step apart, no
+   gradients and no shadows. Every tint derives from the configured theme
+   colors, and nothing paints ambient color onto the opaque window: provider
+   tints smeared across a window with nothing behind it are what made the
+   popup read as foggy. The popup is one surface - cards, sections and
+   buttons are zones set apart by fill alone, with no border, rim or shadow of
+   their own, so nothing reads as a separate object laid on top. */
+:root {
+    --muted: var(--fg-dim);
+    --window: var(--bg);
+    --surface: color-mix(in srgb, var(--bg) 95%, var(--fg) 5%);
+    --surface-hover: color-mix(in srgb, var(--bg) 91%, var(--fg) 9%);
+    --surface-quiet: color-mix(in srgb, var(--bg) 97.5%, var(--fg) 2.5%);
+    --surface-selected: color-mix(in srgb, var(--bg) 88%, var(--fg) 12%);
+    --stroke: color-mix(in srgb, var(--fg) 10%, transparent);
+    --stroke-strong: color-mix(in srgb, var(--fg) 20%, transparent);
+    --hover: color-mix(in srgb, var(--fg) 7%, transparent);
+    --highlight: inset 0 0 0 transparent;
+    --warn-text: var(--bar-fg-warn);
+    --link-text: var(--fg-link);
+}

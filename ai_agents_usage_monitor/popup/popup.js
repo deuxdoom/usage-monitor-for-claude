@@ -35,6 +35,13 @@ let barRemainingProviders = new Set();
 let clockTimerId = null;
 let clockDateFormat = null;
 let clockTimeFormat = null;
+// The clock's separator shows for the first half of every second and hides
+// for the second half - one blink per real second - so the clock ticks on
+// each half second of the wall clock. The slack lands a tick just past the
+// boundary, where a timer firing a moment early would otherwise render the
+// half it was meant to leave.
+const CLOCK_TICK_MS = 500;
+const CLOCK_TICK_SLACK_MS = 15;
 
 /**
  * Switch the popup between the Claude and Codex views.
@@ -172,6 +179,10 @@ function init(config) {
     for (const [key, value] of Object.entries(config.colors)) {
         s.setProperty(`--${key.replaceAll('_', '-')}`, value);
     }
+    // Where Windows rounds the window, the page draws no edge stroke: the
+    // shadow sets the window apart, and a stroke would be cut at the corners.
+    document.documentElement.toggleAttribute('data-framed', Boolean(config.framed));
+    setMaterial(config.material);
 
     translations = config.t;
     compactHide = config.compact_hide || [];
@@ -197,6 +208,7 @@ function init(config) {
     setupPinButton();
     setupViewButtons();
     setupPopupDrag();
+    setupGlint();
 
     // The header is a provider switch now, so the app name lives on the footer
     // version instead. The status line beside it already ellipsizes at this
@@ -248,6 +260,37 @@ function init(config) {
     document.fonts.ready.then(() => requestAnimationFrame(() => document.body.classList.add('open')));
 }
 
+/**
+ * Draw the page as matte or glass.
+ *
+ * Only the attribute changes: matte.css and glass.css hold every value each
+ * material draws with. Python calls this only once the window can carry the
+ * material - after the native glass layer is on when entering glass, before
+ * it goes when leaving.
+ *
+ * @param {string} material - 'matte' or 'glass'
+ */
+function setMaterial(material) {
+    document.documentElement.dataset.material = material === 'glass' ? 'glass' : 'matte';
+}
+
+/**
+ * Keep the glass glint under the pointer.
+ *
+ * Only the pointer's viewport position is recorded, on the root: glass.css
+ * draws each pane's glint against the viewport, so the page needs no list of
+ * which elements are panes - that list lives in glass.css alone - and
+ * cards rebuilt on a data push pick the glint up without new listeners. The
+ * position is written in either material; matte simply never draws it.
+ */
+function setupGlint() {
+    document.addEventListener('pointermove', (event) => {
+        const root = document.documentElement.style;
+        root.setProperty('--glint-x', `${event.clientX}px`);
+        root.setProperty('--glint-y', `${event.clientY}px`);
+    });
+}
+
 function setupDisclosureButtons() {
     els.moreQuotasBtn.addEventListener('click', () => {
         allQuotasVisible = !allQuotasVisible;
@@ -286,7 +329,7 @@ function renderClock() {
         span.textContent = part.value;
         if (part.type === 'literal' && part.value.includes(':')) {
             span.className = 'clock-separator';
-            span.classList.toggle('off', now.getSeconds() % 2 === 1);
+            span.classList.toggle('off', now.getMilliseconds() >= CLOCK_TICK_MS);
         }
         return span;
     }));
@@ -295,17 +338,23 @@ function renderClock() {
 /**
  * Run the clock only while the bar view is showing it.
  *
- * The one-second tick blinks the separator and keeps minute changes prompt.
+ * Each tick is scheduled against the wall clock rather than repeated on a
+ * fixed interval: an interval keeps the phase of the moment the bar opened
+ * and drifts from there, so the blink would neither match the seconds nor
+ * keep an even rhythm.
  */
 function startClock() {
     if (clockTimerId) return;
-    renderClock();
-    clockTimerId = setInterval(renderClock, 1000);
+    const tick = () => {
+        renderClock();
+        clockTimerId = setTimeout(tick, CLOCK_TICK_MS - (Date.now() % CLOCK_TICK_MS) + CLOCK_TICK_SLACK_MS);
+    };
+    tick();
 }
 
 function stopClock() {
     if (!clockTimerId) return;
-    clearInterval(clockTimerId);
+    clearTimeout(clockTimerId);
     clockTimerId = null;
 }
 

@@ -18,7 +18,7 @@ The app searches these directories in order (first file found wins):
 
 Within each directory, `config.json` is checked before the legacy `usage-monitor-settings.json`. Directory priority comes first: a legacy file in an earlier directory takes precedence over a new-name file in a later one. Existing files do not need to be renamed, and files are not merged.
 
-The app saves only `tray_provider`, `poll_interval` and `popup_view`, preserving the values of every other key. It updates the file read at startup, including a legacy-name file. If none was read, it creates `config.json` in the first directory above. If writing there fails, it tries `~/.claude/config.json`. Required directories may be created. Saving uses a temporary file in the same directory followed by an atomic replacement; JSON whitespace may change.
+The app saves only `tray_provider`, `poll_interval`, `popup_view` and `popup_material`, preserving the values of every other key. It updates the file read at startup, including a legacy-name file. If none was read, it creates `config.json` in the first directory above. If writing there fails, it tries `~/.claude/config.json`. Required directories may be created. Saving uses a temporary file in the same directory followed by an atomic replacement; JSON whitespace may change.
 
 An existing file that cannot be read or parsed as a JSON object is left untouched. Empty files are treated as empty settings. If saving fails, the choice still applies to the running app but may not survive a restart. A higher-priority existing file still takes precedence over a fallback file at the next start.
 
@@ -176,6 +176,7 @@ There is no setting to turn this off - it reads local files only when the panel 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `popup_view` | `"detail"` | Popup view: `"detail"` or `"bar"`. The popup's view buttons save this choice. The bar stays open without pinning, can be dragged by its clock, and has detail-view and close buttons |
+| `popup_material` | `"matte"` | Surface of the popup and the bar: `"matte"` or `"glass"` (beta). Matte is an opaque window with flat surfaces. Glass shows what lies behind the popup, live: a native layer compiled from `glass_layer.cs` has the Windows compositor draw it on the GPU - lightly blurred, more saturated and with every pixel's brightness capped - so the app never reads a screen pixel, see [PRIVACY.md](../PRIVACY.md). The cap keeps text readable over a white window while dark and colorful backgrounds show through as they are; a sheet of tint, a reflection across it and a glint under the pointer sit on top. Glass needs Windows 11 22H2 or later and reads as matte on older systems and while Windows' "Transparency effects" setting is off. The tray menu's "Popup material" submenu saves this choice and applies it to an open popup within two seconds. Both materials derive every tint from the [popup colors](#popup-colors); glass lifts secondary and warning text toward `fg_heading` so it stays readable over a white window behind it |
 
 Earlier versions also offered a `popup_font` choice. The popup now always renders in the bundled Pretendard, so an existing `popup_font` key is ignored and left in the file untouched.
 

@@ -38,7 +38,7 @@ __all__ = [
     'ON_RESET_COMMAND', 'ON_STARTUP_COMMAND', 'ON_THRESHOLD_COMMAND', 'QUICK_ACTION_COMMAND',
     'POLL_ERROR', 'POLL_FAST', 'POLL_FAST_EXTRA', 'POLL_INTERVAL',
     'POPUP_FIELDS', 'POPUP_HIDE_FIELDS', 'POPUP_HIDE_INACTIVE',
-    'POPUP_MARGIN', 'POPUP_VIEW', 'POPUP_VIEWS',
+    'POPUP_MARGIN', 'POPUP_MATERIAL', 'POPUP_MATERIALS', 'POPUP_VIEW', 'POPUP_VIEWS',
     'SETTINGS_FILENAME', 'SETTINGS_PATH', 'TIME_FORMAT', 'TOOLTIP_FIELDS', 'TRAY_PROVIDER',
     'get_alert_thresholds', 'settings_search_paths',
 ]
@@ -79,6 +79,12 @@ _VALID_ICON_STYLES = frozenset({'number+bars', 'numbers'})
 # second copy of the list is how the popup and the file would come to disagree
 # about what a valid choice is.
 POPUP_VIEWS = ('detail', 'bar')
+# The popup's surface materials, in the order the tray menu lists them, the
+# first being the default: 'matte' is opaque, 'glass' (beta) shows the desktop
+# behind the popup through the native glass layer and a sheet of tint.
+# Systems without the glass layer read 'glass' as matte (app.py).  Public for
+# the same reason as POPUP_VIEWS.
+POPUP_MATERIALS = ('matte', 'glass')
 _COMMAND_KEYS = frozenset({
     'on_double_click_command', 'on_reset_command', 'on_startup_command', 'on_threshold_command', 'quick_action_command',
 })
@@ -233,6 +239,11 @@ def _validate(data: dict, path: Path) -> dict:
         elif key == 'popup_view':
             if value not in POPUP_VIEWS:
                 errors.append(f'  {key}: must be one of {", ".join(POPUP_VIEWS)}, got {value!r}')
+                drop.append(key)
+
+        elif key == 'popup_material':
+            if value not in POPUP_MATERIALS:
+                errors.append(f'  {key}: must be one of {", ".join(POPUP_MATERIALS)}, got {value!r}')
                 drop.append(key)
 
         elif key in _COMMAND_KEYS:
@@ -452,6 +463,9 @@ COMPACT_HIDE: list[str] = _S.get('compact_hide', [])
 # Which view the popup opens in: 'detail' is the full window, 'bar' the
 # single-row session summary.  Written back by the popup's own mode button.
 POPUP_VIEW: str = _S.get('popup_view', POPUP_VIEWS[0])
+
+# Which surface the popup draws on.  Written back by the tray menu.
+POPUP_MATERIAL: str = _S.get('popup_material', POPUP_MATERIALS[0])
 
 # Alert thresholds
 ALERT_TIME_AWARE: bool = _S.get('alert_time_aware', True)

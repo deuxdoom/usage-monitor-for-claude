@@ -13,8 +13,12 @@ a = Analysis(
     datas=[
         ('locale/*.json', 'locale'),
         ('ai_agents_usage_monitor/notification_logo.ico', 'ai_agents_usage_monitor'),
+        # Compiled from glass_layer.cs by build.py before PyInstaller runs.
+        ('ai_agents_usage_monitor/glass_layer.dll', 'ai_agents_usage_monitor'),
         ('ai_agents_usage_monitor/popup/popup.html', 'ai_agents_usage_monitor/popup'),
         ('ai_agents_usage_monitor/popup/popup.css', 'ai_agents_usage_monitor/popup'),
+        ('ai_agents_usage_monitor/popup/matte.css', 'ai_agents_usage_monitor/popup'),
+        ('ai_agents_usage_monitor/popup/glass.css', 'ai_agents_usage_monitor/popup'),
         ('ai_agents_usage_monitor/popup/popup.js', 'ai_agents_usage_monitor/popup'),
         ('ai_agents_usage_monitor/popup/updater.html', 'ai_agents_usage_monitor/popup'),
         ('ai_agents_usage_monitor/popup/PretendardJPVariable.woff2', 'ai_agents_usage_monitor/popup'),
@@ -49,9 +53,10 @@ a = Analysis(
         'xml', 'tomllib',
         'sqlite3',
         # Pillow only references numpy in type hints; nothing here calls an API
-        # that needs it (no fromarray/frombuffer - just Image, ImageDraw and
-        # ImageFont). Following that hint pulled in numpy and its bundled
-        # OpenBLAS, which alone was ~20 MB of the frozen binary.
+        # that needs it. tray_icon.py uses Image, ImageDraw and ImageFont and
+        # never fromarray.
+        # Following that hint pulled in numpy and its bundled OpenBLAS, which
+        # alone was ~20 MB of the frozen binary.
         'numpy', 'scipy',
     ],
     noarchive=False,

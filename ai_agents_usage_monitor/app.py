@@ -31,7 +31,7 @@ from .instance_id import effective_config_dir, is_default_config_dir
 from .settings import (
     ALERT_EXTRA_USAGE_SPENT, ALERT_TIME_AWARE, ALERT_TIME_AWARE_BELOW, ICON_FIELDS, IDLE_PAUSE, NOTIFY_CLAUDE_UPDATE,
     ON_RESET_COMMAND, ON_STARTUP_COMMAND, ON_THRESHOLD_COMMAND, QUICK_ACTION_COMMAND,
-    POLL_ERROR, POLL_FAST, POLL_FAST_EXTRA, POLL_INTERVAL, POPUP_VIEW,
+    POLL_ERROR, POLL_FAST, POLL_FAST_EXTRA, POLL_INTERVAL, POPUP_MATERIAL, POPUP_MATERIALS, POPUP_VIEW,
     TRAY_PROVIDER, get_alert_thresholds,
 )
 from .settings_store import save_setting
@@ -44,6 +44,7 @@ from .popup import UsagePopup
 from .scheduling import RESET_BUFFER, align_to_reset, clamp_to_reset, earliest_reset, reset_aligned_target, tracked_reset_times
 from .tray_icon import create_icon_image, create_status_image, taskbar_uses_light_theme, watch_theme_change
 from .tray_menu import build_menu
+from .window_backdrop import GLASS_SUPPORTED
 
 __all__ = ['AIAgentsUsageMonitor', 'crash_log']
 
@@ -134,6 +135,11 @@ class AIAgentsUsageMonitor:
 
         self._popup_view = POPUP_VIEW
 
+        # The surface the popup draws on.  Glass needs the Windows 11 glass
+        # layer, so a stored 'glass' reads as matte where the system cannot draw it -
+        # the menu then shows the material the popup actually uses.
+        self._popup_material = POPUP_MATERIAL if GLASS_SUPPORTED else 'matte'
+
         # Non-default config dirs get a tooltip prefix so multiple
         # instances (one per Claude account) can be told apart.
         self._tooltip_prefix = '' if is_default_config_dir() else f'[{effective_config_dir().name}] '
@@ -223,6 +229,31 @@ class AIAgentsUsageMonitor:
 
         self._poll_interval = seconds
         save_setting('poll_interval', seconds)
+
+    def on_material_matte(self, icon: Any = None, item: Any = None) -> None:
+        self._set_popup_material('matte')
+
+    def on_material_glass(self, icon: Any = None, item: Any = None) -> None:
+        self._set_popup_material('glass')
+
+    def _set_popup_material(self, material: str) -> None:
+        """Change the surface the popup draws on.
+
+        A closed popup opens in the new material; an open one (pinned, or the
+        bar) picks it up on its next update tick.  The choice is stored as
+        ``popup_material``, so the next start keeps it.
+
+        Parameters
+        ----------
+        material : str
+            One of ``POPUP_MATERIALS``.
+        """
+        assert material in POPUP_MATERIALS
+        if material == self._popup_material:
+            return
+
+        self._popup_material = material
+        save_setting('popup_material', material)
 
     def on_toggle_autostart(self, icon: Any = None, item: Any = None) -> None:
         set_autostart(not is_autostart_enabled())

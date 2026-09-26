@@ -13,6 +13,8 @@ env/
 # PyInstaller build artifacts
 build/
 dist/
+# Compiled from ai_agents_usage_monitor/glass_layer.cs by build.py
+ai_agents_usage_monitor/glass_layer.dll
 
 # IDE
 .vscode/

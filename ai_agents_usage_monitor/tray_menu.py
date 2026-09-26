@@ -20,6 +20,7 @@ import pystray  # type: ignore[import-untyped]  # no type stubs available
 from .autostart import is_autostart_enabled
 from .i18n import T
 from .settings import ON_RESET_COMMAND, ON_STARTUP_COMMAND, ON_THRESHOLD_COMMAND, QUICK_ACTION_COMMAND
+from .window_backdrop import GLASS_SUPPORTED
 
 __all__ = ['build_menu']
 
@@ -31,7 +32,8 @@ def build_menu(monitor: Any) -> pystray.Menu:
     ----------
     monitor : AIAgentsUsageMonitor
         The running monitor, read for its menu handlers and for the current
-        tray provider and refresh interval the radio items check against.
+        tray provider, refresh interval and popup material the radio items
+        check against.
     """
     return pystray.Menu(
         # Names the app at the top of the menu. Disabled so it reads as a
@@ -69,6 +71,19 @@ def build_menu(monitor: Any) -> pystray.Menu:
             pystray.MenuItem(
                 T['refresh_minutes'].format(n=5), monitor.on_refresh_5min,
                 checked=lambda item: monitor._poll_interval == 300, radio=True,
+            ),
+        )),
+        # Listed in POPUP_MATERIALS order, the default first.  Glass stays
+        # listed but greyed out where the system has no glass layer, so the
+        # option is discoverable rather than silently missing.
+        pystray.MenuItem(T['menu_popup_material'], pystray.Menu(
+            pystray.MenuItem(
+                T['material_matte'], monitor.on_material_matte,
+                checked=lambda item: monitor._popup_material == 'matte', radio=True,
+            ),
+            pystray.MenuItem(
+                T['material_glass'], monitor.on_material_glass,
+                checked=lambda item: monitor._popup_material == 'glass', radio=True, enabled=GLASS_SUPPORTED,
             ),
         )),
         pystray.MenuItem(
