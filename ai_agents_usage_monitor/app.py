@@ -29,7 +29,7 @@ from .events import quick_action_env, reset_env, startup_env, threshold_env
 from .idle import get_idle_seconds, is_workstation_locked
 from .instance_id import effective_config_dir, is_default_config_dir
 from .settings import (
-    ALERT_EXTRA_USAGE_SPENT, ALERT_TIME_AWARE, ALERT_TIME_AWARE_BELOW, ICON_FIELDS, IDLE_PAUSE, NOTIFY_CLAUDE_UPDATE,
+    ALERT_EXTRA_USAGE_SPENT, ALERT_TIME_AWARE, ALERT_TIME_AWARE_BELOW, ICON_FIELDS, IDLE_INTERVAL, IDLE_PAUSE, NOTIFY_CLAUDE_UPDATE,
     ON_RESET_COMMAND, ON_STARTUP_COMMAND, ON_THRESHOLD_COMMAND, QUICK_ACTION_COMMAND,
     POLL_ERROR, POLL_FAST, POLL_FAST_EXTRA, POLL_INTERVAL, POPUP_MATERIAL, POPUP_MATERIALS, POPUP_VIEW,
     TRAY_PROVIDER, get_alert_thresholds,
@@ -41,7 +41,9 @@ from .formatting import (
 )
 from .i18n import T
 from .popup import UsagePopup
-from .scheduling import RESET_BUFFER, align_to_reset, clamp_to_reset, earliest_reset, reset_aligned_target, tracked_reset_times
+from .scheduling import (
+    RESET_BUFFER, align_to_reset, clamp_to_reset, earliest_reset, reset_overdue, tracked_reset_times,
+)
 from .tray_icon import create_icon_image, create_status_image, taskbar_uses_light_theme, watch_theme_change
 from .tray_menu import build_menu
 from .window_backdrop import GLASS_SUPPORTED
@@ -110,7 +112,6 @@ class AIAgentsUsageMonitor:
 
         # Adaptive polling state
         self._fast_polls_remaining = 0
-        self._idle_reset_pending = False
         # Guarded by _notify_lock: deferrals arrive from the popup and poll
         # threads while the poll loop flushes.
         self._notify_lock = threading.Lock()
@@ -120,7 +121,7 @@ class AIAgentsUsageMonitor:
         self._popup_lock = threading.Lock()
         self._popup_open = False
         # Seeded with the launch time so the app polls normally for the first
-        # IDLE_PAUSE seconds instead of starting out paused.
+        # IDLE_PAUSE seconds instead of starting out on the idle cadence.
         self._popup_closed_at = time.time()
         self._next_poll_time: float | None = None
 
@@ -664,7 +665,6 @@ class AIAgentsUsageMonitor:
             prev = self._prev_utilization.get(key)
             if prev is not None and pct < prev:
                 self._run_reset_command(key, pct, prev, data=result.data, entry=result.data.get(key, {}))
-                self._idle_reset_pending = False
 
         self._check_threshold_alerts(result.data)
 
@@ -924,19 +924,34 @@ class AIAgentsUsageMonitor:
 
     def _seconds_until_next_reset(self) -> float | None:
         """Return seconds until the earliest upcoming quota reset, or None."""
-        return earliest_reset(self._tracked_reset_times(), datetime.now(timezone.utc))
+        return earliest_reset(self._tracked_reset_times(self._last_response), datetime.now(timezone.utc))
 
-    def _tracked_reset_times(self) -> list[str]:
+    def _reset_overdue(self) -> bool:
+        """Return whether a quota reset has passed without a fetch confirming it.
+
+        Read from the last *successful* usage rather than ``_last_response``:
+        a failed confirming fetch replaces the latter with an error that has no
+        reset times, and that is exactly the case that must keep retrying on
+        the normal cadence instead of the idle one.
+        """
+        return reset_overdue(self._tracked_reset_times(self.cache.usage), datetime.now(timezone.utc))
+
+    def _tracked_reset_times(self, usage: dict[str, Any]) -> list[str]:
         """ISO reset times of every quota this poll actually fetches.
 
         The Codex windows are handed over only while the tray follows Codex,
         because ``update()`` reads them on the same beat only then.  They come
         from the cached snapshot: the scheduler must never start an
         app-server read to decide how long to wait.
+
+        Parameters
+        ----------
+        usage : dict
+            The Claude usage response whose reset times to read.
         """
         codex_windows = self.codex_account.cached.get('windows') if self._tray_provider == 'codex' else None
 
-        return tracked_reset_times(self._last_response, codex_windows, codex_reset_iso)
+        return tracked_reset_times(usage, codex_windows, codex_reset_iso)
 
     def _account_switched(self) -> bool:
         """Return whether the current credentials belong to a different account.
@@ -956,16 +971,6 @@ class AIAgentsUsageMonitor:
 
         return current_uuid is not None and current_uuid != self._prev_account_uuid
 
-    def _reset_aligned_poll_target(self, next_reset: float) -> float:
-        """Absolute time for a poll landing just after a reset.
-
-        Parameters
-        ----------
-        next_reset : float
-            Seconds until the upcoming reset.
-        """
-        return reset_aligned_target(next_reset, self.cache.last_success_time, time.time(), POLL_FAST, RESET_BUFFER)
-
     def _clamp_target_to_reset(self, target: float) -> float:
         """Pull a poll target back to the reset-aligned slot when it would overshoot.
 
@@ -979,6 +984,12 @@ class AIAgentsUsageMonitor:
 
     def _calculate_poll_interval(self) -> int:
         """Determine the next poll interval based on current state.
+
+        Once the popup has been closed for ``IDLE_PAUSE`` seconds the cadence
+        drops to ``IDLE_INTERVAL`` instead of stopping, and reset alignment is
+        applied on top either way - so a quota reset is still confirmed seconds
+        after it happens while only the tray icon is showing.  A reset the API
+        has not confirmed yet keeps the normal cadence.
 
         Returns
         -------
@@ -997,6 +1008,9 @@ class AIAgentsUsageMonitor:
         else:
             interval = self._poll_interval
 
+        if self._polling_throttled() and not self._reset_overdue():
+            interval = max(interval, IDLE_INTERVAL)
+
         # Align the next poll around an imminent reset for faster feedback.
         # The confirming poll is placed just after the reset; a follow-up uses
         # POLL_FAST regardless of user activity (quota was likely exhausted).
@@ -1010,20 +1024,22 @@ class AIAgentsUsageMonitor:
     def _is_user_away(self) -> bool:
         """Return True if the user is idle or the workstation is locked.
 
-        Used only to defer notifications until the user is back.  Whether
-        polling runs is a separate question, answered by ``_polling_paused``.
+        Used only to defer notifications until the user is back.  How often
+        polling runs is a separate question, answered by ``_polling_throttled``.
         """
         if is_workstation_locked():
             return True
         return IDLE_PAUSE > 0 and get_idle_seconds() >= IDLE_PAUSE
 
-    def _polling_paused(self) -> bool:
-        """Return whether polling is paused because nothing is on screen.
+    def _polling_throttled(self) -> bool:
+        """Return whether polling runs on the idle cadence because only the tray is showing.
 
-        An open popup - pinned or not - is the one view that needs live
-        numbers, so polling follows it: it runs while the popup is up and for
-        ``IDLE_PAUSE`` seconds after it closes, then stops until the popup is
-        opened again.  ``idle_pause = 0`` disables the pause entirely.
+        An open popup - pinned or not - is the one view that needs numbers
+        by the minute, so the cadence follows it: the normal interval while
+        the popup is up and for ``IDLE_PAUSE`` seconds after it closes, then
+        ``IDLE_INTERVAL`` until it is opened again.  Polling never stops, so
+        the tray icon, the alerts and the account-switch watcher keep working.
+        ``idle_pause = 0`` keeps the normal cadence throughout.
 
         Deliberately independent of ``_is_user_away()``: this is about what
         the app is showing, not where the user is.
@@ -1033,28 +1049,15 @@ class AIAgentsUsageMonitor:
 
         return time.time() - self._popup_closed_at >= IDLE_PAUSE
 
-    def _wait_for_popup(self, until: float | None = None) -> None:
-        """Block until the popup is opened again or the app is stopping.
-
-        Parameters
-        ----------
-        until : float | None
-            Optional deadline (``time.time()`` epoch).  When set, the wait
-            ends even with the popup still closed, so a time-critical poll
-            (the quota-reset command) can still fire on time.
-        """
-        while self.running and self._polling_paused():
-            if until is not None and time.time() >= until:
-                break
-            time.sleep(2)
-
     def poll_loop(self) -> None:
         """Poll the API in a loop with adaptive intervals.
 
-        Polling tracks the popup: it runs while the popup is open and for
-        ``IDLE_PAUSE`` seconds after it closes, then pauses until the popup
-        is opened again.  User idle time and lock state do not pause it -
-        they only defer notifications (see ``_notify_or_defer``).
+        The cadence tracks the popup: the normal interval while it is open
+        and for ``IDLE_PAUSE`` seconds after it closes, then ``IDLE_INTERVAL``
+        with reset alignment still applied.  Opening the popup again pulls the
+        next poll back to the normal cadence.  User idle time and lock state
+        do not change the cadence - they only defer notifications (see
+        ``_notify_or_defer``).
         """
         self.cache.ensure_profile()
         force_next = False
@@ -1077,6 +1080,7 @@ class AIAgentsUsageMonitor:
             target = time.time() + interval
             self._next_poll_time = target
             last_success_seen = self.cache.last_success_time
+            throttled_seen = self._polling_throttled()
             while self.running and time.time() < target:
                 time.sleep(1)
 
@@ -1130,48 +1134,20 @@ class AIAgentsUsageMonitor:
                 if self._deferred_notifications and not self._is_user_away():
                     self._flush_deferred_notifications()
 
-                # Pause polling once the popup has been closed for IDLE_PAUSE
-                # seconds - no view is left that needs live numbers.  The one
-                # exception: with on_reset_command configured the pause is
-                # interrupted at the reset so the command still fires on time.
-                # _idle_reset_pending keeps polling until the reset is actually
-                # confirmed (a usage drop), which covers server-side delay and
-                # transient network errors.  It is cleared by update() on that
-                # drop, not on return, so a popup closed again before the
-                # confirmation resumes the reset wake-up.
-                if self._polling_paused():
-                    reset_deadline = None
-                    if ON_RESET_COMMAND:
-                        next_reset = self._seconds_until_next_reset()
-                        if next_reset is not None:
-                            reset_deadline = time.time() + next_reset + RESET_BUFFER
-                            self._idle_reset_pending = True
-                        elif self._idle_reset_pending:
-                            reset_deadline = time.time() + self._poll_interval
-
-                    self._wait_for_popup(until=reset_deadline)
-
-                    if reset_deadline is not None and self._polling_paused():
-                        # Woke for the reset with the popup still closed - poll once.
-                        break
-
-                    self._flush_deferred_notifications()
+                # The popup came back: the idle cadence no longer applies, so pull
+                # the next poll back to what the normal cadence would have
+                # scheduled - immediately when that interval has already passed
+                # since the last fetch.  The target only ever moves closer, and
+                # never onto a slot that would delay the reset-confirming poll.
+                throttled_now = self._polling_throttled()
+                if throttled_seen and not throttled_now:
+                    interval = self._calculate_poll_interval()
+                    cadence_wait = interval == self._poll_interval
                     lst = self.cache.last_success_time
-                    if lst is None:
-                        continue
-
-                    next_reset = self._seconds_until_next_reset()
-                    if next_reset is not None and next_reset < POLL_FAST:
-                        # Back within the cooldown window before a reset: polling
-                        # now would advance last_success into that window and force
-                        # the confirming poll to overshoot.  Realign the wait to
-                        # just after the reset and keep waiting for it.
-                        target = self._reset_aligned_poll_target(next_reset)
-                        self._next_poll_time = target
-                        continue
-
-                    if time.time() - lst >= interval:
-                        break
+                    resumed = time.time() if lst is None else lst + interval
+                    target = min(target, self._clamp_target_to_reset(resumed))
+                    self._next_poll_time = target
+                throttled_seen = throttled_now
 
     # Lifecycle
 

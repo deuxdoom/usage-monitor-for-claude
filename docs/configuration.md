@@ -210,7 +210,7 @@ Must be an array of non-empty strings. Duplicates are silently removed. Unknown 
 
 Entries can be either a **section key** or a **usage field name**:
 
-**Section keys:** `account` (email and plan), `extra_usage` (paid overage bar), `claude_code` (installed versions), `status` (the footer with the update time). The usage bar section itself cannot be hidden as a whole - hide individual bars by their field name instead. When hiding leaves only the usage bars (no other section visible), the "Usage" heading is dropped automatically, since it has nothing left to distinguish the bars from.
+**Section keys:** `account` (email and plan), `extra_usage` (paid overage bar and prepaid credit balance), `claude_code` (installed versions), `status` (the footer with the update time). The usage bar section itself cannot be hidden as a whole - hide individual bars by their field name instead. When hiding leaves only the usage bars (no other section visible), the "Usage" heading is dropped automatically, since it has nothing left to distinguish the bars from.
 
 **Usage field names:** any quota field, e.g. `five_hour`, `seven_day`, `seven_day_sonnet`, `seven_day_opus`, `seven_day_cowork`, `seven_day_oauth_apps`. This hides that single bar in the pinned view, independent of [`popup_fields`](#popup-fields) (which controls the normal, unpinned popup).
 
@@ -286,7 +286,7 @@ Run a shell command when a usage event occurs. See [Event Commands](event-comman
 
 ## Polling intervals
 
-**This app refreshes once a minute by default.** Polling stops after the popup has been closed for `idle_pause` seconds. The tray menu's "Refresh interval" submenu offers one, three and five minutes and saves the selection as `poll_interval`, so it survives a restart. This changes the ordinary cadence only; `poll_fast` stays unchanged so reset-confirming polls keep their timing.
+**This app refreshes once a minute by default.** Once the popup has been closed for `idle_pause` seconds, only the tray icon is left showing, so polling slows to every `idle_interval` seconds (ten minutes) instead of stopping - the icon, the alerts and the account-switch detection keep working, and opening the popup brings the normal cadence straight back. The tray menu's "Refresh interval" submenu offers one, three and five minutes and saves the selection as `poll_interval`, so it survives a restart. This changes the ordinary cadence only; `poll_fast` stays unchanged so reset-confirming polls keep their timing.
 
 The countdowns themselves never depend on these values. The popup's reset countdowns, elapsed-time markers and bar dividers are redrawn every minute from your own clock, so they keep moving whatever you set here - lowering these will not make a countdown tick faster, only spend more API calls.
 
@@ -297,7 +297,8 @@ The countdowns themselves never depend on these values. The popup's reset countd
 | `poll_fast_extra` | `2` | Extra fast polls after usage stops increasing |
 | `poll_error` | `30` | Seconds after a transient error (5xx, network). Rate-limit errors (429) use exponential backoff instead |
 | `max_backoff` | `900` | Maximum backoff in seconds for rate-limit errors (15 min). The backoff starts at twice `poll_interval` and doubles with each further 429, or follows the server's `Retry-After` when it sends one. It caps the Codex side as well, where a failed read backs off from the current refresh interval and doubles per consecutive failure |
-| `idle_pause` | `300` | Seconds the popup has to stay closed before polling pauses, and seconds of user inactivity after which notifications are held back until the user returns (0 = disable both). Notifications are also held while the workstation is locked. A paused poll loop resumes when the popup is opened, and is interrupted at a quota reset when `on_reset_command` is configured |
+| `idle_pause` | `300` | Seconds the popup has to stay closed before polling slows to `idle_interval`, and seconds of user inactivity after which notifications are held back until the user returns (0 = disable both). Notifications are also held while the workstation is locked |
+| `idle_interval` | `600` | Seconds between API updates once the popup has been closed for `idle_pause` seconds (10 min). A quota reset is still confirmed just after it happens, and a reset the API has not confirmed yet keeps the normal cadence until it is. Opening the popup returns to `poll_interval` at once. A value below `poll_interval` has no effect |
 
 ## Language
 
@@ -315,11 +316,11 @@ By default, reset times follow your Windows clock format (the 24-hour or 12-hour
 
 ## Currency
 
-The app shows extra usage amounts in the billing currency the Anthropic API reports for your account (its symbol and decimal precision), falling back to your Windows locale's currency symbol when the API does not report one. If you want a different symbol, override it here - your override always wins. Number formatting (decimal separator, symbol position) always follows your system locale.
+The app shows extra usage amounts and the prepaid credit balance in the billing currency the Anthropic API reports for your account (its symbol and decimal places), and in US dollars when the API does not report one - never in your Windows locale's currency, which would name the wrong money. If you want a different symbol, override it here - your override always wins. The decimal separator, the digit grouping and the symbol position follow your system locale; the number of decimal places does not, so a dollar amount keeps its cents on a system whose own currency has none.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `currency_symbol` | *(from API, else locale)* | Override the displayed currency symbol (e.g., `"$"`, `"€"`, `"¥"`) |
+| `currency_symbol` | *(from API, else `$`)* | Override the displayed currency symbol (e.g., `"$"`, `"€"`, `"¥"`) |
 
 ## Tray icon colors
 

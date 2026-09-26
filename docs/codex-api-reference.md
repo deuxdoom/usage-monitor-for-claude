@@ -65,6 +65,19 @@ countdown, elapsed-time text, dividers or time marker, even if `resetsAt` is pre
 reported usage is positive, those indicators use the server timestamp again. This display rule
 does not alter the cached server timestamps used by the poll scheduler.
 
+The same bucket carries `credits`, the credits bought for Codex usage beyond the plan's limits:
+
+```json
+"credits": { "hasCredits": true, "unlimited": false, "balance": "1250" }
+```
+
+`balance` is a decimal string counted in Codex credits, not in money - the response names no rate
+between the two, so the popup shows it as credits ("1,250 credits available") in the extra-usage
+section of the Codex view, and never as dollars. `unlimited: true` reads "Unlimited credits". An
+account with `hasCredits: false` (the usual `"balance": "0"` of a plan that never bought any) shows
+no section at all. The read is part of the `account/rateLimits/read` call the windows already
+make, so it adds no request.
+
 ### Cadence and backoff
 
 A successful read is followed by a cooldown equal to the refresh interval chosen in the tray menu

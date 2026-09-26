@@ -18,7 +18,7 @@ from typing import Any
 
 __all__ = [
     'RESET_BUFFER', 'align_to_reset', 'clamp_to_reset', 'earliest_reset',
-    'reset_aligned_target', 'tracked_reset_times',
+    'reset_aligned_target', 'reset_overdue', 'tracked_reset_times',
 ]
 
 # Seconds after a reset at which to place the confirming poll.  A small buffer
@@ -132,6 +132,32 @@ def earliest_reset(reset_times: list[str], now: datetime) -> float | None:
             earliest = seconds
 
     return earliest
+
+
+def reset_overdue(reset_times: list[str], now: datetime) -> bool:
+    """Whether a reset has passed without a fetch confirming it.
+
+    A confirmed reset carries a new reset time, or none at all while no window
+    is active.  A time still in the past therefore means the poll that should
+    confirm the reset has not seen it yet - server-side propagation, or a fetch
+    that failed.  Unparsable times are skipped, as in ``earliest_reset``.
+
+    Parameters
+    ----------
+    reset_times : list of str
+        ISO 8601 reset times from the last successful fetch.
+    now : datetime
+        Timezone-aware current time.
+    """
+    for resets_at in reset_times:
+        try:
+            seconds = (datetime.fromisoformat(resets_at) - now).total_seconds()
+        except Exception:
+            continue
+        if seconds <= 0:
+            return True
+
+    return False
 
 
 def reset_aligned_target(next_reset: float, last_success: float | None, now: float,

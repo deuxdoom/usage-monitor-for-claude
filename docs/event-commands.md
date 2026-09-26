@@ -23,9 +23,9 @@ Commands only fire on **state changes** detected while the app is running. On ap
 
 Because a double-click is user-driven, a command that exits with a non-zero (error) code shows its stderr in an error dialog, so a wrong path or a broken command is not swallowed silently. Only a failure within the first few seconds counts: a quick action usually starts a program you then keep open, and that program exiting with an error hours later is its own business, not a broken setting. The automatic reset, threshold, and startup commands stay silent - they fire in the background and must not interrupt you with dialogs.
 
-Polling follows the popup rather than you: it runs while the popup is open - including a pinned one - and for `idle_pause` seconds after you close it, then pauses until you open it again. An idle, locked or unattended computer does not stop it; only an app with nothing on screen does.
+The polling cadence follows the popup rather than you: the normal interval while the popup is open - including a pinned one - and for `idle_pause` seconds after you close it, then every `idle_interval` seconds (ten minutes) while only the tray icon is showing. Polling never stops, and an idle, locked or unattended computer does not change the cadence.
 
-`on_reset_command` is the exception that outlives that pause. With it configured, the paused loop still wakes at the expected reset, polls, and fires the command on time, and it keeps retrying until the reset is actually confirmed - so a server-side delay or a brief network outage does not skip it. `on_threshold_command` has no such wake-up: it needs a poll to observe the crossing, so while polling is paused it fires at the first poll after you open the popup again.
+A quota reset is still polled just after it happens on the slower cadence, so `on_reset_command` fires on time, and a reset the API has not confirmed yet is retried at the normal pace - so a server-side delay or a brief network outage does not skip it. `on_threshold_command` needs a poll to observe the crossing, so with only the tray showing it fires at the next ten-minute poll.
 
 The poll cadence is aligned to the expected reset time, so a reset command fires promptly. Desktop notifications that occur while the user is idle or the workstation is locked are deferred and shown when the user returns.
 
@@ -240,7 +240,7 @@ Fires once after the first successful API update following app start. Receives t
 | `USAGE_MONITOR_EXTRA_USED` | `$8.20` | Amount spent (only set when extra usage is enabled) |
 | `USAGE_MONITOR_EXTRA_LIMIT` | `$10.00` | Monthly limit (only set when extra usage is enabled) |
 
-Per-quota variables are emitted for every quota field the API returns - additional variants like `USAGE_MONITOR_UTILIZATION_SEVEN_DAY_SONNET` follow the same pattern. An empty `USAGE_MONITOR_RESETS_AT_*` indicates that the quota has no active window (either never used, or the previous window has expired).
+Per-quota variables are emitted for every quota that applies to your account - additional variants like `USAGE_MONITOR_UTILIZATION_SEVEN_DAY_SONNET` follow the same pattern. A quota type the API lists but has not activated for your account, or reports without a usage figure, gets no variables at all rather than a made-up 0%, so check that a variable is set before relying on it. An empty `USAGE_MONITOR_RESETS_AT_*` indicates that the quota has no active window (either never used, or the previous window has expired).
 
 ### `quick_action_command`
 
@@ -256,4 +256,4 @@ Fires when you double-click the tray icon. Receives the same full quota state as
 | `USAGE_MONITOR_EXTRA_USED` | `$8.20` | Amount spent (only set when extra usage is enabled) |
 | `USAGE_MONITOR_EXTRA_LIMIT` | `$10.00` | Monthly limit (only set when extra usage is enabled) |
 
-Per-quota variables are emitted for every quota field the API returns, following the same pattern as `on_startup_command`. If you double-click before the first successful update, only `USAGE_MONITOR_EVENT` is set.
+Per-quota variables are emitted for every quota that applies to your account, following the same pattern as `on_startup_command`. If you double-click before the first successful update, only `USAGE_MONITOR_EVENT` is set.

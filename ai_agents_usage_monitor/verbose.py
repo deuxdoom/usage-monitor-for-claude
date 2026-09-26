@@ -12,11 +12,13 @@ import ctypes
 import ctypes.wintypes
 import importlib.metadata
 import locale
+import msvcrt
 import os
 import platform
 import sys
 import winreg
 from pathlib import Path
+from typing import TextIO
 
 __all__ = ['setup_console', 'print_startup_diagnostics', 'print_runtime_diagnostics']
 
@@ -29,17 +31,93 @@ _WEBVIEW2_GUIDS = [
 ]
 
 
+# Standard handle identifiers, and the GetFileType results that mark a handle
+# as redirected (a console reports FILE_TYPE_CHAR instead).
+_STD_OUTPUT_HANDLE = -11
+_STD_ERROR_HANDLE = -12
+_FILE_TYPE_DISK = 0x0001
+_FILE_TYPE_PIPE = 0x0003
+_INVALID_HANDLE = ctypes.c_void_p(-1).value
+
+# A HANDLE is pointer-sized; the default c_int return would truncate it on 64-bit.
+ctypes.windll.kernel32.GetStdHandle.restype = ctypes.wintypes.HANDLE
+
+
 def setup_console() -> None:
-    """Attach to the parent console or allocate a new one and redirect stdout/stderr."""
+    """Point stdout/stderr at the caller's redirection, or at a console.
+
+    A stream the caller redirected to a file or a pipe keeps that
+    destination.  Only a stream without one falls back to the console -
+    attached from the parent process, or allocated when there is none.
+
+    ``CONOUT$`` addresses the console device itself and therefore bypasses
+    any redirection the caller set up.  Opening it for an already redirected
+    stream would leave ``--verbose > log.txt`` with an empty file, and a
+    windowless build with no way to hand over verbose output as a file.
+    """
     ATTACH_PARENT_PROCESS = -1
 
-    if not ctypes.windll.kernel32.AttachConsole(ATTACH_PARENT_PROCESS):
-        ctypes.windll.kernel32.AllocConsole()
+    stdout_handle = _redirected_handle(_STD_OUTPUT_HANDLE)
+    stderr_handle = _redirected_handle(_STD_ERROR_HANDLE)
 
-    sys.stdout = open('CONOUT$', 'w', encoding='utf-8')  # noqa: SIM115
-    sys.stderr = open('CONOUT$', 'w', encoding='utf-8')  # noqa: SIM115
+    stdout_stream = _stream_from_handle(stdout_handle)
+    # A parent may hand the same handle to both streams.  Wrapping it twice
+    # would produce two file objects that each close it, and the second close
+    # fails at interpreter shutdown.
+    stderr_stream = stdout_stream if stderr_handle == stdout_handle else _stream_from_handle(stderr_handle)
+
+    # The console is only needed for the streams that were not redirected.
+    if stdout_stream is None or stderr_stream is None:
+        if not ctypes.windll.kernel32.AttachConsole(ATTACH_PARENT_PROCESS):
+            ctypes.windll.kernel32.AllocConsole()
+
+    sys.stdout = stdout_stream if stdout_stream is not None else open('CONOUT$', 'w', encoding='utf-8')  # noqa: SIM115
+    sys.stderr = stderr_stream if stderr_stream is not None else open('CONOUT$', 'w', encoding='utf-8')  # noqa: SIM115
 
     os.environ['PYWEBVIEW_LOG'] = 'DEBUG'
+
+
+def _redirected_handle(std_handle: int) -> int | None:
+    """Return the standard handle behind *std_handle* if the caller redirected it.
+
+    A console-backed handle reports ``FILE_TYPE_CHAR``, and a process
+    started without a console has no usable handle at all; both yield
+    ``None``, leaving the caller on the console path.
+
+    Parameters
+    ----------
+    std_handle : int
+        One of the ``STD_*_HANDLE`` identifiers.
+
+    Returns
+    -------
+    int or None
+        The handle when it refers to a file or a pipe, otherwise ``None``.
+    """
+    handle = ctypes.windll.kernel32.GetStdHandle(std_handle)
+    if not handle or handle == _INVALID_HANDLE:
+        return None
+
+    if ctypes.windll.kernel32.GetFileType(handle) not in (_FILE_TYPE_DISK, _FILE_TYPE_PIPE):
+        return None
+
+    return handle
+
+
+def _stream_from_handle(handle: int | None) -> TextIO | None:
+    """Wrap a redirected standard handle in a line-buffered text stream.
+
+    Line buffering keeps the output on disk as it is produced, so a crash
+    leaves the diagnostics that led up to it in the file.
+    """
+    if handle is None:
+        return None
+
+    try:
+        descriptor = msvcrt.open_osfhandle(handle, os.O_WRONLY)
+        return open(descriptor, 'w', encoding='utf-8', buffering=1)  # noqa: SIM115
+    except OSError:
+        return None
 
 
 def _section(title: str) -> None:
@@ -149,6 +227,22 @@ def _screen_info() -> tuple[str, str, str]:
     return monitor_count, primary, work_area
 
 
+def _home_spellings() -> tuple[str, ...]:
+    """Return the home directory as it is spelled and as it resolves.
+
+    Resolving fails on a home directory behind a symlink loop (a
+    ``RuntimeError`` up to Python 3.12) and on an unreachable network
+    path.  The diagnostics have to print either way, so only the literal
+    spelling is compared there.
+    """
+    home_dir = Path.home()
+
+    try:
+        return (str(home_dir), str(home_dir.resolve()))
+    except (OSError, RuntimeError):
+        return (str(home_dir),)
+
+
 def _redact_home(path_str: str) -> str:
     """Replace the user's home directory with ``~`` to avoid exposing the username.
 
@@ -156,15 +250,25 @@ def _redact_home(path_str: str) -> str:
     ``CLAUDE_CONFIG_DIR`` set externally may be differently cased) and
     boundary-aware, so a sibling profile whose name merely starts with the
     username is not partially redacted.
-    """
-    home = str(Path.home())
-    normalized_path = os.path.normcase(path_str)
-    normalized_home = os.path.normcase(home)
 
-    if normalized_path == normalized_home:
-        return '~'
-    if normalized_path.startswith(normalized_home + os.sep):
-        return '~' + path_str[len(home):]
+    Both the literal and the resolved spelling of the home directory are
+    compared, because the paths reaching this function differ: a
+    ``--config-dir`` value arrives resolved in ``CLAUDE_CONFIG_DIR`` (and
+    with it the credentials path), while ``sys.executable`` and
+    ``sys._MEIPASS`` keep the spelling they were given.  Where the home
+    directory is reached through a symlink or a junction those two
+    spellings differ, and matching only one of them would print the
+    username in full.
+    """
+    normalized_path = os.path.normcase(path_str)
+
+    for home_spelling in _home_spellings():
+        normalized_home = os.path.normcase(home_spelling)
+
+        if normalized_path == normalized_home:
+            return '~'
+        if normalized_path.startswith(normalized_home + os.sep):
+            return '~' + path_str[len(home_spelling):]
 
     return path_str
 

@@ -125,7 +125,7 @@ const PRESETS = {
             { unit: 'week', suffix: 'Opus', pct: 12, warn: false,
               reset: { kind: 'date', month: 1, day: 18, clock: '12:00' }, dividers: [0.143, 0.286, 0.429, 0.571, 0.714, 0.857], marker_rel: 0.55 },
         ],
-        extra: { pct: 23, used: '$4.60', limit: '$20.00' },
+        extra: { pct: 23, used: '$4.60', limit: '$20.00', balance: '$55.97' },
         installations: [
             { name: 'CLI', version: '2.1.69' },
             { name: 'VS Code', version: '2.1.69' },
@@ -177,6 +177,7 @@ const PRESETS = {
 // payload: local per-model token windows plus the server account and quotas.
 const CODEX = {
     profile: { email: 'user@example.com', name: '', plan: 'ChatGPT Plus' },
+    credits: 1250,
     usage: [
         { unit: 'hour', period: 5, seconds: 18000, pct: 97,
           reset: { kind: 'in', duration: '3h 55m' }, dividers: [0.2, 0.4, 0.6, 0.8], marker_rel: 0.21 },
@@ -191,7 +192,7 @@ const CODEX = {
             { model: 'gpt-6-astra', tokens: 14903992 }, { model: 'gpt-6', tokens: 6500000 }] },
     ],
     installations: [
-        { name: 'Codex CLI', version: '0.153.0' },
+        { name: 'CLI', version: '0.153.0' },
         { name: 'VS Code (Codex)', version: '26.5901.22334' },
     ],
 };
@@ -300,6 +301,7 @@ function resolveData(name, loc) {
         pct_text: preset.extra.pct + '%',
         fill_pct: preset.extra.pct / 100,
         spent_text: loc.extra_usage_spent.replace('{used}', preset.extra.used).replace('{limit}', preset.extra.limit),
+        balance_text: preset.extra.balance ? loc.extra_usage_balance.replace('{balance}', preset.extra.balance) : '',
     } : null;
 
     let status = typeof preset.status === 'function' ? preset.status() : preset.status;
@@ -331,17 +333,13 @@ function resolveCodex(loc) {
     // pins it to the default so the page's own timer and countdown agree.
     const refreshSeconds = 60;
 
-    // _PopupApi labels each local window before sending it, so the page never
-    // matches window lengths itself.
-    const windows = CODEX.windows.map((window) => ({
-        ...window,
-        period_text: window.seconds % 86400 === 0 ? loc.codex_seven_days : loc.codex_five_hours,
-    }));
+    const windows = CODEX.windows;
 
     return {
         windows, updated_at: now(), partial: false, available: true,
         installations: CODEX.installations, refresh_seconds: refreshSeconds,
         account: { profile: CODEX.profile, usage,
+                   credits_text: CODEX.credits ? loc.codex_credits_balance.replace('{balance}', CODEX.credits.toLocaleString('en-US')) : '',
                    status: { last_success_time: now(), next_poll_time: now() + refreshSeconds, error: null } },
     };
 }

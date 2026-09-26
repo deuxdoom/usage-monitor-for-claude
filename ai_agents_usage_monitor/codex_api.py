@@ -62,8 +62,9 @@ class CodexAccount:
         Returns
         -------
         dict
-            Account, quota windows, timestamps and a translatable error key.
-            Failed reads clear prior values to avoid presenting a stale account.
+            Account, quota windows, purchased credits, timestamps and a
+            translatable error key.  Failed reads clear prior values to avoid
+            presenting a stale account.
         """
         with self._lock:
             if self._last_read is not None:
@@ -78,11 +79,12 @@ class CodexAccount:
             error = None
             account = None
             windows = []
+            credits = None
             try:
                 binary = _find_binary()
                 if binary is None:
                     raise _ReadError('codex_cli_missing')
-                account, windows = _fetch(binary)
+                account, windows, credits = _fetch(binary)
                 if not windows:
                     error = 'codex_limits_unavailable'
             except _ReadError as exc:
@@ -92,7 +94,7 @@ class CodexAccount:
             self._last_read = time.monotonic()
             self._failures = min(self._failures + 1, 4) if error else 0
             now = time.time()
-            self._snapshot = {'profile': account, 'windows': windows, 'error': error,
+            self._snapshot = {'profile': account, 'windows': windows, 'credits': credits, 'error': error,
                               'updated_at': now, 'next_read': now + self._delay(interval)}
             return self._snapshot
 
@@ -107,8 +109,8 @@ class _ReadError(Exception):
         super().__init__(key)
 
 
-def _fetch(binary: Path) -> tuple[dict[str, str], list[dict[str, Any]]]:
-    """Read identity and quotas within one short-lived app-server connection."""
+def _fetch(binary: Path) -> tuple[dict[str, str], list[dict[str, Any]], dict[str, Any] | None]:
+    """Read identity, quotas and purchased credits within one short-lived app-server connection."""
     process = subprocess.Popen(
         [str(binary), 'app-server', '-c', 'analytics.enabled=false', '-c', 'otel.exporter="none"'],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -140,7 +142,7 @@ def _fetch(binary: Path) -> tuple[dict[str, str], list[dict[str, Any]]]:
             'email': account.get('email') if isinstance(account.get('email'), str) else '',
             'name': '',
             'plan': _plan_label(account.get('planType')),
-        }, windows
+        }, windows, _credits(limits)
     finally:
         if process.poll() is None:
             process.terminate()
@@ -213,13 +215,52 @@ def _request(process: Any, responses: queue.Queue, deadline: float, request_id: 
         return record['result']
 
 
-def _windows(result: dict) -> list[dict[str, Any]]:
-    """Validate server windows without assuming which period is primary."""
+def _codex_bucket(result: dict) -> dict | None:
+    """The Codex rate-limit bucket: the per-limit entry when present, else the legacy one."""
     buckets = result.get('rateLimitsByLimitId')
     bucket = buckets.get('codex') if isinstance(buckets, dict) else None
     if not isinstance(bucket, dict):
         bucket = result.get('rateLimits')
-    if not isinstance(bucket, dict):
+
+    return bucket if isinstance(bucket, dict) else None
+
+
+def _credits(result: dict) -> dict[str, Any] | None:
+    """Read the credits bought for Codex usage beyond the plan's limits.
+
+    The balance is counted in Codex credits, not in money - the response
+    names no rate between the two, so it is never shown as dollars.  None
+    unless the account holds credits or has unlimited ones, so a plan without
+    any shows nothing rather than a zero balance.
+
+    Parameters
+    ----------
+    result : dict
+        The ``account/rateLimits/read`` result.
+    """
+    bucket = _codex_bucket(result)
+    credits = bucket.get('credits') if bucket is not None else None
+    if not isinstance(credits, dict):
+        return None
+    if credits.get('unlimited') is True:
+        return {'unlimited': True, 'balance': None}
+    if credits.get('hasCredits') is not True:
+        return None
+
+    try:
+        balance = float(credits.get('balance'))
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(balance) or balance < 0:
+        return None
+
+    return {'unlimited': False, 'balance': balance}
+
+
+def _windows(result: dict) -> list[dict[str, Any]]:
+    """Validate server windows without assuming which period is primary."""
+    bucket = _codex_bucket(result)
+    if bucket is None:
         return []
     windows = []
     for key, value in bucket.items():

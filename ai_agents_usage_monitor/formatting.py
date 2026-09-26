@@ -14,13 +14,12 @@ from typing import Any
 from .i18n import T
 from .settings import (
     CURRENCY_SYMBOL, POPUP_HIDE_FIELDS, POPUP_HIDE_INACTIVE, TIME_FORMAT, TOOLTIP_FIELDS,
-    _SYSTEM_CURRENCY_SYMBOL,
 )
 
 __all__ = [
-    'codex_reset_iso', 'divider_positions', 'duration_label', 'elapsed_pct', 'expand_popup_fields',
+    'codex_reset_iso', 'divider_positions', 'dollar_credit', 'duration_label', 'elapsed_pct', 'expand_popup_fields',
     'field_countdown_only', 'field_hidden', 'field_inactive', 'field_period', 'format_codex_tooltip',
-    'format_count', 'format_credits', 'format_tooltip', 'parse_field_name', 'popup_label',
+    'format_count', 'format_credits', 'format_tooltip', 'is_active_quota', 'parse_field_name', 'popup_label',
     'time_until', 'tooltip_label',
 ]
 
@@ -32,6 +31,11 @@ _NUMBER_WORDS = {
     'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10, 'eleven': 11, 'twelve': 12,
 }
 _KNOWN_UNITS = frozenset({'hour', 'day'})
+# Code names the API reports without a display name, mapped to the locale key
+# of the name Anthropic's own client shows for them.  The one deliberate
+# exception to deriving labels from the field name - see CLAUDE.md > Quota
+# Fields.  Add an entry only after matching the numbers against claude.ai.
+_CODE_NAME_LABELS = {'iguana_necktie': 'cloud_session_credits'}
 _TITLE_CASE_EXCEPTIONS = {'oauth': 'OAuth', 'api': 'API', 'ai': 'AI'}
 _CURRENCY_SYMBOLS = {
     'USD': '$', 'EUR': '€', 'GBP': '£', 'JPY': '¥', 'CNY': '¥',
@@ -89,6 +93,9 @@ def tooltip_label(field: str) -> str:
         so the tray tooltip reads in the user's language.
         Falls back to title case of the full field name if unparseable.
     """
+    if field in _CODE_NAME_LABELS:
+        return T[_CODE_NAME_LABELS[field]]
+
     parsed = parse_field_name(field)
     if parsed is None:
         return _title_case_variant(field)
@@ -114,6 +121,9 @@ def popup_label(field: str) -> str:
         Localized label like ``'Session (5hr)'`` or ``'Weekly (Sonnet)'``.
         Falls back to title case with abbreviation exceptions if unparseable.
     """
+    if field in _CODE_NAME_LABELS:
+        return T[_CODE_NAME_LABELS[field]]
+
     parsed = parse_field_name(field)
     if parsed is None:
         return _title_case_variant(field)
@@ -263,6 +273,55 @@ def field_inactive(entry: dict[str, Any] | None, field: str | None = None) -> bo
 
     utilization = entry.get('utilization')
     return not entry.get('resets_at') and utilization is not None and utilization <= 0
+
+
+def dollar_credit(entry: Any) -> tuple[float, float] | None:
+    """Return ``(used, limit)`` in dollars for a quota the API counts in money.
+
+    A quota with a positive ``limit_dollars`` is a credit grant - cloud
+    session credits, for one - whose percentage is only a share of a dollar
+    amount, so the dollars are what to show.  Plan limits report the dollar
+    fields as null and return None here, so this is decided by the response
+    alone, never by the field name.
+
+    Parameters
+    ----------
+    entry : Any
+        One quota object from the usage response.
+    """
+    if not isinstance(entry, dict):
+        return None
+
+    limit = entry.get('limit_dollars')
+    used = entry.get('used_dollars')
+    if isinstance(limit, bool) or not isinstance(limit, (int, float)) or limit <= 0:
+        return None
+    if isinstance(used, bool) or not isinstance(used, (int, float)):
+        return None
+
+    return float(used), float(limit)
+
+
+def is_active_quota(field: str, entry: Any) -> bool:
+    """Return True if a usage entry is a quota that applies to the account.
+
+    The API lists quota types before they apply, under code names (e.g.
+    ``nimbus_quill``), with a utilization of 0 and no reset window.  An entry
+    therefore counts only if it reports a utilization and has a reset window,
+    a name that parses, or the ``from_account_limits`` marker set by
+    ``_merge_scoped_limits()``.
+
+    Parameters
+    ----------
+    field : str
+        API field name.
+    entry : Any
+        Value of that field in the usage response.
+    """
+    if not isinstance(entry, dict) or entry.get('utilization') is None:
+        return False
+
+    return bool(entry.get('resets_at')) or parse_field_name(field) is not None or bool(entry.get('from_account_limits'))
 
 
 def _field_sort_key(field: str) -> tuple[int, int, int, str]:
@@ -426,7 +485,7 @@ def _format_clock(when: datetime, clock_24h: bool) -> str:
     return when.strftime('%I:%M %p').lstrip('0')
 
 
-def time_until(iso_str: str, clock_24h: bool | None = None, countdown_only: bool = False) -> str:
+def time_until(iso_str: str, clock_24h: bool | None = None, countdown_only: bool = False, expiry: bool = False) -> str:
     """Return human-readable reset time.
 
     Same day:  "Resets in 2h 20m"
@@ -444,9 +503,14 @@ def time_until(iso_str: str, clock_24h: bool | None = None, countdown_only: bool
         Always use the "Resets in ..." form, even when the reset falls on a
         later calendar day.  Set for short rolling windows, where the time
         remaining is the point (see ``field_countdown_only``).
+    expiry : bool
+        Word the time as an expiry ("Expires on ...") instead of a reset.  A
+        credit grant (see ``dollar_credit``) is not refilled at that moment;
+        what is left of it lapses.
     """
     if clock_24h is None:
         clock_24h = TIME_FORMAT == '24h'
+    wording = 'expires' if expiry else 'resets'
 
     try:
         reset = datetime.fromisoformat(iso_str)
@@ -459,7 +523,7 @@ def time_until(iso_str: str, clock_24h: bool | None = None, countdown_only: bool
         # instead of hiding the line - mirrors the native UI. Clearly-stale
         # timestamps (far in the past) still collapse to empty so we do not lie.
         if total_seconds < 60:
-            return T['resets_imminent'] if total_seconds > -60 else ''
+            return T[f'{wording}_imminent'] if total_seconds > -60 else ''
 
         total_min = int(total_seconds / 60)
         reset_local = reset.astimezone()
@@ -477,16 +541,16 @@ def time_until(iso_str: str, clock_24h: bool | None = None, countdown_only: bool
                 duration = T['duration_hm'].format(h=total_min // 60, m=total_min % 60)
             else:
                 duration = T['duration_m'].format(m=total_min)
-            return T['resets_in'].format(duration=duration)
+            return T[f'{wording}_in'].format(duration=duration)
 
         time_str = _format_clock(reset_local, clock_24h)
         if reset_date == today + timedelta(days=1):
-            return T['resets_tomorrow'].format(clock=time_str)
+            return T[f'{wording}_tomorrow'].format(clock=time_str)
 
         # Beyond tomorrow the calendar date pins the reset day unambiguously,
         # with the clock time following it as one phrase.
         date_str = T['date_month_day'].format(m=reset_local.month, d=reset_local.day)
-        return T['resets_date'].format(date=date_str, clock=time_str)
+        return T[f'{wording}_date'].format(date=date_str, clock=time_str)
     except Exception:
         return ''
 
@@ -497,7 +561,9 @@ def _target_currency_symbol(currency: str | None) -> str:
     Precedence: an explicit ``currency_symbol`` user override (``None``
     means unset; an empty override means "no symbol"), then the billing
     currency reported by the API (its known symbol, or the ISO code itself
-    as a fallback), then the system locale symbol.
+    as a fallback), then the dollar.  The system locale's currency is never
+    used: an amount without a reported currency is in dollars, and labelling
+    it with the won or the yen would name the wrong money.
 
     Parameters
     ----------
@@ -510,16 +576,17 @@ def _target_currency_symbol(currency: str | None) -> str:
     if currency:
         return _CURRENCY_SYMBOLS.get(currency.upper(), currency.upper())
 
-    return _SYSTEM_CURRENCY_SYMBOL
+    return _CURRENCY_SYMBOLS['USD']
 
 
 def format_credits(minor_units: float, currency: str | None = None, decimal_places: int | None = None) -> str:
     """Format a minor-unit amount as a localized currency string.
 
-    Uses the system locale for number formatting (decimal separator, symbol
-    placement, grouping).  The displayed symbol follows the billing currency
-    reported by the API when it differs from the system locale, so an account
-    billed in a currency other than the system's still shows correctly.
+    The separators and the symbol position follow the system locale; the
+    number of decimal places and the symbol follow the billing currency.
+    The locale's own digit count belongs to *its* currency - none for won
+    or yen - so letting it decide would drop the cents of an amount billed
+    in dollars on a Korean or Japanese system.
 
     Parameters
     ----------
@@ -537,18 +604,34 @@ def format_credits(minor_units: float, currency: str | None = None, decimal_plac
     symbol = _target_currency_symbol(currency)
 
     try:
-        formatted = _locale.currency(amount, grouping=True)
-
-        # An empty symbol (explicit "no symbol" override) removes the system
-        # symbol instead of leaving it in place.
-        if symbol != _SYSTEM_CURRENCY_SYMBOL and _SYSTEM_CURRENCY_SYMBOL:
-            formatted = formatted.replace(_SYSTEM_CURRENCY_SYMBOL, symbol).strip()
-
-        return formatted
+        return _locale_money(amount, places, symbol)
     except (ValueError, _locale.Error):
         if symbol:
             return f'{symbol}\u00a0{amount:.{places}f}'
         return f'{amount:.{places}f}'
+
+
+def _locale_money(amount: float, places: int, symbol: str) -> str:
+    """Lay out an amount with the locale's monetary separators and symbol position.
+
+    Raises ValueError for a locale without monetary conventions (``C``),
+    which marks them with ``CHAR_MAX``, as ``locale.currency()`` does.
+    An empty ``symbol`` - an explicit "no symbol" override - leaves the
+    bare number.
+    """
+    conventions = _locale.localeconv()
+    if conventions['frac_digits'] == _locale.CHAR_MAX:
+        raise ValueError('the locale defines no monetary conventions')
+
+    negative = amount < 0
+    number = _locale.format_string(f'%.{places}f', abs(amount), grouping=True, monetary=True)
+    if symbol:
+        precedes = conventions['n_cs_precedes'] if negative else conventions['p_cs_precedes']
+        separated = conventions['n_sep_by_space'] if negative else conventions['p_sep_by_space']
+        space = ' ' if separated else ''
+        number = f'{symbol}{space}{number}' if precedes else f'{number}{space}{symbol}'
+
+    return f'-{number}' if negative else number
 
 
 def duration_label(seconds: int) -> str:

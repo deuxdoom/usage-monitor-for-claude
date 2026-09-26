@@ -33,7 +33,7 @@ __all__ = [
     'BAR_BG', 'BAR_DIVIDER', 'BAR_FG', 'BAR_FG_ALT', 'BAR_FG_WARN', 'BAR_MARKER', 'BG',
     'CLI_COMMAND', 'COMPACT_HIDE', 'CURRENCY_SYMBOL',
     'FG', 'FG_DIM', 'FG_HEADING', 'FG_LINK',
-    'ICON_DARK', 'ICON_FIELDS', 'ICON_LIGHT', 'ICON_STYLE', 'IDLE_PAUSE',
+    'ICON_DARK', 'ICON_FIELDS', 'ICON_LIGHT', 'ICON_STYLE', 'IDLE_INTERVAL', 'IDLE_PAUSE',
     'LANGUAGE', 'LEGACY_SETTINGS_FILENAME', 'MAX_BACKOFF', 'NOTIFY_CLAUDE_UPDATE',
     'ON_RESET_COMMAND', 'ON_STARTUP_COMMAND', 'ON_THRESHOLD_COMMAND', 'QUICK_ACTION_COMMAND',
     'POLL_ERROR', 'POLL_FAST', 'POLL_FAST_EXTRA', 'POLL_INTERVAL',
@@ -62,6 +62,7 @@ _NUMERIC_BOUNDS: dict[str, int] = {
     'poll_error': 1,
     'max_backoff': 1,
     'idle_pause': 0,
+    'idle_interval': 1,
     'popup_margin': 0,
 }
 _COLOR_KEYS = frozenset({
@@ -386,6 +387,10 @@ POLL_FAST_EXTRA = _S.get('poll_fast_extra', 2)
 POLL_ERROR = _S.get('poll_error', 30)
 MAX_BACKOFF = _S.get('max_backoff', 900)
 IDLE_PAUSE = _S.get('idle_pause', 300)
+# Cadence once the popup has been closed for IDLE_PAUSE seconds.  It replaces a
+# full stop there, not the one-minute rule above: the tray icon keeps moving
+# while nobody has the popup open, and it never slows a view that is showing.
+IDLE_INTERVAL = _S.get('idle_interval', 600)
 
 # Popup theme
 BG = _S.get('bg', '#101316')
@@ -476,19 +481,23 @@ NOTIFY_CLAUDE_UPDATE: bool = _S.get('notify_claude_update', True)
 
 # Currency
 
-def _detect_currency_symbol() -> str:
-    """Detect the system locale currency symbol for monetary formatting."""
+def _use_system_monetary_locale() -> None:
+    """Apply the system's monetary separators and symbol position to locale formatting.
+
+    Only the layout comes from here.  The system's own currency never labels
+    an amount: Claude bills in the currency the API reports, and in dollars
+    when it reports none.
+    """
     try:
         _locale.setlocale(_locale.LC_MONETARY, '')
-        return _locale.localeconv().get('currency_symbol', '') or ''
     except _locale.Error:
-        return ''
+        pass
 
 
-_SYSTEM_CURRENCY_SYMBOL = _detect_currency_symbol()
+_use_system_monetary_locale()
 # None when the user set no override: presence must be explicit, because an
-# override that happens to equal the system symbol still has to win over the
-# API billing currency.
+# override that happens to be "$" still has to win over the API billing
+# currency.
 CURRENCY_SYMBOL: str | None = _S.get('currency_symbol')
 
 # Language override

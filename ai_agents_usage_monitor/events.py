@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .formatting import format_credits
+from .formatting import format_credits, is_active_quota
 from .i18n import T
 
 __all__ = ['quick_action_env', 'quota_snapshot_env', 'reset_env', 'startup_env', 'threshold_env']
@@ -22,7 +22,9 @@ def quota_snapshot_env(data: dict[str, Any]) -> dict[str, str]:
     """Build environment variables describing the current quota state.
 
     Emits one ``USAGE_MONITOR_UTILIZATION_<FIELD>`` /
-    ``USAGE_MONITOR_RESETS_AT_<FIELD>`` pair per detected quota field, plus
+    ``USAGE_MONITOR_RESETS_AT_<FIELD>`` pair per quota field that applies to
+    the account - a quota the API only announces, or reports without a
+    utilization, is left out rather than reported as 0% - plus
     ``USAGE_MONITOR_EXTRA_USED`` when paid extra usage is enabled and
     ``USAGE_MONITOR_EXTRA_LIMIT`` when it also has a monthly limit (an
     uncapped account has no limit to report).  Shared by the startup and
@@ -35,9 +37,9 @@ def quota_snapshot_env(data: dict[str, Any]) -> dict[str, str]:
     """
     env_vars: dict[str, str] = {}
     for key, entry in data.items():
-        if key == 'extra_usage' or not isinstance(entry, dict) or 'utilization' not in entry:
+        if key == 'extra_usage' or not is_active_quota(key, entry):
             continue
-        env_vars[f'USAGE_MONITOR_UTILIZATION_{key.upper()}'] = str(round(entry.get('utilization', 0) or 0))
+        env_vars[f'USAGE_MONITOR_UTILIZATION_{key.upper()}'] = str(round(entry['utilization']))
         env_vars[f'USAGE_MONITOR_RESETS_AT_{key.upper()}'] = entry.get('resets_at') or ''
 
     extra = data.get('extra_usage') or {}

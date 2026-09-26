@@ -1,11 +1,42 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+이 프로젝트의 모든 주요 변경 사항은 이 파일에 문서화됩니다.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+형식은 [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)을 기반으로 하며,
+이 프로젝트는 [Semantic Versioning](https://semver.org/spec/v2.0.0.html)을 준수합니다.
 
-This changelog covers 1.30.0 onwards, the point from which this project builds independently.
+이 변경 이력은 이 프로젝트가 독립적으로 빌드되기 시작한 시점인 1.30.0 버전 이후를 다룹니다.
+
+
+## [3.4.0] - 2026-09-27
+
+선불 크레딧 잔액 표시, 트레이 유휴 갱신, 인증 메시지, 이벤트 명령 변수, `--verbose` 관련 두 수정은 업스트림 [usage-monitor-for-claude v1.23.0](https://github.com/jens-duttke/usage-monitor-for-claude/releases/tag/v1.23.0)에서 가져와 이 포크에 맞게 옮긴 것입니다. [@jens-duttke](https://github.com/jens-duttke)님께 감사드립니다. 선불 크레딧 잔액 표시는 [@TheConfax](https://github.com/TheConfax)님, 홈 폴더 경로 가리기 수정은 [@hybrid2102](https://github.com/hybrid2102)님이 업스트림에 기여한 작업입니다.
+
+### Added
+
+- 상세 팝업의 추가 사용량 구역에 남은 선불 크레딧 잔액을 한 줄 더 표시해, 플랜 한도를 다 쓴 뒤에도 작업을 이어 갈 수 있는지 바로 알 수 있습니다. 지금까지는 사용한 금액만 보였습니다. 잔액은 추가 사용량이 켜진 계정에서만 사용량 조회에 성공한 주기에 함께 읽으며(`/api/oauth/organizations/{org_uuid}/prepaid/credits`), 읽지 못하면 그 줄만 숨기고 오류로 다루지 않습니다
+- Codex 화면에도 추가 사용량 구역을 두어, 플랜 한도를 넘겨 쓰려고 구매한 Codex 크레딧 잔액을 보여 줍니다(예: "크레딧 잔액 1,250", 무제한이면 "크레딧 무제한"). 한도 조회(`account/rateLimits/read`) 응답의 `credits`를 함께 읽으므로 요청이 늘지 않고, 크레딧을 산 적 없는 계정에서는 구역이 나타나지 않습니다. Codex 크레딧은 돈이 아니라 Codex 자체 단위이고 응답에 환산 비율이 없어서 달러로 바꾸지 않습니다
+
+### Changed
+
+- "한도 더 보기" 안에 코드명 `Iguana Necktie`로 나오던 카드를 claude.ai와 같은 이름인 "클라우드 세션 크레딧"으로 표시하고, 퍼센트 대신 달러로 보여 줍니다. 큰 숫자는 사용액($11.94), 막대 아래는 "$100.00 중 $88.06 남음", 오른쪽은 재설정이 아니라 만료 시각입니다. API가 이 항목에 이름을 주지 않아 Anthropic 자체 클라이언트처럼 코드명에 이름을 붙였습니다. 달러 표시는 이름과 관계없이 `limit_dollars` 값이 있는 모든 할당량에 적용됩니다
+
+- 팝업을 닫은 지 `idle_pause`초(기본 5분)가 지나면 조회를 멈추던 동작을 바꿔, 트레이에만 둔 동안에도 새 설정 `idle_interval`초(기본 10분)마다 사용량을 갱신합니다. 이전에는 팝업을 다시 열 때까지 트레이 아이콘의 숫자와 툴팁이 멈춰 있었고, 임계값 알림과 계정 전환 감지도 그동안 동작하지 않았습니다. 할당량 초기화는 이 간격과 관계없이 초기화 직후에 확인하고, API가 아직 초기화를 반영하지 않았거나 조회에 실패하면 평소 간격으로 다시 확인합니다. 팝업을 열면 곧바로 평소 간격으로 돌아옵니다
+- 세션 만료와 토큰 없음 메시지가 Claude Code CLI 로그인이 문제라는 것을 밝히고, 해결 명령 `claude auth login`을 문장 끝에 안내합니다. 이 앱은 CLI가 쓰는 자격 증명 파일을 읽는데, 이전 메시지는 "Claude Code를 열어 다시 로그인"하라고만 해서 IDE 확장을 이미 열어 둔 사용자에게는 해결책이 되지 않았고, 토큰이 없을 때의 시작 알림은 "로그인하세요:" 뒤에 아무것도 없이 끝났습니다
+- 이벤트 명령(`on_startup_command`, `quick_action_command`)이 사용률이 보고되지 않은 할당량을 0%로 넘기지 않고 `USAGE_MONITOR_UTILIZATION_*`/`USAGE_MONITOR_RESETS_AT_*` 변수를 아예 빼고 넘깁니다. API가 계정에 적용하기 전에 미리 나열하는 코드명 할당량(0%, 초기화 시점 없음)의 변수도 넘기지 않으며, 그 할당량이 활성화되면 다시 포함됩니다. 스크립트가 없는 값을 여유 있는 0%로 오해하지 않게 하려는 변경입니다
+- API가 통화를 알려 주지 않은 금액을 Windows 로캘의 통화(한국어 환경이면 `₩`)가 아니라 달러(`$`)로 표시합니다. Claude의 추가 사용량은 따로 명시되지 않으면 달러로 청구되므로, 원화 기호를 붙이면 다른 돈으로 읽혔습니다. `currency_symbol` 설정으로 지정한 기호는 계속 우선합니다
+- Codex 설치 목록의 CLI 행 이름을 `Codex CLI`에서 `CLI`로 바꿔 Claude 쪽과 맞췄습니다. 구역 제목이 이미 CODEX이므로 이름이 겹쳤습니다
+- Codex 주간(7일) 토큰 상세 아래의 주석을 Claude처럼 한 줄로 줄였습니다("로컬 Codex 기록 기준. 여러 계정 합산이며 한도와 별개입니다"). 이전에는 "최근 7일."로 시작해 캐시 입력·추론 집계 방식과 트레이 기준까지 세 줄에 걸쳐 설명했습니다
+
+### Fixed
+
+- 한국어·일본어 Windows에서 달러 금액의 센트가 사라지던 문제를 고쳤습니다. 추가 사용량이 "$12.40 / $50.00" 대신 "$12 / $50"로, 선불 잔액이 "$62.35" 대신 "$62"로 나왔습니다. 금액 형식을 `locale.currency()`에 맡기면서 원화·엔화처럼 소수 자리가 없는 로캘 통화의 자릿수로 반올림되었기 때문입니다. 이제 소수 자릿수는 청구 통화를 따르고, 천 단위 구분과 기호 위치만 로캘을 따릅니다. 임계값 알림의 금액도 같이 바로잡혔습니다
+
+- `AIAgentsUsageMonitor.exe --verbose > log.txt`처럼 진단 출력을 파일이나 파이프로 리디렉션하면 그곳에 기록됩니다. 이전에는 리디렉션과 상관없이 항상 콘솔 장치(`CONOUT$`)에 출력해 파일이 비어 있었고, 버그 제보에 진단 기록을 첨부할 방법이 없었습니다. 리디렉션하지 않은 스트림은 이전처럼 콘솔에 출력합니다
+- 사용자 프로필을 정션이나 심볼릭 링크로 다른 위치에 둔 환경에서 `--config-dir`로 실행하면, `--verbose` 진단의 `CLAUDE_CONFIG_DIR`과 자격 증명 파일 경로에 사용자 이름이 그대로 찍히던 문제를 고쳤습니다. `--config-dir` 값이 실제 경로로 바뀌어 저장되면서 홈 폴더와 표기가 달라져 `~`로 가려지지 않았습니다. 이제 홈 폴더의 원래 표기와 실제 경로를 모두 비교합니다
+
+[Show all code changes](https://github.com/deuxdoom/usage-monitor-for-claude/compare/v3.3.0...v3.4.0)
+
 
 
 ## [3.3.0] - 2026-09-26

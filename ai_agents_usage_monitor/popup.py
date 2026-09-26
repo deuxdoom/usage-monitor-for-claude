@@ -29,7 +29,7 @@ from .claude_cli import CHANGELOG_URL, PROJECT_URL, find_installations
 from .codex_cli import CODEX_CHANGELOG_URL
 from .codex_sessions import CodexUsage
 from .formatting import (
-    codex_reset_iso, divider_positions, duration_label, elapsed_pct, expand_popup_fields,
+    codex_reset_iso, divider_positions, dollar_credit, duration_label, elapsed_pct, expand_popup_fields,
     field_countdown_only, field_period, format_count, format_credits, popup_label, time_until,
 )
 from .i18n import LANG_CODE, T
@@ -168,6 +168,20 @@ def _clamp_to_work_area(left: int, top: int, width: int, height: int, work: ctyp
     return left, top
 
 
+def _prepaid_balance_text(prepaid: dict[str, Any] | None) -> str:
+    """Return the rendered prepaid-credit balance line, or '' when unavailable."""
+    if not prepaid:
+        return ''
+
+    amount = prepaid.get('amount_minor')
+    if amount is None:
+        return ''
+
+    balance = format_credits(amount, prepaid.get('currency'), prepaid.get('decimal_places'))
+
+    return T['extra_usage_balance'].format(balance=balance)
+
+
 def _snapshot_to_dict(
     snap: CacheSnapshot, installations: list[dict[str, str]] | None = None, next_poll_time: float | None = None,
 ) -> dict[str, Any]:
@@ -210,7 +224,7 @@ def _snapshot_to_dict(
             warn = pct >= 100 or (time_pct is not None and pct > time_pct)
             marker_rel = max(0.0, min(1.0, time_pct / 100)) if time_pct is not None else None
 
-            usage.append({
+            bar = {
                 'key': field,
                 'label': label,
                 'period_seconds': period,
@@ -222,7 +236,11 @@ def _snapshot_to_dict(
                 'reset_text': time_until(resets_at, countdown_only=field_countdown_only(field)) if resets_at else '',
                 'dividers': divider_positions(resets_at, period) if period else [],
                 'marker_rel': marker_rel,
-            })
+            }
+            credit = dollar_credit(entry)
+            if credit is not None:
+                bar.update(_credit_texts(*credit, resets_at))
+            usage.append(bar)
 
     # Extra usage
     extra = None
@@ -234,6 +252,7 @@ def _snapshot_to_dict(
                 limit = extra_data.get('monthly_limit', 0) or 0
                 currency = extra_data.get('currency')
                 decimal_places = extra_data.get('decimal_places')
+                balance_text = _prepaid_balance_text(snap.prepaid)
                 if limit > 0:
                     pct = used / limit * 100
                     extra = {
@@ -244,6 +263,7 @@ def _snapshot_to_dict(
                             used=format_credits(used, currency, decimal_places),
                             limit=format_credits(limit, currency, decimal_places),
                         ),
+                        'balance_text': balance_text,
                     }
                 else:
                     # No monthly cap (e.g. uncapped pay-as-you-go credits) - show
@@ -255,6 +275,7 @@ def _snapshot_to_dict(
                         'spent_text': T['extra_usage_spent_no_limit'].format(
                             used=format_credits(used, currency, decimal_places),
                         ),
+                        'balance_text': balance_text,
                     }
 
     # Installations
@@ -284,6 +305,47 @@ def _snapshot_to_dict(
     }
 
 
+def _codex_credits_text(credits: dict[str, Any] | None) -> str:
+    """Render purchased Codex credits as the extra-usage balance line, or '' without any.
+
+    Counted in Codex credits, as Codex itself shows them: the response names
+    no exchange rate, so a dollar figure would be invented.
+    """
+    if not credits:
+        return ''
+    if credits.get('unlimited'):
+        return T['codex_credits_unlimited']
+
+    balance = credits.get('balance')
+    if balance is None:
+        return ''
+
+    amount = format_count(int(balance)) if float(balance).is_integer() else f'{balance:,.2f}'
+
+    return T['codex_credits_balance'].format(balance=amount)
+
+
+def _credit_texts(used: float, limit: float, resets_at: str) -> dict[str, str]:
+    """Texts for a quota counted in dollars: the amounts replace the percentages.
+
+    The fill still measures the used share, and the reset time is worded as
+    an expiry, because what is left of a grant lapses then rather than refills.
+    """
+    left = max(0.0, limit - used)
+
+    return {
+        'pct_text': _dollars(used),
+        'left_text': _dollars(left),
+        'pace_text': T['credit_remaining'].format(left=_dollars(left), limit=_dollars(limit)),
+        'reset_text': time_until(resets_at, expiry=True) if resets_at else '',
+    }
+
+
+def _dollars(amount: float) -> str:
+    """Format a dollar amount the API reports in whole units (``limit_dollars``)."""
+    return format_credits(round(amount * 100), 'USD', 2)
+
+
 def _pace_text(pct: float, time_pct: float | None) -> str:
     """Describe consumption relative to the elapsed quota window."""
     if pct >= 100:
@@ -293,25 +355,6 @@ def _pace_text(pct: float, time_pct: float | None) -> str:
 
     state = T['pace_ahead'] if pct > time_pct else T['pace_within']
     return T['pace_elapsed'].format(pct=f'{time_pct:.0f}', state=state)
-
-
-def _codex_local_windows(local: dict[str, Any]) -> list[dict[str, Any]]:
-    """Label each local summary window for the detail panel.
-
-    Which window a label belongs to is decided here, beside the rest of the
-    Codex formatting, so the page renders the text it is handed instead of
-    matching window lengths of its own.
-
-    Parameters
-    ----------
-    local : dict
-        A ``CodexUsage.snapshot()`` result.
-    """
-    windows = []
-    for window in local.get('windows') or []:
-        day_scoped = window['seconds'] % 86400 == 0
-        windows.append({**window, 'period_text': T['codex_seven_days'] if day_scoped else T['codex_five_hours']})
-    return windows
 
 
 def _codex_account_to_dict(snapshot: dict[str, Any], local_periods: set[int],
@@ -356,6 +399,7 @@ def _codex_account_to_dict(snapshot: dict[str, Any], local_periods: set[int],
         })
     return {
         'profile': snapshot['profile'], 'usage': usage,
+        'credits_text': _codex_credits_text(snapshot.get('credits')),
         'status': {'last_success_time': snapshot['updated_at'],
                    'next_poll_time': next_poll_time if next_poll_time is not None else snapshot['next_read'],
                    'error': T[snapshot['error']] if snapshot['error'] else None},
@@ -456,7 +500,7 @@ class _PopupApi:
         local = self._popup._codex_usage.snapshot()
         account = self._popup.app.codex_account.snapshot(interval)
         installations = self._popup.app.codex_installations.read()
-        windows = _codex_local_windows(local)
+        windows = local.get('windows') or []
         local_periods = {window['seconds'] for window in windows}
         account_dict = _codex_account_to_dict(account, local_periods, self._popup.app._next_poll_time)
 

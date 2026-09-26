@@ -138,8 +138,9 @@ async function refreshCodex() {
 function renderCodex(error) {
     renderCodexAccount(codexData?.account);
     renderInstallations(codexData?.installations || [], 'codex');
-    // Extra usage is a Claude-only section; it would otherwise survive the swap.
-    els.extraSection.classList.remove('visible');
+    // Codex reports only a balance of purchased credits - no amount spent and no limit.
+    const credits = codexData?.account?.credits_text;
+    renderExtraSection(credits ? {spent_text: '', has_limit: false, balance_text: credits} : null);
     if (error || !codexData) {
         updateStatus(error ? {text: error, is_error: true} : {text: translations.status_refreshing});
         return;
@@ -149,6 +150,29 @@ function renderCodex(error) {
         next_poll_time: codexData.updated_at + (codexData.refresh_seconds || 60),
     };
     updateStatus({...status, error: status.error || (codexData.partial ? translations.codex_partial : null)});
+}
+
+/**
+ * Fill the extra-usage section for either agent and return whether it shows.
+ *
+ * Claude brings the amount spent, a percentage, a bar and the prepaid balance;
+ * Codex brings only its credit balance.  Every part hides when its text is
+ * absent, so switching agents never leaves the other one's numbers behind.
+ */
+function renderExtraSection(extra) {
+    const visible = !!extra && !compactHidden('extra_usage');
+    els.extraSection.classList.toggle('visible', visible);
+    if (!extra) return visible;
+
+    els.extraHeader.style.display = extra.spent_text ? '' : 'none';
+    els.extraSpent.textContent = extra.spent_text || '';
+    els.extraPct.style.display = extra.has_limit ? '' : 'none';
+    els.extraPct.textContent = extra.pct_text || '';
+    els.extraBarContainer.style.display = extra.has_limit ? '' : 'none';
+    els.extraFill.style.width = `${(extra.fill_pct || 0) * 100}%`;
+    els.extraBalance.textContent = extra.balance_text || '';
+    els.extraBalance.hidden = !extra.balance_text;
+    return visible;
 }
 
 function renderCodexAccount(account) {
@@ -233,10 +257,12 @@ function init(config) {
         moreQuotasBtn: document.getElementById('moreQuotasBtn'),
         moreQuotasText: document.getElementById('moreQuotasText'),
         extraSection: document.getElementById('extraSection'),
+        extraHeader: document.getElementById('extraHeader'),
         extraSpent: document.getElementById('extraSpent'),
         extraPct: document.getElementById('extraPct'),
         extraBarContainer: document.getElementById('extraBarContainer'),
         extraFill: document.getElementById('extraFill'),
+        extraBalance: document.getElementById('extraBalance'),
         installSection: document.getElementById('installSection'),
         installToggle: document.getElementById('installToggle'),
         installRows: document.getElementById('installRows'),
@@ -883,16 +909,7 @@ function updateData(data) {
         updateUsageBars(usage);
     }
 
-    const hasExtra = !!data.extra;
-    const extraVisible = hasExtra && !compactHidden('extra_usage');
-    els.extraSection.classList.toggle('visible', extraVisible);
-    if (hasExtra) {
-        els.extraSpent.textContent = data.extra.spent_text;
-        els.extraPct.style.display = data.extra.has_limit ? '' : 'none';
-        els.extraPct.textContent = data.extra.pct_text;
-        els.extraBarContainer.style.display = data.extra.has_limit ? '' : 'none';
-        els.extraFill.style.width = `${data.extra.fill_pct * 100}%`;
-    }
+    const extraVisible = renderExtraSection(data.extra);
 
     const installsVisible = !!data.installations?.length && !compactHidden('claude_code');
 
@@ -1243,7 +1260,7 @@ function renderCodexDetail(div) {
         panel.textContent = translations.codex_unavailable;
         return;
     }
-    const note = `${usage.period_text}. ${translations.codex_source}`;
+    const note = translations.codex_source;
     renderDetail(div, {
         tokens: usage.tokens.toLocaleString(),
         models: usage.models.map(model => ({

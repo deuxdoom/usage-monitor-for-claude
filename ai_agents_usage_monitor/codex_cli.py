@@ -43,7 +43,8 @@ class CodexInstallations:
                 binary = find_binary()
                 version = self._version(binary) if binary else ''
                 if version:
-                    installations.append({'name': 'Codex CLI', 'version': version})
+                    # Same row name as the Claude side: the section heading already names the agent.
+                    installations.append({'name': 'CLI', 'version': version})
             except OSError:
                 pass
             for name, folder in _EDITORS:

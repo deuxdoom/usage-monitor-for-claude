@@ -785,6 +785,15 @@ footer {
     font-variant-numeric: tabular-nums;
 }
 
+/* The prepaid balance decides whether work can continue once the plan is
+   used up, so it keeps the body color rather than reading as a faded note. */
+#extraBalance {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+
+    &[hidden] { display: none; }
+}
+
 #installRows dd { font-variant-numeric: tabular-nums; }
 
 button:focus-visible, [role="button"]:focus-visible {
