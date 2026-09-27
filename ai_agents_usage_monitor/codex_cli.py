@@ -28,6 +28,12 @@ class CodexInstallations:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._versions: dict[tuple[Path, int], str] = {}
+        self._cached: list[dict[str, str]] = []
+
+    @property
+    def cached(self) -> list[dict[str, str]]:
+        """Last completed installation list without probing a binary."""
+        return self._cached
 
     def read(self) -> list[dict[str, str]]:
         """Return available CLI and Codex extension versions for the popup.
@@ -60,6 +66,7 @@ class CodexInstallations:
                 if versions:
                     version = max(versions, key=lambda value: tuple(int(part) for part in value.split('-', 1)[0].split('.')))
                     installations.append({'name': name + ' (Codex)', 'version': version})
+            self._cached = installations
             return installations
 
     def _version(self, binary: Path) -> str:

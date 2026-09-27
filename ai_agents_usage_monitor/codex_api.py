@@ -22,6 +22,11 @@ from .settings import MAX_BACKOFF
 __all__ = ['CodexAccount']
 
 _TIMEOUT = 20
+# An exhausted window makes the app-server fetch reset-credit and upsell details
+# along with the quotas, and now and then that request never answers.  A request
+# is given up after this long and the read runs once more in a fresh app-server.
+_REQUEST_TIMEOUT = 10
+_ATTEMPTS = 2
 
 
 class CodexAccount:
@@ -84,7 +89,7 @@ class CodexAccount:
                 binary = _find_binary()
                 if binary is None:
                     raise _ReadError('codex_cli_missing')
-                account, windows, credits = _fetch(binary)
+                account, windows, credits = _fetch_with_retry(binary)
                 if not windows:
                     error = 'codex_limits_unavailable'
             except _ReadError as exc:
@@ -107,6 +112,23 @@ class _ReadError(Exception):
     def __init__(self, key: str) -> None:
         self.key = key
         super().__init__(key)
+
+
+def _fetch_with_retry(binary: Path) -> tuple[dict[str, str], list[dict[str, Any]], dict[str, Any] | None]:
+    """Read again in a fresh app-server when a read fails for a reason that is not the account's.
+
+    Only ``codex_account_error`` is retried: a stalled or failed request says
+    nothing about the account, while a missing login or an API-key login
+    would fail the same way twice.
+    """
+    for _ in range(_ATTEMPTS - 1):
+        try:
+            return _fetch(binary)
+        except _ReadError as exc:
+            if exc.key != 'codex_account_error':
+                raise
+
+    return _fetch(binary)
 
 
 def _fetch(binary: Path) -> tuple[dict[str, str], list[dict[str, Any]], dict[str, Any] | None]:
@@ -201,12 +223,13 @@ def _read_responses(stream: Any, responses: queue.Queue) -> None:
 
 
 def _request(process: Any, responses: queue.Queue, deadline: float, request_id: int, method: str, params: dict) -> dict:
-    """Match response IDs and bound all reads by the connection's deadline."""
+    """Match response IDs and bound each read by its own timeout and the connection's deadline."""
+    request_deadline = min(deadline, time.monotonic() + _REQUEST_TIMEOUT)
     process.stdin.write((json.dumps({'id': request_id, 'method': method, 'params': params}) + '\n').encode('utf-8'))
     process.stdin.flush()
     while True:
         try:
-            record = responses.get(timeout=max(0, deadline - time.monotonic()))
+            record = responses.get(timeout=max(0, request_deadline - time.monotonic()))
         except queue.Empty:
             raise _ReadError('codex_account_error') from None
         if record is None:

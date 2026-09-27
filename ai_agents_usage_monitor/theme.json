@@ -1,0 +1,38 @@
+{
+    "popup": {
+        "bg": "#121212",
+        "fg": "#cbd3d3",
+        "fg_dim": "#879397",
+        "fg_heading": "#f3f5f2",
+        "fg_link": "#88b7d1",
+        "bar_bg": "#353535",
+        "bar_fg": "#72d2af",
+        "bar_fg_alt": "#dbb477",
+        "bar_fg_warn": "#ef8177",
+        "bar_divider": "#c9d9d04d",
+        "bar_marker": "#e2eee8cc"
+    },
+    "signature": {
+        "claude_signature": "#b9835a",
+        "codex_signature": "#7e9bef"
+    },
+    "updater": {
+        "surface": "#1c1c1c",
+        "surface_raised": "#242424",
+        "accent_ink": "#0d231b"
+    },
+    "tray_icon": {
+        "icon_light": {
+            "fg": [255, 255, 255, 255],
+            "fg_half": [255, 255, 255, 80],
+            "fg_dim": [255, 255, 255, 140],
+            "fg_warn": [224, 80, 80, 255]
+        },
+        "icon_dark": {
+            "fg": [0, 0, 0, 255],
+            "fg_half": [0, 0, 0, 80],
+            "fg_dim": [0, 0, 0, 140],
+            "fg_warn": [224, 80, 80, 255]
+        }
+    }
+}

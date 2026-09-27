@@ -37,6 +37,7 @@ import requests
 import truststore
 
 from . import __version__
+from .theme import POPUP_COLORS, UPDATER_COLORS
 
 __all__ = ['check_and_offer_update', 'release_highlights', 'run_update_helper']
 
@@ -55,7 +56,6 @@ _DIGEST_RE = re.compile(r'^sha256:([0-9a-fA-F]{64})$')
 _ALLOWED_ASSET_HOSTS = frozenset({'release-assets.githubusercontent.com', 'objects.githubusercontent.com'})
 _UI_PATH = Path(__file__).parent / 'popup' / 'updater.html'
 _WINDOW_SIZE = (460, 640)
-_WINDOW_BACKGROUND = '#101316'
 # Named per app process, so a helper can only ever ask its own parent to quit.
 _QUIT_EVENT_PREFIX = 'Local\\AIAgentsUsageMonitor-UpdateQuit-'
 _PARENT_EXIT_TIMEOUT_MS = 30000
@@ -416,7 +416,7 @@ def run_update_helper(target_arg: str, expected_version: str, parent_pid_arg: st
         labels['update_title'], url=str(_UI_PATH), js_api=api,
         width=width, height=height, resizable=False,
         frameless=True, easy_drag=False, shadow=True, on_top=True, hidden=True,
-        background_color=_WINDOW_BACKGROUND,
+        background_color=POPUP_COLORS['bg'],
     )
     # None only when a handler of events.initialized cancels the window,
     # and none is registered here.
@@ -436,7 +436,7 @@ def run_update_helper(target_arg: str, expected_version: str, parent_pid_arg: st
         _round_corners(window)
         _center_on_primary(window)
         _push(window, 'init', {
-            'labels': _page_labels(labels), 'lang': language,
+            'labels': _page_labels(labels), 'colors': _page_colors(), 'lang': language,
             'current': __version__, 'latest': expected_version,
         })
         _push(window, 'setState', {'phase': 'loading', 'step': None, 'percent': 0, 'message': labels['update_checking']})
@@ -609,10 +609,24 @@ def _page_labels(labels: dict[str, str]) -> dict[str, Any]:
     }
 
 
+def _page_colors() -> dict[str, str]:
+    """The update window's palette: theme.json's popup defaults plus the surfaces and button ink only it draws.
+
+    The helper process skips the user's settings, so the window follows the
+    theme's defaults rather than a customized popup.
+    """
+    return {
+        'bg': POPUP_COLORS['bg'], 'fg': POPUP_COLORS['fg'], 'dim': POPUP_COLORS['fg_dim'], 'heading': POPUP_COLORS['fg_heading'],
+        'accent': POPUP_COLORS['bar_fg'], 'link': POPUP_COLORS['fg_link'], 'warn': POPUP_COLORS['bar_fg_warn'],
+        **UPDATER_COLORS,
+    }
+
+
 def _labels(language: str) -> dict[str, str]:
-    code = language if language in {'en', 'ja', 'ko'} else 'en'
-    base = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent.parent))
-    return json.loads((base / 'locale' / f'{code}.json').read_text(encoding='utf-8'))
+    locale_dir = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent.parent)) / 'locale'
+    # Matched against the shipped file names, so an argument can never name a path.
+    code = language if language in {path.stem for path in locale_dir.glob('*.json')} else 'en'
+    return json.loads((locale_dir / f'{code}.json').read_text(encoding='utf-8'))
 
 
 class _MonitorInfo(ctypes.Structure):

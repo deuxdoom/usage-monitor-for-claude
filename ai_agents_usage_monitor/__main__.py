@@ -9,6 +9,13 @@ import threading
 import traceback
 from pathlib import Path
 
+# build.py starts the finished EXE with this flag: it loads what the app needs
+# and exits, before any configuration, single-instance or tray startup.
+from ai_agents_usage_monitor.self_test import SELF_TEST_FLAG, run_self_test
+
+if len(sys.argv) > 1 and sys.argv[1] == SELF_TEST_FLAG:
+    sys.exit(run_self_test())
+
 # The copied helper must bypass configuration, single-instance and tray startup.
 # Anything after its four fixed arguments is the app's own command line,
 # handed back to the new version when the helper restarts it.

@@ -33,6 +33,9 @@ public static class GlassLayer {
     static CompositionBackdropBrush backdrop;
     static CompositionEffectBrush brush;
     static float saturation, brightnessCap;
+    static SizeTracker sizeTracker;
+    static int clientWidth, clientHeight;
+    static float blurReach;
 
     // Put the glass under the page of window hwnd. Returns "" on success, else the error.
     public static string Attach(IntPtr hwnd, float blur, float saturationFactor, float cap) {
@@ -49,8 +52,15 @@ public static class GlassLayer {
             ((ICompositorDesktopInterop)(object)compositor).CreateDesktopWindowTarget(hwnd, false, out created);
             target = (DesktopWindowTarget)created;
             root = compositor.CreateContainerVisual();
-            // Larger than any window; the compositor clips it to the window.
-            root.Size = new Vector2(16384, 16384);
+            // Sized to the window, never left larger: the compositor redoes the effect for the visual's
+            // whole area whenever anything behind the window changes, clipped or not. A 16384 px visual
+            // took the GPU from 1% to 30% while a window moved behind the bar, and every other window
+            // stuttered with it; fitted, the same scene costs 9%.
+            RECT client;
+            GetClientRect(hwnd, out client);
+            clientWidth = client.right;
+            clientHeight = client.bottom;
+            sizeTracker = new SizeTracker(hwnd);
             target.Root = root;
             visual = compositor.CreateSpriteVisual();
             visual.RelativeSizeAdjustment = Vector2.One;
@@ -87,6 +97,10 @@ public static class GlassLayer {
                 new CompositionEffectSourceParameter("backdrop"), gain);
             shown = new Effect(Saturation, new object[] { saturation }, shown);
             var capped = new Effect(GaussianBlur, new object[] { blur, BalancedOptimization, HardBorder }, shown);
+            // The kernel reaches three standard deviations; past the right and bottom edges it keeps
+            // sampling what lies behind, as it did when the visual ran far past the window.
+            blurReach = (float)Math.Ceiling(3 * blur);
+            FitToWindow();
             var newFactory = compositor.CreateEffectFactory(capped);
             var newBackdrop = compositor.CreateBackdropBrush();
             var newBrush = newFactory.CreateBrush();
@@ -102,7 +116,20 @@ public static class GlassLayer {
         }
     }
 
+    // Called from the window's WM_SIZE with its new client size in physical pixels.
+    internal static void Resize(int width, int height) {
+        clientWidth = width;
+        clientHeight = height;
+        FitToWindow();
+    }
+
+    static void FitToWindow() {
+        if (root != null) root.Size = new Vector2(clientWidth + blurReach, clientHeight + blurReach);
+    }
+
     public static void Detach() {
+        if (sizeTracker != null) sizeTracker.ReleaseHandle();
+        sizeTracker = null;
         if (visual != null) visual.Brush = null;
         ReleaseBrush();
         if (visual != null) visual.Dispose();
@@ -143,6 +170,30 @@ public static class GlassLayer {
 
     [DllImport("CoreMessaging.dll")]
     static extern int CreateDispatcherQueueController(DispatcherQueueOptions options, out IntPtr controller);
+
+    [StructLayout(LayoutKind.Sequential)]
+    struct RECT { public int left, top, right, bottom; }
+
+    [DllImport("user32.dll")]
+    static extern bool GetClientRect(IntPtr hwnd, out RECT rect);
+}
+
+// Listens to the popup window's messages alongside WinForms, so the glass follows every resize - a
+// view switch, a height report, a drag onto a monitor of another scale - without a call from Python.
+sealed class SizeTracker : System.Windows.Forms.NativeWindow {
+    const int WM_SIZE = 0x0005;
+
+    public SizeTracker(IntPtr hwnd) {
+        AssignHandle(hwnd);
+    }
+
+    protected override void WndProc(ref System.Windows.Forms.Message message) {
+        if (message.Msg == WM_SIZE) {
+            long size = message.LParam.ToInt64();
+            GlassLayer.Resize((int)(size & 0xFFFF), (int)((size >> 16) & 0xFFFF));
+        }
+        base.WndProc(ref message);
+    }
 }
 
 [ComImport, Guid("29E691FA-4567-4DCA-B319-D0F207EB6807"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]

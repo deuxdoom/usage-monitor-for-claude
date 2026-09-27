@@ -51,6 +51,11 @@ class CodexUsage:
         self._snapshot: dict[str, Any] | None = None
         self._checked = 0.0
 
+    @property
+    def cached(self) -> dict[str, Any] | None:
+        """Last completed summary without waiting for an in-flight scan."""
+        return self._snapshot
+
     def snapshot(self) -> dict[str, Any]:
         """Return rolling five-hour and seven-day recorded token totals.
 

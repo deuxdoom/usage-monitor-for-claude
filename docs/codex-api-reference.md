@@ -78,6 +78,13 @@ account with `hasCredits: false` (the usual `"balance": "0"` of a plan that neve
 no section at all. The read is part of the `account/rateLimits/read` call the windows already
 make, so it adds no request.
 
+OpenAI's [pricing guide](https://learn.chatgpt.com/docs/pricing) confirms that additional credits
+extend usage beyond included limits and that purchase prices and discounts depend on the plan
+or agreement. The [student offer](https://developers.openai.com/community/students) gives one
+concrete example, 2,500 credits equivalent to $100; that is not an account-specific exchange rate
+in this protocol response. The monitor therefore displays the reported credits, not an inferred
+dollar deposit or purchase history.
+
 ### Cadence and backoff
 
 A successful read is followed by a cooldown equal to the refresh interval chosen in the tray menu
@@ -85,8 +92,27 @@ A successful read is followed by a cooldown equal to the refresh interval chosen
 wait, capped by `max_backoff`. A failed read clears the previous account values rather than leaving
 a stale account on screen.
 
+Once a window is exhausted, `account/rateLimits/read` also fetches reset-credit and upsell details
+(the response then carries `rateLimitReachedType` and `rateLimitUpsell`). The app-server waits up to
+5 seconds for the reset-credit detail, and now and then the request never answers at all. Each
+request is therefore given up after 10 seconds, and a read that fails that way (`codex_account_error`)
+runs once more in a fresh app-server before it counts as a failure. A missing or API-key login is
+reported at once, since a second read would fail the same way.
+
 The interval is passed in by the caller and this module keeps none of its own, so a change in the
 tray menu reaches the Codex side on the next read rather than after the old wait runs out.
+
+When the saved popup view is the bar, the app polls Codex from startup even if the tray tracks
+Claude. This uses the existing active/idle cadence and reset alignment; the tray provider still
+decides which provider's icon and threshold alerts are shown.
+
+Opening a popup seeds its first frame from the app's completed account, local-token and
+installation caches without waiting for an in-flight read. The bar refreshes server quotas only,
+so a local rollout scan or version probe cannot delay its readings. The detail popup prepares
+the Codex tab while Claude is visible and refreshes cached content in the background. Local
+rollout offsets survive closing the popup, so reopening does not rescan every file from scratch.
+All these caches remain in memory only; before the first account read finishes, the bar shows
+missing readings rather than inventing zero usage.
 
 ## Local tokens: session rollouts
 

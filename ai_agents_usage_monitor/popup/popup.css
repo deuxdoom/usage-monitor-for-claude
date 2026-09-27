@@ -2,31 +2,38 @@
 html { overflow: hidden; }
 [hidden] { display: none !important; }
 
-/* The popup's one typeface, bundled so it renders the same offline.
-   Pretendard JP rather than Pretendard: both carry Latin, all Hangul
-   syllables and kana, but only JP has kanji, so the Japanese UI would
-   otherwise borrow Malgun Gothic's Korean-form kanji. WebView2 keeps
-   Windows' native text rasterization, including ClearType. Every element
-   inherits it - hierarchy comes from size and weight, never from a second
-   face. */
+/* The popup's one typeface, bundled so it renders the same offline: a
+   lossless WOFF2 of Pretendard Regular, which carries Latin, Cyrillic,
+   Hangul and kana. Regular keeps small labels readable; the browser
+   synthesizes bold for emphasized text. */
 @font-face {
-    font-family: 'Pretendard JP';
-    src: url('PretendardJPVariable.woff2') format('woff2');
+    font-family: 'Pretendard';
+    src: url('Pretendard-Regular.woff2') format('woff2');
     font-style: normal;
-    font-weight: 100 900;
+    font-weight: 400;
     font-display: block;
 }
 
-/* Each agent's signature color, owned here once for the provider-switch
-   dots, the top strip and the bar's agent names. Both clear 4.5:1 on the
-   layered bar, hovered included, so its 10 px names stay legible. Claude is a
-   muted brown rather than the brand's orange: the orange sat too close to
-   --bar-fg-warn, so the name read as a warning beside the red percentages. */
+/* Every color arrives from theme.json through init(), which sets one custom
+   property per palette key: --bg, --fg, --bar-fg and the rest, and each
+   agent's signature color as --claude-signature and --codex-signature for the
+   provider-switch dots, the top strip and the bar's agent names. Both
+   signatures clear 4.5:1 on the hovered card surface (TestThemeContrast), so
+   the bar's 10 px names stay legible. Claude is a muted brown rather than the
+   brand's orange: the orange sat too close to --bar-fg-warn, so the name read
+   as a warning beside the red percentages. */
 :root {
-    --claude-signature: #b9835a;
-    --codex-signature: #7e9bef;
-    --font-ui: 'Pretendard JP', 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif;
+    --font-ui: 'Pretendard', 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif;
 }
+
+/* Pretendard has no kanji, Chinese characters or Devanagari. Only those
+   characters fall through, per character, to the Windows face that reads
+   closest to it for the language, so kana, Latin and digits stay in
+   Pretendard. updater.html repeats these stacks (TestFontFallback). */
+:root:lang(ja) { --font-ui: 'Pretendard', 'Yu Gothic UI', 'Meiryo UI', sans-serif; }
+:root:lang(zh-CN) { --font-ui: 'Pretendard', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif; }
+:root:lang(zh-TW) { --font-ui: 'Pretendard', 'Microsoft JhengHei UI', 'Microsoft JhengHei', sans-serif; }
+:root:lang(hi) { --font-ui: 'Pretendard', 'Nirmala UI', sans-serif; }
 
 /* Surface values - every color a surface, stroke or muted text draws with -
    come from the material files: matte.css sets them on :root, glass.css
@@ -403,9 +410,11 @@ h2 {
     letter-spacing: 0.08em;
 }
 
-/* Tracking suits capitals; spread across Hangul or kana it pulls each
-   syllable apart ("사 용 량"), so those headings stay near their natural set. */
-:root:lang(ko) h2, :root:lang(ja) h2 { letter-spacing: 0.02em; }
+/* Tracking suits capitals; spread across Hangul, kana or Chinese it pulls
+   each syllable apart ("사 용 량"), so those headings stay near their natural
+   set. Devanagari joins letters into one line and has no capitals at all. */
+:root:lang(ko) h2, :root:lang(ja) h2, :root:lang(zh) h2 { letter-spacing: 0.02em; }
+:root:lang(hi) h2 { letter-spacing: normal; }
 
 #accountSection, #extraSection, #installSection {
     padding: 10px 12px;
@@ -588,7 +597,7 @@ dl > div {
         bottom: 1px;
         width: 2px;
         background: var(--bar-marker);
-        box-shadow: 0 0 2px 1px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 0 2px 1px color-mix(in srgb, black 30%, transparent);
         z-index: 3;
         transition: left 1s linear;
     }

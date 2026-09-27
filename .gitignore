@@ -23,6 +23,9 @@ ai_agents_usage_monitor/glass_layer.dll
 # TEST
 tests/ 
 
+# Screenshot fingerprint - stamped by the local screenshot pipeline, checked by the tests and build.py
+screenshots.sha256
+
 # Claude Code - agent instructions and local settings, tracked outside this repository
 .claude/
 

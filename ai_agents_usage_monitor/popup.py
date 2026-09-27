@@ -27,7 +27,6 @@ from . import claude_sessions
 from .claude_api import CLAUDE_CONFIG_DIR
 from .claude_cli import CHANGELOG_URL, PROJECT_URL, find_installations
 from .codex_cli import CODEX_CHANGELOG_URL
-from .codex_sessions import CodexUsage
 from .formatting import (
     codex_reset_iso, divider_positions, dollar_credit, duration_label, elapsed_pct, expand_popup_fields,
     field_countdown_only, field_period, format_count, format_credits, popup_label, time_until,
@@ -38,6 +37,7 @@ from .settings import (
     POPUP_FIELDS, POPUP_MARGIN, POPUP_VIEW, POPUP_VIEWS, TIME_FORMAT,
 )
 from .settings_store import save_setting
+from .theme import SIGNATURE_COLORS
 from .window_backdrop import frame_window, release_glass, release_window_icon, set_glass, set_glass_scale
 
 logger = logging.getLogger(__name__)
@@ -431,7 +431,7 @@ def _init_config(
         'colors': {
             'bg': BG, 'fg': FG, 'fg_dim': FG_DIM, 'fg_heading': FG_HEADING, 'fg_link': FG_LINK,
             'bar_bg': BAR_BG, 'bar_fg': BAR_FG, 'bar_fg_alt': BAR_FG_ALT, 'bar_fg_warn': BAR_FG_WARN,
-            'bar_divider': BAR_DIVIDER, 'bar_marker': BAR_MARKER,
+            'bar_divider': BAR_DIVIDER, 'bar_marker': BAR_MARKER, **SIGNATURE_COLORS,
         },
         't': {
             'title': T['app_name'], 'account': T['account'], 'email': T['email'], 'plan': T['plan'],
@@ -507,6 +507,15 @@ class _PopupApi:
         return {**local, 'windows': windows, 'account': account_dict,
                 'installations': installations, 'refresh_seconds': interval}
 
+    def codex_account(self) -> dict[str, Any]:
+        """Read only the server quotas needed by the bar, without scanning local logs."""
+        interval = self._popup.app._poll_interval
+        snapshot = self._popup.app.codex_account.snapshot(interval)
+        local = self._popup._codex_usage.cached or {}
+        local_periods = {window['seconds'] for window in local.get('windows', [])}
+
+        return _codex_account_to_dict(snapshot, local_periods, self._popup.app._next_poll_time)
+
     def set_pinned(self, pinned: bool) -> bool:
         return self._popup._set_pinned(pinned)
 
@@ -570,7 +579,7 @@ class UsagePopup:
             Parent application providing ``cache`` for data access.
         """
         self.app = app
-        self._codex_usage = CodexUsage()
+        self._codex_usage = app.codex_usage
         self._running = True
         self._view = app._popup_view
         # What the app asked for and what the window can actually draw: a
@@ -643,6 +652,15 @@ class UsagePopup:
             self.app.cache.snapshot, next_poll_time=self.app._next_poll_time, view=self._view,
             material=self._material, framed=framed,
         )
+        # A popup is recreated on every open, but the account cache belongs to
+        # the app. Seed the first frame without waiting for any in-flight read.
+        cached = self.app.codex_account.cached
+        local = self._codex_usage.cached or {}
+        local_periods = {window['seconds'] for window in local.get('windows', [])}
+        config['codex_data'] = {
+            **local, 'account': _codex_account_to_dict(cached, local_periods, self.app._next_poll_time),
+            'installations': self.app.codex_installations.cached, 'refresh_seconds': self.app._poll_interval,
+        } if cached else None
         self._window.evaluate_js(f'init({json.dumps(config)})')
 
         # Hide the taskbar icon and enable layered mode for opacity control.

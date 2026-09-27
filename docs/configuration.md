@@ -178,7 +178,7 @@ There is no setting to turn this off - it reads local files only when the panel 
 | `popup_view` | `"detail"` | Popup view: `"detail"` or `"bar"`. The popup's view buttons save this choice. The bar stays open without pinning, can be dragged by its clock, and has detail-view and close buttons |
 | `popup_material` | `"matte"` | Surface of the popup and the bar: `"matte"` or `"glass"` (beta). Matte is an opaque window with flat surfaces. Glass shows what lies behind the popup, live: a native layer compiled from `glass_layer.cs` has the Windows compositor draw it on the GPU - lightly blurred, more saturated and with every pixel's brightness capped - so the app never reads a screen pixel, see [PRIVACY.md](../PRIVACY.md). The cap keeps text readable over a white window while dark and colorful backgrounds show through as they are; a sheet of tint, a reflection across it and a glint under the pointer sit on top. Glass needs Windows 11 22H2 or later and reads as matte on older systems and while Windows' "Transparency effects" setting is off. The tray menu's "Popup material" submenu saves this choice and applies it to an open popup within two seconds. Both materials derive every tint from the [popup colors](#popup-colors); glass lifts secondary and warning text toward `fg_heading` so it stays readable over a white window behind it |
 
-Earlier versions also offered a `popup_font` choice. The popup now always renders in the bundled Pretendard, so an existing `popup_font` key is ignored and left in the file untouched.
+Earlier versions also offered a `popup_font` choice. The popup now always renders in the bundled Pretendard Regular, so an existing `popup_font` key is ignored and left in the file untouched.
 
 ## Popup position
 
@@ -247,7 +247,7 @@ Each entry can optionally include a display mode suffix using colon syntax: `"fi
 
 In `utilization` mode, each bar also shows a thin vertical marker at the elapsed-time position of the quota period - the same information as the time marker in the detail popup. When usage is ahead of the elapsed time (or fully exhausted), the bar fill switches to the warning color (`fg_warn` in [Tray icon colors](#tray-icon-colors)), matching the popup's red warning fill.
 
-**The `"numbers"` style** replaces the bars with a second percentage: the first `icon_fields` entry becomes the top row, the second the bottom row. Each row follows the same rules as the classic icon text - an exhausted quota shows `✕` (or `$` when paid extra usage is still available); when both quotas are exhausted at once, the icon collapses to a single full-size `✕`/`$` like the classic style. The time marker, the warning color, and the `:overage` mode suffix have no effect in this style, and while both quotas are at 0% the icon shows the usual idle "C". Each stacked number is rendered at the same size as the classic single percentage.
+**The `"numbers"` style** replaces the bars with a second percentage: the first `icon_fields` entry becomes the top row, the second the bottom row. Each row follows the same rules as the classic icon text - an exhausted quota shows `✕` (or `$` when paid extra usage is still available); when both quotas are exhausted at once, the icon collapses to a single full-size `✕`/`$` like the classic style. The time marker, the warning color, and the `:overage` mode suffix have no effect in this style, and both quotas at 0% remain two explicit `0` rows. In the classic style, a session at 0% likewise shows `0`. Before the first read, the icon shows `...` with the loading tooltip; the selected provider is read automatically at startup without opening the popup. Each stacked number is rendered at the same size as the classic single percentage.
 
 **Example** - show session and weekly usage as two stacked percentages:
 
@@ -304,7 +304,7 @@ The countdowns themselves never depend on these values. The popup's reset countd
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `language` | *(auto-detected)* | Override the UI language with a language code. Available: `en`, `ja`, `ko` (any other system language falls back to `en`) |
+| `language` | *(auto-detected)* | Override the UI language with a language code. Available: `de`, `en`, `es`, `fr`, `hi`, `id`, `it`, `ja`, `ko`, `pt-BR`, `uk`, `zh-CN`, `zh-TW` (any other system language falls back to `en`) |
 
 ## Time Format
 
@@ -335,12 +335,12 @@ Override individual channels as RGBA arrays `[R, G, B, A]` (0-255). Unspecified 
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `bg` | `"#101316"` | Popup background; panels are derived from this color and `fg` |
+| `bg` | `"#121212"` | Popup background; panels are derived from this color and `fg` |
 | `fg` | `"#cbd3d3"` | Text |
 | `fg_dim` | `"#879397"` | Dimmed text (labels, reset times) |
 | `fg_heading` | `"#f3f5f2"` | Section headings |
 | `fg_link` | `"#88b7d1"` | Link text (e.g. changelog) |
-| `bar_bg` | `"#30393b"` | Progress bar background |
+| `bar_bg` | `"#353535"` | Progress bar background |
 | `bar_fg` | `"#72d2af"` | Progress bar fill |
 | `bar_fg_alt` | `"#dbb477"` | Weekly row fill in bar mode; warnings still use `bar_fg_warn` |
 | `bar_fg_warn` | `"#ef8177"` | Progress bar fill when usage outpaces elapsed time, error text |

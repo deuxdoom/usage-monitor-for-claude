@@ -49,7 +49,7 @@
     iframe {
         border: none;
         width: 340px;
-        background: #101316;
+        background: #121212;
         visibility: hidden;
         transition: width 0.15s ease;
         /* The app passes framed: true on Windows 11, where DWM rounds the
@@ -98,9 +98,9 @@
 
 <script>
 const COLORS = {
-    bg: '#101316', fg: '#cbd3d3', fg_dim: '#879397', fg_heading: '#f3f5f2', fg_link: '#88b7d1',
-    bar_bg: '#30393b', bar_fg: '#72d2af', bar_fg_alt: '#dbb477', bar_fg_warn: '#ef8177',
-    bar_divider: '#c9d9d04d', bar_marker: '#e2eee8cc',
+    bg: '#121212', fg: '#cbd3d3', fg_dim: '#879397', fg_heading: '#f3f5f2', fg_link: '#88b7d1',
+    bar_bg: '#353535', bar_fg: '#72d2af', bar_fg_alt: '#dbb477', bar_fg_warn: '#ef8177',
+    bar_divider: '#c9d9d04d', bar_marker: '#e2eee8cc', claude_signature: '#b9835a', codex_signature: '#7e9bef',
 };
 
 // Widths the app applies per view, mirrored here so the preview's frame
@@ -108,7 +108,11 @@ const COLORS = {
 const VIEW_WIDTHS = { detail: 340, bar: 360 };
 
 // Available locales (filename code -> display name). Keep in sync with locale/*.json.
-const LANGS = [['en', 'English'], ['ja', 'Japanese'], ['ko', 'Korean']];
+const LANGS = [
+    ['en', 'English'], ['de', 'German'], ['es', 'Spanish'], ['fr', 'French'], ['hi', 'Hindi'], ['id', 'Indonesian'],
+    ['it', 'Italian'], ['ja', 'Japanese'], ['ko', 'Korean'], ['pt-BR', 'Portuguese (Brazil)'], ['uk', 'Ukrainian'],
+    ['zh-CN', 'Chinese (Simplified)'], ['zh-TW', 'Chinese (Traditional)'],
+];
 
 // Presets carry *semantic* fields; display strings are built from the loaded
 // locale so every text case can be inspected in any language.
@@ -407,6 +411,9 @@ async function applyLanguage(code) {
         },
         // A real first read starts the Codex app-server and takes about a second.
         // The delay is what makes the held outgoing view visible in the preview.
+        codex_account() {
+            return this.codex_usage().then(result => result.account);
+        },
         codex_usage() {
             const mode = codexSelect.value;
             return new Promise((resolve, reject) => setTimeout(

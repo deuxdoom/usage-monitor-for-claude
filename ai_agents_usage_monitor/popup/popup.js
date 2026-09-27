@@ -108,14 +108,24 @@ async function refreshCodex() {
     if (codexTimerId) clearTimeout(codexTimerId);
     codexTimerId = null;
     codexBusy = true;
+    const barOnly = viewMode === 'bar';
     let failed = false;
     try {
-        codexData = await pywebview.api.codex_usage();
+        if (barOnly) {
+            codexData = {...codexData, account: await pywebview.api.codex_account()};
+        } else {
+            codexData = await pywebview.api.codex_usage();
+        }
     } catch (_) {
         failed = true;
     } finally {
         codexBusy = false;
         codexReadError = failed ? translations.codex_unavailable : null;
+        // A bar read cannot supply local details if the view changed in flight.
+        if (barOnly && viewMode === 'detail' && selectedProvider === 'codex') {
+            refreshCodex();
+            return;
+        }
         endCodexPending();
         if (codexNeeded()) {
             if (viewMode === 'bar') {
@@ -209,6 +219,7 @@ function init(config) {
     setMaterial(config.material);
 
     translations = config.t;
+    codexData = config.codex_data || null;
     compactHide = config.compact_hide || [];
     // The stylesheet sets heading tracking by :lang(), so this has to be the
     // app's language, not the static attribute.
@@ -281,6 +292,10 @@ function init(config) {
     // bridge call here would run before the API is guaranteed to be attached.
     if (config.view === 'bar') {
         applyViewMode('bar');
+    } else {
+        // Prepare the other tab while Claude is visible. Reads share the app's
+        // caches, so reopening cannot bypass the account cooldown or backoff.
+        refreshCodex();
     }
 
     document.fonts.ready.then(() => requestAnimationFrame(() => document.body.classList.add('open')));
@@ -614,6 +629,7 @@ function applyViewMode(mode) {
         codexTimerId = null;
     }
     reapplyData();
+    if (selectedProvider === 'codex') refreshCodex();
 }
 
 /**
@@ -628,9 +644,10 @@ function applyViewMode(mode) {
 function renderBarView() {
     renderClock();
 
+    const account = codexData?.account;
     const providers = [
         {key: 'claude', name: 'CLAUDE', usage: lastData?.usage, status: lastData?.status},
-        {key: 'codex', name: 'CODEX', usage: codexData?.account?.usage, status: codexData?.account?.status, error: codexReadError},
+        {key: 'codex', name: 'CODEX', usage: account?.usage, status: account?.status, error: codexReadError},
     ];
     if (!els.barCards.children.length) {
         els.barCards.replaceChildren(...providers.map(buildBarCard));

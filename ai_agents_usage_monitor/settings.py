@@ -27,6 +27,7 @@ import sys
 from pathlib import Path
 
 from .instance_id import effective_config_dir, is_default_config_dir
+from .theme import POPUP_COLORS, TRAY_ICON_COLORS
 
 __all__ = [
     'ALERT_EXTRA_USAGE_SPENT', 'ALERT_TIME_AWARE', 'ALERT_TIME_AWARE_BELOW',
@@ -392,35 +393,25 @@ IDLE_PAUSE = _S.get('idle_pause', 300)
 # while nobody has the popup open, and it never slows a view that is showing.
 IDLE_INTERVAL = _S.get('idle_interval', 600)
 
-# Popup theme
-BG = _S.get('bg', '#101316')
-FG = _S.get('fg', '#cbd3d3')
-FG_DIM = _S.get('fg_dim', '#879397')
-FG_HEADING = _S.get('fg_heading', '#f3f5f2')
-FG_LINK = _S.get('fg_link', '#88b7d1')
-BAR_BG = _S.get('bar_bg', '#30393b')
-BAR_FG = _S.get('bar_fg', '#72d2af')
+# Popup theme: the defaults live in theme.json, a user setting overrides each one
+BG = _S.get('bg', POPUP_COLORS['bg'])
+FG = _S.get('fg', POPUP_COLORS['fg'])
+FG_DIM = _S.get('fg_dim', POPUP_COLORS['fg_dim'])
+FG_HEADING = _S.get('fg_heading', POPUP_COLORS['fg_heading'])
+FG_LINK = _S.get('fg_link', POPUP_COLORS['fg_link'])
+BAR_BG = _S.get('bar_bg', POPUP_COLORS['bar_bg'])
+BAR_FG = _S.get('bar_fg', POPUP_COLORS['bar_fg'])
 # Second bar color, used by the single-row view to tell the weekly quota apart
 # from the session at a glance - the two rows there carry no labels of their
 # own, so the color is what distinguishes them.
-BAR_FG_ALT = _S.get('bar_fg_alt', '#dbb477')
-BAR_FG_WARN = _S.get('bar_fg_warn', '#ef8177')
-BAR_DIVIDER = _S.get('bar_divider', '#c9d9d04d')
-BAR_MARKER = _S.get('bar_marker', '#e2eee8cc')
+BAR_FG_ALT = _S.get('bar_fg_alt', POPUP_COLORS['bar_fg_alt'])
+BAR_FG_WARN = _S.get('bar_fg_warn', POPUP_COLORS['bar_fg_warn'])
+BAR_DIVIDER = _S.get('bar_divider', POPUP_COLORS['bar_divider'])
+BAR_MARKER = _S.get('bar_marker', POPUP_COLORS['bar_marker'])
 
-# Tray icon colors
-ICON_LIGHT = _icon_colors('icon_light', {
-    'fg': (255, 255, 255, 255),
-    'fg_half': (255, 255, 255, 80),
-    'fg_dim': (255, 255, 255, 140),
-    'fg_warn': (224, 80, 80, 255),
-})
-ICON_DARK = _icon_colors('icon_dark', {
-    'fg': (0, 0, 0, 255),
-    'fg_half': (0, 0, 0, 80),
-    'fg_dim': (0, 0, 0, 140),
-    'fg_warn': (224, 80, 80, 255),
-})
+# Tray icon colors: theme.json defaults, overridable per entry
+ICON_LIGHT = _icon_colors('icon_light', TRAY_ICON_COLORS['icon_light'])
+ICON_DARK = _icon_colors('icon_dark', TRAY_ICON_COLORS['icon_dark'])
 
 # Which provider the tray icon, its tooltip and the threshold alerts follow.
 # 'codex' additionally makes the app read Codex quotas on the poll beat, not

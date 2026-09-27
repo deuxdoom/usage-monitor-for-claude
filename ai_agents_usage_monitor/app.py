@@ -18,12 +18,13 @@ from typing import Any
 
 import pystray  # type: ignore[import-untyped]  # no type stubs available
 
-from .claude_api import api_headers, read_access_token
+from .claude_api import read_access_token
 from .autostart import is_autostart_enabled, set_autostart, sync_autostart_path
 from .claude_cache import UsageCache
 from .claude_cli import PROJECT_URL
 from .codex_api import CodexAccount
 from .codex_cli import CodexInstallations
+from .codex_sessions import CodexUsage
 from .command import run_event_command
 from .events import quick_action_env, reset_env, startup_env, threshold_env
 from .idle import get_idle_seconds, is_workstation_locked
@@ -99,6 +100,7 @@ class AIAgentsUsageMonitor:
         self.running = True
         self.cache = UsageCache()
         self.codex_account = CodexAccount()
+        self.codex_usage = CodexUsage()
         self.codex_installations = CodexInstallations()
 
         # Last raw API response (may contain 'error') - for icon and polling decisions
@@ -147,7 +149,7 @@ class AIAgentsUsageMonitor:
 
         self.icon = pystray.Icon(
             'usage_monitor',
-            icon=create_icon_image(0, 0, self._light_taskbar),
+            icon=create_status_image('...', self._light_taskbar),
             title=self._tooltip_prefix + T['loading'],
             menu=build_menu(self),
         )
@@ -566,15 +568,16 @@ class AIAgentsUsageMonitor:
             account has no polling history that the backoff needs to
             protect.
         """
-        # The tray follows Codex, so its quotas must advance on the poll beat even
+        # The tray or saved bar view needs Codex on the poll beat even
         # when the Claude fetch below is still inside its cooldown and returns
         # nothing.  CodexAccount.snapshot() holds its own cooldown on the interval
         # it is handed and backs off on failure, so calling it every poll costs
         # nothing extra.
-        if self._tray_provider == 'codex':
+        if self._polls_codex():
             codex_snapshot = self.codex_account.snapshot(self._poll_interval)
-            self._render_codex_tray(codex_snapshot)
-            self._check_codex_threshold_alerts(codex_snapshot)
+            if self._tray_provider == 'codex':
+                self._render_codex_tray(codex_snapshot)
+                self._check_codex_threshold_alerts(codex_snapshot)
 
         result = self.cache.update(force=force, bypass_rate_limit=bypass_rate_limit)
         if result.data is None:
@@ -937,11 +940,15 @@ class AIAgentsUsageMonitor:
         """
         return reset_overdue(self._tracked_reset_times(self.cache.usage), datetime.now(timezone.utc))
 
+    def _polls_codex(self) -> bool:
+        """Keep quotas ready from startup for the Codex tray or the two-agent bar."""
+        return self._tray_provider == 'codex' or self._popup_view == 'bar'
+
     def _tracked_reset_times(self, usage: dict[str, Any]) -> list[str]:
         """ISO reset times of every quota this poll actually fetches.
 
-        The Codex windows are handed over only while the tray follows Codex,
-        because ``update()`` reads them on the same beat only then.  They come
+        The Codex windows are handed over when the tray or saved bar view
+        needs them, matching ``update()``. They come
         from the cached snapshot: the scheduler must never start an
         app-server read to decide how long to wait.
 
@@ -950,7 +957,7 @@ class AIAgentsUsageMonitor:
         usage : dict
             The Claude usage response whose reset times to read.
         """
-        codex_windows = self.codex_account.cached.get('windows') if self._tray_provider == 'codex' else None
+        codex_windows = self.codex_account.cached.get('windows') if self._polls_codex() else None
 
         return tracked_reset_times(usage, codex_windows, codex_reset_iso)
 
@@ -1158,7 +1165,7 @@ class AIAgentsUsageMonitor:
             icon.visible = True
             if getattr(sys, 'frozen', False):
                 sync_autostart_path()
-            if not api_headers():
+            if not read_access_token():
                 icon.notify(f"{T['warn_no_token']}\n{T['warn_login']}", T['app_name'])
             threading.Thread(target=watch_theme_change, args=(self._on_theme_changed,), daemon=True).start()
             self.poll_loop()

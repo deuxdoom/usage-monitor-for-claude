@@ -91,7 +91,7 @@ def create_icon_image(
     time_pct_top: float | None = None, time_pct_bottom: float | None = None,
     extra_usage_available: bool = False,
 ) -> Image.Image:
-    """Create tray icon: 'C' letter + two usage bars.
+    """Create tray icon: usage percentage + two usage bars.
 
     With ``ICON_STYLE`` set to ``'numbers'`` the icon instead shows the two
     utilization percentages as stacked rows without bars; the mode and
@@ -129,16 +129,13 @@ def create_icon_image(
     draw = ImageDraw.Draw(img)
 
     if ICON_STYLE == 'numbers':
-        # Two states collapse both rows into one full-size glyph: idle shows
-        # the single 'C', and both quotas exhausted shows one large '✕'/'$' -
+        # Both quotas exhausted shows one large '✕'/'$' -
         # extra_usage_available applies account-wide, so the two rows would
         # only repeat the same symbol twice at half size.
         if pct_top >= 100 and pct_bottom >= 100 and not extra_usage_available:
             _draw_centered_text(draw, '\u2715', load_font(36, symbol=True), 2, fg)
         elif pct_top >= 100 and pct_bottom >= 100:
             _draw_centered_text(draw, '$', load_font(42), 2, fg)
-        elif pct_top <= 0 and pct_bottom <= 0:
-            _draw_centered_text(draw, 'C', load_font(42), 0, fg)
         else:
             _draw_number_row(draw, 0, pct_top, extra_usage_available, fg)
             _draw_number_row(draw, NUMBER_ROW_HEIGHT, pct_bottom, extra_usage_available, fg)
@@ -146,7 +143,7 @@ def create_icon_image(
 
     # Top glyph: "✕" when any quota exhausted and no extra credits left,
     # "$" when exhausted but paid extra-usage still available,
-    # "C" while usage is still zero, otherwise the percentage.
+    # otherwise the percentage, including zero.
     stroke_width = 0
     any_exhausted = pct_top >= 100 or pct_bottom >= 100
     if any_exhausted and not extra_usage_available:
@@ -155,12 +152,10 @@ def create_icon_image(
     elif any_exhausted:
         text, font = '$', load_font(42)
         stroke_width = 2
-    elif pct_top > 0:
+    else:
         # Clamp to 99: values in [99.5, 100) would round to a three-digit
         # '100' that overflows the canvas and reads as exhausted.
-        text, font = f'{min(pct_top, 99):.0f}', load_font(40)
-    else:
-        text, font = 'C', load_font(42)
+        text, font = f'{max(0, min(pct_top, 99)):.0f}', load_font(40)
 
     bbox = draw.textbbox((0, 0), text, font=font, stroke_width=stroke_width)
     tw = bbox[2] - bbox[0]

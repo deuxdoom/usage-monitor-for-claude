@@ -5,7 +5,7 @@ Build Script
 Builds a standalone EXE for AI Agents Usage Monitor using PyInstaller.
 
 Usage:
-    python build.py          compile the glass layer, then build the EXE
+    python build.py          compile the glass layer, build the EXE, then run its self-test
     python build.py glass    compile only the glass layer, for running from source
 
 Produces:
@@ -14,12 +14,15 @@ Produces:
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+from ai_agents_usage_monitor.self_test import SELF_TEST_FLAG
 
 ROOT = Path(__file__).parent
 DIST = ROOT / 'dist'
@@ -29,6 +32,29 @@ VERSION_INFO = ROOT / 'version_info.py'
 CHANGELOG = ROOT / 'CHANGELOG.md'
 GLASS_SOURCE = ROOT / 'ai_agents_usage_monitor' / 'glass_layer.cs'
 GLASS_LAYER = ROOT / 'ai_agents_usage_monitor' / 'glass_layer.dll'
+EXE = DIST / 'AIAgentsUsageMonitor.exe'
+SELF_TEST_TIMEOUT = 120
+
+# Everything that reaches the pixels of screenshot.png, screenshot2.png and screenshot3.png: the version in
+# the footer, the theme, the pages and their scripts, the font and the Korean labels. The owner asked on
+# 2026-09-27 that any change to them retakes all three, so the pipeline stamps this fingerprint after a retake
+# and both the suite (TestScreenshotsAreCurrent) and build() refuse a stale stamp.
+SCREENSHOT_INPUTS = [
+    'ai_agents_usage_monitor/__init__.py',
+    'ai_agents_usage_monitor/theme.json',
+    'ai_agents_usage_monitor/popup.py',
+    'ai_agents_usage_monitor/formatting.py',
+    'ai_agents_usage_monitor/updater.py',
+    'ai_agents_usage_monitor/popup/popup.html',
+    'ai_agents_usage_monitor/popup/popup.css',
+    'ai_agents_usage_monitor/popup/matte.css',
+    'ai_agents_usage_monitor/popup/glass.css',
+    'ai_agents_usage_monitor/popup/popup.js',
+    'ai_agents_usage_monitor/popup/updater.html',
+    'ai_agents_usage_monitor/popup/Pretendard-Regular.woff2',
+    'locale/ko.json',
+]
+SCREENSHOT_STAMP = ROOT / 'screenshots.sha256'
 
 # The glass layer builds with the .NET Framework 4 compiler and the Windows
 # Runtime metadata that every Windows 10 and 11 installation carries, so
@@ -38,7 +64,7 @@ CSC = WINDOWS / 'Microsoft.NET' / 'Framework64' / 'v4.0.30319' / 'csc.exe'
 GAC = WINDOWS / 'Microsoft.NET' / 'assembly' / 'GAC_MSIL'
 WINMD = WINDOWS / 'System32' / 'WinMetadata'
 GLASS_REFERENCES = [
-    'System.dll', 'System.Core.dll', 'System.Numerics.dll',
+    'System.dll', 'System.Core.dll', 'System.Numerics.dll', 'System.Windows.Forms.dll',
     WINMD / 'Windows.UI.winmd', WINMD / 'Windows.Foundation.winmd', WINMD / 'Windows.Graphics.winmd',
     GAC / 'System.Runtime' / 'v4.0_4.0.0.0__b03f5f7f11d50a3a' / 'System.Runtime.dll',
     GAC / 'System.Runtime.WindowsRuntime' / 'v4.0_4.0.0.0__b77a5c561934e089' / 'System.Runtime.WindowsRuntime.dll',
@@ -47,8 +73,9 @@ GLASS_REFERENCES = [
 
 
 def build() -> None:
-    """Verify the declared versions agree, compile the glass layer, then run PyInstaller."""
+    """Verify the declared versions agree, compile the glass layer, run PyInstaller, then self-test the EXE."""
     version = check_versions()
+    check_screenshots()
     compile_glass_layer()
 
     print(f'Starting PyInstaller build (version {version}) ...')
@@ -56,13 +83,41 @@ def build() -> None:
     cmd = [sys.executable, '-m', 'PyInstaller', '--clean', '--noconfirm', '--workpath', str(workpath), str(SPEC)]
     subprocess.check_call(cmd, cwd=str(ROOT))
 
-    exe = DIST / 'AIAgentsUsageMonitor.exe'
-    if exe.exists():
-        size_mb = exe.stat().st_size / (1024 * 1024)
-        print(f'\nBuild successful!  {exe}  ({size_mb:.1f} MB)  v{version}')
-    else:
+    if not EXE.exists():
         print('\nBuild failed - EXE not found.')
         sys.exit(1)
+
+    self_test(EXE)
+    size_mb = EXE.stat().st_size / (1024 * 1024)
+    print(f'\nBuild successful!  {EXE}  ({size_mb:.1f} MB)  v{version}')
+
+
+def self_test(exe: Path) -> None:
+    """Start the built EXE in self-test mode and fail the build unless it exits cleanly.
+
+    The unit tests see the source tree; only the EXE shows what PyInstaller
+    left out.  A failure before the self-test is reached makes the EXE show
+    its error dialog instead of exiting, so a timeout counts as a failure and
+    the whole process tree is ended - the one-file bootloader and the Python
+    process it started.
+    """
+    print('Running the built EXE self-test ...')
+    process = subprocess.Popen([str(exe), SELF_TEST_FLAG], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        output, errors = process.communicate(timeout=SELF_TEST_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        subprocess.run(['taskkill', '/T', '/F', '/PID', str(process.pid)], capture_output=True)
+        process.communicate()
+        print(f'\nBuild failed - the EXE self-test did not finish within {SELF_TEST_TIMEOUT} s; it most likely stopped at an error dialog.')
+        sys.exit(1)
+
+    report = (errors or output or '').strip()
+    if process.returncode != 0:
+        print(report or f'(no output, exit code {process.returncode})')
+        print('\nBuild failed - the built EXE did not pass its self-test.')
+        sys.exit(1)
+
+    print(report or 'self-test passed')
 
 
 def compile_glass_layer() -> None:
@@ -138,6 +193,30 @@ def tuple_version(field: str) -> str | None:
         return None
 
     return '.'.join(part.strip() for part in raw.split(','))
+
+
+def check_screenshots() -> None:
+    """Refuse to build while the screenshots show an app that no longer exists."""
+    stamp = SCREENSHOT_STAMP.read_text(encoding='utf-8').strip() if SCREENSHOT_STAMP.is_file() else ''
+    if stamp != screenshot_fingerprint():
+        print(
+            'Build refused - screenshot.png, screenshot2.png and screenshot3.png are older than their inputs.'
+            '\nRetake all three with the screenshot pipeline (F:\\temp\\AIAgentsUsageMonitor\\shots\\make_shots.py),'
+            '\nwhich also restamps screenshots.sha256 - see the Versioning section of .claude/CLAUDE.md.'
+        )
+        sys.exit(1)
+
+
+def screenshot_fingerprint() -> str:
+    """SHA-256 over every screenshot input, with CRLF read as LF so a checkout's line endings are no change."""
+    digest = hashlib.sha256()
+    for name in SCREENSHOT_INPUTS:
+        content = (ROOT / name).read_bytes()
+        if not name.endswith('.woff2'):
+            content = content.replace(b'\r\n', b'\n')
+        digest.update(name.encode('utf-8') + b'\0' + content + b'\0')
+
+    return digest.hexdigest()
 
 
 if __name__ == '__main__':

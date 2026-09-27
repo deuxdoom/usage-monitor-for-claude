@@ -19,14 +19,15 @@ LOCALE_DIR = Path(__file__).parent.parent / 'locale'
 def detect_lang_code(lang: str) -> str:
     """Detect locale file code from system locale string using convention-based lookup.
 
-    Lookup chain: ``{lang}.json`` → ``en.json``.  No mapping table - the
-    locale directory *is* the configuration, so a system language without a
-    shipped file (anything but Japanese and Korean) lands on English.
+    Lookup chain: ``{lang}-{REGION}.json`` → ``{lang}.json`` → the one
+    regional file of that language (``pt_PT`` reads ``pt-BR``) → ``en.json``.
+    No mapping table - the locale directory *is* the configuration, so a
+    system language without a shipped file lands on English.
 
     Parameters
     ----------
     lang : str
-        System locale string, e.g. ``'ko_KR'`` or ``'Korean_Korea'``.
+        System locale string, e.g. ``'de_DE'`` or ``'German_Germany'``.
 
     Returns
     -------
@@ -37,13 +38,37 @@ def detect_lang_code(lang: str) -> str:
     parts = normalized.split('_', 1)
     base = parts[0].lower()
 
-    # On Windows, os.getlocale() returns e.g. 'Korean_Korea', and locale.normalize() fails to rewrite it to an ISO code,
-    # so base becomes 'korean'. Re-split using 'korean' to hopefully trigger a match.
+    # On Windows, os.getlocale() returns e.g. 'German_Germany', and locale.normalize() fails to rewrite it to an ISO code,
+    # so base becomes 'german'. Re-split using 'german' to hopefully trigger a match.
     if len(base) > 3:
         base = locale.normalize(parts[0]).split('.')[0].split('_')[0].lower()
 
-    if (LOCALE_DIR / f'{base}.json').exists():
+    # Windows names that locale.normalize() cannot rewrite to an ISO code at all.
+    region_override = ''
+    if base == 'ukrainian':
+        base = 'uk'
+    elif base == 'hindi':
+        base = 'hi'
+    elif base == 'indonesian':
+        base = 'id'
+    elif base.startswith('chinese') or base == 'zh':
+        # Windows reports Chinese as e.g. 'Chinese (Simplified)_China' or
+        # 'Chinese (Traditional)_Hong Kong SAR'.  The script picks between the
+        # shipped zh files; Hong Kong and Macao read traditional characters.
+        original_region = parts[1] if len(parts) > 1 else ''
+        traditional = 'traditional' in base or original_region in ('Taiwan', 'Hong Kong SAR', 'Macao SAR', 'TW', 'HK', 'MO')
+        base = 'zh'
+        region_override = 'TW' if traditional else 'CN'
+
+    region = region_override or (parts[1] if len(parts) > 1 and len(base) <= 3 else '')
+    if region and (LOCALE_DIR / f'{base}-{region}.json').exists():
+        return f'{base}-{region}'
+    if base and (LOCALE_DIR / f'{base}.json').exists():
         return base
+
+    regional_files = sorted(LOCALE_DIR.glob(f'{base}-*.json')) if base.isalpha() else []
+    if len(regional_files) == 1:
+        return regional_files[0].stem
 
     return 'en'
 
