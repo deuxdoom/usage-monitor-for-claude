@@ -213,6 +213,8 @@ let currentLocale = null;
 let currentPreset = 'full';
 // Which view the preview opens in, so the stored-view path is exercised too.
 let currentView = previewParams.get('view') === 'bar' ? 'bar' : 'detail';
+// The agent the detail view opens on - the tray menu's choice in the app.
+const openingProvider = previewParams.get('provider') === 'codex' ? 'codex' : 'claude';
 const materialSelect = document.getElementById('materialSelect');
 materialSelect.value = previewParams.get('material') === 'glass' ? 'glass' : 'matte';
 
@@ -298,6 +300,9 @@ function resolveData(name, loc) {
         reset_text: localizeReset(loc, entry.reset),
         dividers: entry.dividers,
         marker_rel: entry.marker_rel,
+        // As snapshot_to_dict() marks them: the session and the weekly quota
+        // (the entries fieldKey() maps to five_hour and seven_day) have local detail.
+        session_detail: entry.unit === 'hour' || !entry.suffix,
     }));
 
     const extra = preset.extra ? {
@@ -427,7 +432,7 @@ async function applyLanguage(code) {
     iframe.style.width = VIEW_WIDTHS[currentView] + 'px';
     win().init({
         colors: COLORS, t: buildTranslations(currentLocale), app_version: '3.2.0',
-        compact_hide: compactHide, view: currentView,
+        compact_hide: compactHide, view: currentView, provider: openingProvider,
         material: materialSelect.value, framed: true,
         lang_tag: currentLang, time_format: '24h',
         data: resolveData(currentPreset, currentLocale),

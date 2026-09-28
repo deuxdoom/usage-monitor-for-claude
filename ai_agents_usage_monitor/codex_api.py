@@ -22,9 +22,8 @@ from .settings import MAX_BACKOFF
 __all__ = ['CodexAccount']
 
 _TIMEOUT = 20
-# An exhausted window makes the app-server fetch reset-credit and upsell details
-# along with the quotas, and now and then that request never answers.  A request
-# is given up after this long and the read runs once more in a fresh app-server.
+# Bound stalled requests, including reads from older app-servers that do not
+# honor excludeResetCreditDetails, then retry in a fresh app-server.
 _REQUEST_TIMEOUT = 10
 _ATTEMPTS = 2
 
@@ -157,7 +156,9 @@ def _fetch(binary: Path) -> tuple[dict[str, str], list[dict[str, Any]], dict[str
             raise _ReadError('codex_login_required')
         if account.get('type') != 'chatgpt':
             raise _ReadError('codex_chatgpt_required')
-        limits = _request(process, responses, deadline, 3, 'account/rateLimits/read', {})
+        # Background polls need quota windows and purchased credits, not the
+        # separate earned-reset detail lookup that can stall at exhaustion.
+        limits = _request(process, responses, deadline, 3, 'account/rateLimits/read', {'excludeResetCreditDetails': True})
         confirmed = _request(process, responses, deadline, 4, 'account/read', {'refreshToken': False})
         if confirmed.get('account') != account:
             raise _ReadError('codex_account_error')

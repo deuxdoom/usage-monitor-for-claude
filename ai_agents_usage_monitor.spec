@@ -21,6 +21,8 @@ a = Analysis(
         ('ai_agents_usage_monitor/popup/matte.css', 'ai_agents_usage_monitor/popup'),
         ('ai_agents_usage_monitor/popup/glass.css', 'ai_agents_usage_monitor/popup'),
         ('ai_agents_usage_monitor/popup/popup.js', 'ai_agents_usage_monitor/popup'),
+        ('ai_agents_usage_monitor/popup/usage-cards.js', 'ai_agents_usage_monitor/popup'),
+        ('ai_agents_usage_monitor/popup/bar-view.js', 'ai_agents_usage_monitor/popup'),
         ('ai_agents_usage_monitor/popup/updater.html', 'ai_agents_usage_monitor/popup'),
         ('ai_agents_usage_monitor/popup/Pretendard-Regular.woff2', 'ai_agents_usage_monitor/popup'),
         ('ai_agents_usage_monitor/popup/Pretendard-OFL.txt', 'ai_agents_usage_monitor/popup'),

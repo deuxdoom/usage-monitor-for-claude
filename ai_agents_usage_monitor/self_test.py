@@ -14,6 +14,9 @@ import, and two of them had been excluded).  ``build.py`` therefore starts
 ``AIAgentsUsageMonitor.exe --self-test`` after every build and fails the build
 when it does not exit cleanly.
 
+This entry point ships in the application package because it runs inside the
+frozen EXE. Its unit tests live in tests/test_self_test.py outside the bundle.
+
 The check opens no window, starts no tray icon, makes no network request and
 writes nothing: no settings, no registry, no credentials.
 """

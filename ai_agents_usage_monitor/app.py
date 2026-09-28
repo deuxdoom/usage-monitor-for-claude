@@ -13,7 +13,7 @@ import threading
 import time
 import traceback
 import webbrowser
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 import pystray  # type: ignore[import-untyped]  # no type stubs available
@@ -26,7 +26,10 @@ from .codex_api import CodexAccount
 from .codex_cli import CodexInstallations
 from .codex_sessions import CodexUsage
 from .command import run_event_command
-from .events import quick_action_env, reset_env, startup_env, threshold_env
+from .events import (
+    quick_action_env, reset_env, sample_quick_action_env, sample_reset_env, sample_startup_env, sample_threshold_env,
+    startup_env, threshold_env,
+)
 from .idle import get_idle_seconds, is_workstation_locked
 from .instance_id import effective_config_dir, is_default_config_dir
 from .settings import (
@@ -66,30 +69,15 @@ WM_LBUTTONUP = 0x0202
 WM_LBUTTONDBLCLK = 0x0203
 
 
-def _future_iso(**kwargs: float) -> str:
-    """Return an ISO 8601 timestamp offset from now by the given timedelta kwargs."""
-    return (datetime.now(timezone.utc) + timedelta(**kwargs)).isoformat()
+def _icon_field(spec: str) -> tuple[str, str]:
+    """Split an ``icon_fields`` entry into its field name and bar mode (``'utilization'`` when none is given)."""
+    field, separator, mode = spec.partition(':')
+    return field, mode if separator else 'utilization'
 
 
-def _align_to_reset(interval: int, next_reset: float | None) -> tuple[int, bool]:
-    """Shift the next poll so the confirming poll lands just after the reset.
-
-    Binds this app's cadence values to the rule in ``scheduling``, which takes
-    them as arguments so it can be read on its own.
-
-    Parameters
-    ----------
-    interval : int
-        The normal cadence interval before reset alignment.
-    next_reset : float or None
-        Seconds until the nearest upcoming reset, or None.
-
-    Returns
-    -------
-    tuple[int, bool]
-        The (possibly adjusted) interval and whether alignment engaged.
-    """
-    return align_to_reset(interval, next_reset, POLL_FAST, RESET_BUFFER)
+def _highest_crossed(value: float, thresholds: list[float]) -> float:
+    """Return the highest threshold ``value`` has reached, or 0 when it has reached none."""
+    return max((threshold for threshold in thresholds if value >= threshold), default=0)
 
 
 class AIAgentsUsageMonitor:
@@ -264,71 +252,26 @@ class AIAgentsUsageMonitor:
     def on_open_project(self, icon: Any = None, item: Any = None) -> None:
         webbrowser.open(PROJECT_URL)
 
+    # The test entries are user-driven, so a failing command surfaces its
+    # output (capture_output) instead of failing silently.
+
     def on_test_reset_5h(self, icon: Any = None, item: Any = None) -> None:
-        run_event_command(ON_RESET_COMMAND, {
-            'USAGE_MONITOR_EVENT': 'reset',
-            'USAGE_MONITOR_VARIANT': 'five_hour',
-            'USAGE_MONITOR_UTILIZATION': '0',
-            'USAGE_MONITOR_PREV_UTILIZATION': '95',
-            'USAGE_MONITOR_UTILIZATION_FIVE_HOUR': '0',
-            'USAGE_MONITOR_UTILIZATION_SEVEN_DAY': '45',
-            'USAGE_MONITOR_RESETS_AT': _future_iso(hours=5),
-            'USAGE_MONITOR_TITLE': T['notify_reset_title'],
-            'USAGE_MONITOR_MESSAGE': T['notify_reset'],
-        }, capture_output=True)
+        run_event_command(ON_RESET_COMMAND, sample_reset_env('five_hour'), capture_output=True)
 
     def on_test_reset_7d(self, icon: Any = None, item: Any = None) -> None:
-        run_event_command(ON_RESET_COMMAND, {
-            'USAGE_MONITOR_EVENT': 'reset',
-            'USAGE_MONITOR_VARIANT': 'seven_day',
-            'USAGE_MONITOR_UTILIZATION': '0',
-            'USAGE_MONITOR_PREV_UTILIZATION': '99',
-            'USAGE_MONITOR_UTILIZATION_FIVE_HOUR': '12',
-            'USAGE_MONITOR_UTILIZATION_SEVEN_DAY': '0',
-            'USAGE_MONITOR_RESETS_AT': _future_iso(days=7),
-            'USAGE_MONITOR_TITLE': T['notify_reset_title'],
-            'USAGE_MONITOR_MESSAGE': T['notify_reset'],
-        }, capture_output=True)
+        run_event_command(ON_RESET_COMMAND, sample_reset_env('seven_day'), capture_output=True)
 
     def on_test_threshold_5h(self, icon: Any = None, item: Any = None) -> None:
-        run_event_command(ON_THRESHOLD_COMMAND, {
-            'USAGE_MONITOR_EVENT': 'threshold',
-            'USAGE_MONITOR_VARIANT': 'five_hour',
-            'USAGE_MONITOR_UTILIZATION': '82',
-            'USAGE_MONITOR_THRESHOLD': '80',
-            'USAGE_MONITOR_RESETS_AT': _future_iso(hours=3),
-            'USAGE_MONITOR_TITLE': T['notify_threshold_title'],
-            'USAGE_MONITOR_MESSAGE': T['notify_threshold_generic'].format(label=popup_label('five_hour'), pct='82'),
-        }, capture_output=True)
+        run_event_command(ON_THRESHOLD_COMMAND, sample_threshold_env('five_hour'), capture_output=True)
 
     def on_test_threshold_7d(self, icon: Any = None, item: Any = None) -> None:
-        run_event_command(ON_THRESHOLD_COMMAND, {
-            'USAGE_MONITOR_EVENT': 'threshold',
-            'USAGE_MONITOR_VARIANT': 'seven_day',
-            'USAGE_MONITOR_UTILIZATION': '81',
-            'USAGE_MONITOR_THRESHOLD': '80',
-            'USAGE_MONITOR_RESETS_AT': _future_iso(days=4),
-            'USAGE_MONITOR_TITLE': T['notify_threshold_title'],
-            'USAGE_MONITOR_MESSAGE': T['notify_threshold_generic'].format(label=popup_label('seven_day'), pct='81'),
-        }, capture_output=True)
+        run_event_command(ON_THRESHOLD_COMMAND, sample_threshold_env('seven_day'), capture_output=True)
 
     def on_test_startup(self, icon: Any = None, item: Any = None) -> None:
-        run_event_command(ON_STARTUP_COMMAND, {
-            'USAGE_MONITOR_EVENT': 'startup',
-            'USAGE_MONITOR_UTILIZATION_FIVE_HOUR': '0',
-            'USAGE_MONITOR_RESETS_AT_FIVE_HOUR': '',
-            'USAGE_MONITOR_UTILIZATION_SEVEN_DAY': '45',
-            'USAGE_MONITOR_RESETS_AT_SEVEN_DAY': _future_iso(days=3),
-        }, capture_output=True)
+        run_event_command(ON_STARTUP_COMMAND, sample_startup_env(), capture_output=True)
 
     def on_test_quick_action(self, icon: Any = None, item: Any = None) -> None:
-        run_event_command(QUICK_ACTION_COMMAND, {
-            'USAGE_MONITOR_EVENT': 'quick_action',
-            'USAGE_MONITOR_UTILIZATION_FIVE_HOUR': '30',
-            'USAGE_MONITOR_RESETS_AT_FIVE_HOUR': _future_iso(hours=3),
-            'USAGE_MONITOR_UTILIZATION_SEVEN_DAY': '55',
-            'USAGE_MONITOR_RESETS_AT_SEVEN_DAY': _future_iso(days=4),
-        }, capture_output=True)
+        run_event_command(QUICK_ACTION_COMMAND, sample_quick_action_env(), capture_output=True)
 
     def on_quit(self, icon: Any = None, item: Any = None) -> None:
         self.running = False
@@ -451,8 +394,8 @@ class AIAgentsUsageMonitor:
         if 'error' in data:
             self.icon.icon = create_status_image('C!' if data.get('auth_error') else '!', self._light_taskbar)
         else:
-            top_field, top_mode = ICON_FIELDS[0].split(':', 1) if ':' in ICON_FIELDS[0] else (ICON_FIELDS[0], 'utilization')
-            bottom_field, bottom_mode = ICON_FIELDS[1].split(':', 1) if ':' in ICON_FIELDS[1] else (ICON_FIELDS[1], 'utilization')
+            top_field, top_mode = _icon_field(ICON_FIELDS[0])
+            bottom_field, bottom_mode = _icon_field(ICON_FIELDS[1])
             # isinstance instead of truthiness: a configured field may point at
             # a non-dict response value (e.g. the raw limits array).
             top_entry = data.get(top_field)
@@ -673,7 +616,7 @@ class AIAgentsUsageMonitor:
         self._check_threshold_alerts(result.data)
 
         # Adaptive polling: speed up when icon top field usage is increasing
-        icon_top_key = ICON_FIELDS[0].split(':', 1)[0]
+        icon_top_key, _ = _icon_field(ICON_FIELDS[0])
         icon_top_pct = quota_fields.get(icon_top_key, 0)
         icon_top_prev = self._prev_utilization.get(icon_top_key)
         if icon_top_prev is not None and icon_top_pct > icon_top_prev:
@@ -771,8 +714,7 @@ class AIAgentsUsageMonitor:
             if not thresholds:
                 continue
 
-            exceeded = [t for t in thresholds if pct >= t]
-            highest_exceeded = max(exceeded) if exceeded else 0
+            highest_exceeded = _highest_crossed(pct, thresholds)
             last_notified = self._notified_thresholds.get(variant_key, 0)
 
             if ALERT_TIME_AWARE and highest_exceeded > last_notified and highest_exceeded < ALERT_TIME_AWARE_BELOW:
@@ -815,9 +757,7 @@ class AIAgentsUsageMonitor:
         limit = extra.get('monthly_limit', 0) or 0
         if limit > 0:
             pct = used / limit * 100
-            thresholds = get_alert_thresholds('extra_usage')
-            exceeded = [t for t in thresholds if pct >= t]
-            highest_exceeded = max(exceeded) if exceeded else 0
+            highest_exceeded = _highest_crossed(pct, get_alert_thresholds('extra_usage'))
             last_notified = self._notified_thresholds.get('extra_usage', 0)
 
             if highest_exceeded > last_notified:
@@ -851,8 +791,7 @@ class AIAgentsUsageMonitor:
         places = decimal_places if decimal_places is not None else 2
         spent = used / (10 ** places)
 
-        exceeded = [amount for amount in ALERT_EXTRA_USAGE_SPENT if spent >= amount]
-        highest_exceeded = max(exceeded) if exceeded else 0
+        highest_exceeded = _highest_crossed(spent, ALERT_EXTRA_USAGE_SPENT)
         last_notified = self._notified_thresholds.get('extra_usage_spent', 0)
 
         if highest_exceeded > last_notified:
@@ -1023,7 +962,7 @@ class AIAgentsUsageMonitor:
         # The confirming poll is placed just after the reset; a follow-up uses
         # POLL_FAST regardless of user activity (quota was likely exhausted).
         next_reset = self._seconds_until_next_reset()
-        interval, aligned = _align_to_reset(interval, next_reset)
+        interval, aligned = align_to_reset(interval, next_reset, POLL_FAST, RESET_BUFFER)
         if aligned:
             self._fast_polls_remaining = max(self._fast_polls_remaining, 2)
 

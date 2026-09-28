@@ -3,19 +3,24 @@ Event Command Environments
 ===========================
 
 Translate quota state into the environment variables each event command
-receives.  Every function here is pure: which command is configured, whether
-the event should fire at all, and the call to the runner all stay with the
+receives, and supply the samples the tray menu's test entries send.  Every
+function here only builds a dict: which command is configured, whether the
+event should fire at all, and the call to the runner all stay with the
 caller, so this module can be read as the answer to one question - what does a
 command get told about what happened.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .formatting import format_credits, is_active_quota
+from .formatting import format_credits, is_active_quota, popup_label
 from .i18n import T
 
-__all__ = ['quick_action_env', 'quota_snapshot_env', 'reset_env', 'startup_env', 'threshold_env']
+__all__ = [
+    'quick_action_env', 'quota_snapshot_env', 'reset_env', 'sample_quick_action_env', 'sample_reset_env',
+    'sample_startup_env', 'sample_threshold_env', 'startup_env', 'threshold_env',
+]
 
 
 def quota_snapshot_env(data: dict[str, Any]) -> dict[str, str]:
@@ -144,3 +149,85 @@ def threshold_env(
         env_vars['USAGE_MONITOR_EXTRA_LIMIT'] = extra_limit
 
     return env_vars
+
+
+# The "Test event commands" tray menu fires each command with a sample below:
+# plausible values under the same variable names the real event sets, so a
+# script can be checked against what it will actually be told.
+
+def sample_reset_env(variant: str) -> dict[str, str]:
+    """Sample environment for a reset of the session or the weekly quota.
+
+    Parameters
+    ----------
+    variant : str
+        ``'five_hour'`` or ``'seven_day'`` - the quota the sample reports as reset.
+    """
+    assert variant in ('five_hour', 'seven_day')
+
+    if variant == 'five_hour':
+        prev_pct, five_hour_pct, seven_day_pct, resets_at = '95', '0', '45', _future_iso(hours=5)
+    else:
+        prev_pct, five_hour_pct, seven_day_pct, resets_at = '99', '12', '0', _future_iso(days=7)
+
+    return {
+        'USAGE_MONITOR_EVENT': 'reset',
+        'USAGE_MONITOR_VARIANT': variant,
+        'USAGE_MONITOR_UTILIZATION': '0',
+        'USAGE_MONITOR_PREV_UTILIZATION': prev_pct,
+        'USAGE_MONITOR_UTILIZATION_FIVE_HOUR': five_hour_pct,
+        'USAGE_MONITOR_UTILIZATION_SEVEN_DAY': seven_day_pct,
+        'USAGE_MONITOR_RESETS_AT': resets_at,
+        'USAGE_MONITOR_TITLE': T['notify_reset_title'],
+        'USAGE_MONITOR_MESSAGE': T['notify_reset'],
+    }
+
+
+def sample_threshold_env(variant: str) -> dict[str, str]:
+    """Sample environment for the session or the weekly quota crossing 80%.
+
+    Parameters
+    ----------
+    variant : str
+        ``'five_hour'`` or ``'seven_day'`` - the quota the sample reports.
+    """
+    assert variant in ('five_hour', 'seven_day')
+
+    pct, resets_at = ('82', _future_iso(hours=3)) if variant == 'five_hour' else ('81', _future_iso(days=4))
+
+    return {
+        'USAGE_MONITOR_EVENT': 'threshold',
+        'USAGE_MONITOR_VARIANT': variant,
+        'USAGE_MONITOR_UTILIZATION': pct,
+        'USAGE_MONITOR_THRESHOLD': '80',
+        'USAGE_MONITOR_RESETS_AT': resets_at,
+        'USAGE_MONITOR_TITLE': T['notify_threshold_title'],
+        'USAGE_MONITOR_MESSAGE': T['notify_threshold_generic'].format(label=popup_label(variant), pct=pct),
+    }
+
+
+def sample_startup_env() -> dict[str, str]:
+    """Sample environment for the startup command: a fresh session beside a partly used week."""
+    return {
+        'USAGE_MONITOR_EVENT': 'startup',
+        'USAGE_MONITOR_UTILIZATION_FIVE_HOUR': '0',
+        'USAGE_MONITOR_RESETS_AT_FIVE_HOUR': '',
+        'USAGE_MONITOR_UTILIZATION_SEVEN_DAY': '45',
+        'USAGE_MONITOR_RESETS_AT_SEVEN_DAY': _future_iso(days=3),
+    }
+
+
+def sample_quick_action_env() -> dict[str, str]:
+    """Sample environment for the quick action, shaped like the startup command's."""
+    return {
+        'USAGE_MONITOR_EVENT': 'quick_action',
+        'USAGE_MONITOR_UTILIZATION_FIVE_HOUR': '30',
+        'USAGE_MONITOR_RESETS_AT_FIVE_HOUR': _future_iso(hours=3),
+        'USAGE_MONITOR_UTILIZATION_SEVEN_DAY': '55',
+        'USAGE_MONITOR_RESETS_AT_SEVEN_DAY': _future_iso(days=4),
+    }
+
+
+def _future_iso(**offset: float) -> str:
+    """Return an ISO 8601 timestamp offset from now by the given ``timedelta`` arguments."""
+    return (datetime.now(timezone.utc) + timedelta(**offset)).isoformat()

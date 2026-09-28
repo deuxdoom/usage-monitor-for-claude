@@ -14,12 +14,6 @@ let codexData = null;
 let codexReadError = null;
 // True while the first Codex read runs with the previous view still on screen.
 let codexPending = false;
-// Bar keys with their detail panel currently open.  Claude only ever adds
-// 'five_hour' and 'seven_day' - session_detail() has no local-log equivalent
-// for a model-scoped or unlabeled quota, so those bars are never made
-// clickable - and Codex adds its own prefixed keys, so the two views cannot
-// collide and an expanded panel stays open only in the tab it belongs to.
-let expandedDetail = new Set();
 let allQuotasVisible = false;
 let installationsVisible = false;
 // 'detail' is the full window, 'bar' the single row showing both agents at
@@ -28,20 +22,6 @@ let installationsVisible = false;
 // does not rebuild it.
 let viewMode = 'detail';
 let viewSwitchBusy = false;
-// Agents whose bar card reads as remaining rather than used. Each card flips
-// on its own, so one agent's headroom can sit beside the other's usage. Per
-// session: it is a way of looking at the same number, not a setting.
-let barRemainingProviders = new Set();
-let clockTimerId = null;
-let clockDateFormat = null;
-let clockTimeFormat = null;
-// The clock's separator shows for the first half of every second and hides
-// for the second half - one blink per real second - so the clock ticks on
-// each half second of the wall clock. The slack lands a tick just past the
-// boundary, where a timer firing a moment early would otherwise render the
-// half it was meant to leave.
-const CLOCK_TICK_MS = 500;
-const CLOCK_TICK_SLACK_MS = 15;
 
 /**
  * Switch the popup between the Claude and Codex views.
@@ -61,9 +41,7 @@ function selectProvider(provider) {
     emailRevealed = false;
     allQuotasVisible = false;
     installationsVisible = false;
-    selectedProvider = provider;
-    document.getElementById('title').setAttribute('aria-pressed', provider === 'claude');
-    document.getElementById('codexBtn').setAttribute('aria-pressed', provider === 'codex');
+    markSelectedProvider(provider);
     if (codexTimerId) clearTimeout(codexTimerId);
     codexTimerId = null;
 
@@ -81,6 +59,13 @@ function selectProvider(provider) {
         setRefreshBusy(true);
     }
     refreshCodex();
+}
+
+/** Record which agent the detail view shows and press its header tab. */
+function markSelectedProvider(provider) {
+    selectedProvider = provider;
+    document.getElementById('title').setAttribute('aria-pressed', provider === 'claude');
+    document.getElementById('codexBtn').setAttribute('aria-pressed', provider === 'codex');
 }
 
 /**
@@ -290,8 +275,17 @@ function init(config) {
     // The stored view is applied without telling Python: it is the side that
     // chose the opening view, so the window is already the right width, and a
     // bridge call here would run before the API is guaranteed to be attached.
+    // The detail view opens on the agent the tray icon follows. The bar shows
+    // both agents, so there the choice only sets the tab a switch back to the
+    // detail view lands on, and the bar still reads Codex quotas alone.
+    const opensOnCodex = config.provider === 'codex';
     if (config.view === 'bar') {
+        if (opensOnCodex) markSelectedProvider('codex');
         applyViewMode('bar');
+    } else if (opensOnCodex) {
+        // Before the first Codex read has finished, this holds the Claude view
+        // dimmed until it lands, exactly as a first switch to the tab does.
+        selectProvider('codex');
     } else {
         // Prepare the other tab while Claude is visible. Reads share the app's
         // caches, so reopening cannot bypass the account cooldown or backoff.
@@ -342,61 +336,6 @@ function setupDisclosureButtons() {
         els.installRows.hidden = !installationsVisible;
         els.installToggle.setAttribute('aria-expanded', String(installationsVisible));
     });
-}
-
-/**
- * Prepare the bar view's clock formatters and start it if the bar is up.
- *
- * Both formatters are built once: they are the expensive part of rendering a
- * clock every second, and neither the language nor the 12/24-hour choice can
- * change without the window being reopened.
- *
- * @param {string} langTag - Locale the app's translations were loaded for.
- * @param {string} timeFormat - '24h' or '12h', from the same setting the
- *   reset times are rendered with.
- */
-function setupClock(langTag, timeFormat) {
-    const locale = langTag || 'en';
-    clockDateFormat = new Intl.DateTimeFormat(locale, {month: 'short', day: 'numeric', weekday: 'short'});
-    clockTimeFormat = new Intl.DateTimeFormat(locale, {hour: '2-digit', minute: '2-digit', hour12: timeFormat === '12h'});
-}
-
-function renderClock() {
-    const now = new Date();
-    els.clockDate.textContent = clockDateFormat.format(now);
-    els.clockTime.setAttribute('aria-label', clockTimeFormat.format(now));
-    els.clockTime.replaceChildren(...clockTimeFormat.formatToParts(now).map((part) => {
-        const span = document.createElement('span');
-        span.textContent = part.value;
-        if (part.type === 'literal' && part.value.includes(':')) {
-            span.className = 'clock-separator';
-            span.classList.toggle('off', now.getMilliseconds() >= CLOCK_TICK_MS);
-        }
-        return span;
-    }));
-}
-
-/**
- * Run the clock only while the bar view is showing it.
- *
- * Each tick is scheduled against the wall clock rather than repeated on a
- * fixed interval: an interval keeps the phase of the moment the bar opened
- * and drifts from there, so the blink would neither match the seconds nor
- * keep an even rhythm.
- */
-function startClock() {
-    if (clockTimerId) return;
-    const tick = () => {
-        renderClock();
-        clockTimerId = setTimeout(tick, CLOCK_TICK_MS - (Date.now() % CLOCK_TICK_MS) + CLOCK_TICK_SLACK_MS);
-    };
-    tick();
-}
-
-function stopClock() {
-    if (!clockTimerId) return;
-    clearTimeout(clockTimerId);
-    clockTimerId = null;
 }
 
 /**
@@ -630,190 +569,6 @@ function applyViewMode(mode) {
     }
     reapplyData();
     if (selectedProvider === 'codex') refreshCodex();
-}
-
-/**
- * Render the bar view: the clock, then one card per agent.
- *
- * Which bar counts as the session and which as the weekly quota is decided by
- * duration, not by field name - the shortest window an agent reports is its
- * session, and the shortest of the rest is the quota above it. That keeps a
- * list of quota names out of the page, so a new quota type appears here
- * without the page being taught anything about it.
- */
-function renderBarView() {
-    renderClock();
-
-    const account = codexData?.account;
-    const providers = [
-        {key: 'claude', name: 'CLAUDE', usage: lastData?.usage, status: lastData?.status},
-        {key: 'codex', name: 'CODEX', usage: account?.usage, status: account?.status, error: codexReadError},
-    ];
-    if (!els.barCards.children.length) {
-        els.barCards.replaceChildren(...providers.map(buildBarCard));
-    }
-
-    providers.forEach((provider, index) => {
-        const card = els.barCards.children[index];
-        const entries = barWindows(provider.usage);
-        const showsRemaining = barRemainingProviders.has(provider.key);
-        card.querySelector('.bar-card-mode').textContent = showsRemaining ? translations.bar_mode_left : translations.bar_mode_used;
-        const rows = card.querySelectorAll('.bar-row');
-        rows.forEach((row, rowIndex) => updateBarRow(row, entries[rowIndex], showsRemaining));
-        const status = provider.status;
-        const error = provider.error || status?.error || (status?.is_error ? status.text : null);
-        card.classList.toggle('stale', !!error);
-        card.title = [error || (!entries.some(Boolean) ? status?.text || translations.status_refreshing : ''),
-            translations.bar_toggle_hint, translations.bar_fill_hint].filter(Boolean).join('\n');
-        if (error) rows.forEach((row) => { row.title = [row.title, error].filter(Boolean).join('\n'); });
-        card.setAttribute('aria-pressed', showsRemaining);
-        card.setAttribute('aria-label', [provider.name, ...Array.from(rows, row => row.title), card.title].filter(Boolean).join(', '));
-    });
-}
-
-/** Return [session, weekly] for one agent, either of which may be null. */
-function barWindows(entries) {
-    const timed = (entries || []).filter((entry) => entry.period_seconds);
-    if (!timed.length) return [null, null];
-
-    const sorted = [...timed].sort((a, b) => a.period_seconds - b.period_seconds);
-    const session = sorted[0];
-    const weekly = sorted.find((entry) => entry.period_seconds > session.period_seconds) || null;
-
-    return [session, weekly];
-}
-
-function buildBarCard(provider) {
-    const card = document.createElement('div');
-    card.className = 'bar-card';
-    // The stylesheet colors the name by this, in the agent's signature color.
-    card.dataset.provider = provider.key;
-    card.setAttribute('role', 'button');
-    card.setAttribute('tabindex', '0');
-
-    const label = document.createElement('div');
-    label.className = 'bar-card-name';
-    label.textContent = provider.name;
-
-    const heading = document.createElement('div');
-    heading.className = 'bar-card-heading';
-    const alert = document.createElement('span');
-    alert.className = 'bar-card-alert';
-    alert.textContent = '!';
-    alert.setAttribute('aria-hidden', 'true');
-    const mode = document.createElement('span');
-    mode.className = 'bar-card-mode';
-    heading.append(label, alert, mode);
-    card.append(heading, buildBarRow(false), buildBarRow(true));
-
-    card.addEventListener('click', () => toggleBarRemaining(provider.key));
-    card.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            toggleBarRemaining(provider.key);
-        }
-    });
-
-    return card;
-}
-
-function buildBarRow(weekly) {
-    const row = document.createElement('div');
-    row.className = 'bar-row';
-    row.classList.toggle('weekly', weekly);
-
-    const pct = document.createElement('span');
-    pct.className = 'bar-row-pct';
-    const period = document.createElement('span');
-    period.className = 'bar-row-period';
-    row.append(period, pct, createBarContainer(null));
-
-    return row;
-}
-
-function updateBarRow(row, entry, showsRemaining) {
-    row.classList.toggle('empty', !entry);
-    row.querySelector('.bar-row-period').textContent = barPeriodLabel(entry?.period_seconds);
-    const pct = row.querySelector('.bar-row-pct');
-    pct.textContent = entry ? (showsRemaining ? entry.left_text : entry.pct_text) : '\u2014';
-    pct.classList.toggle('warn', !!entry?.warn);
-    updateBarContainer(row.querySelector('.bar-container'), entry);
-
-    row.title = '';
-    if (entry) {
-        const template = showsRemaining ? translations.bar_left : translations.bar_used;
-        row.title = template.replace('{label}', entry.label).replace('{pct}', pct.textContent);
-        row.title = [row.title, entry.reset_text, showsRemaining ? translations.bar_fill_hint : ''].filter(Boolean).join('\n');
-    }
-
-}
-
-/** Compact, exact durations; provider field names never determine the label. */
-function barPeriodLabel(seconds) {
-    if (!Number.isFinite(seconds) || seconds <= 0) return '';
-    for (const [unit, suffix] of [[86400, 'd'], [3600, 'h'], [60, 'm'], [1, 's']]) {
-        if (seconds % unit === 0) return `${seconds / unit}${suffix}`;
-    }
-    return `${seconds}s`;
-}
-
-/**
- * Flip one agent's percentages in the bar between used and remaining.
- *
- * Only that card's numbers flip; the other agent keeps whichever reading it
- * had. The fill still measures what has been used, because it is read
- * against the elapsed-time marker beside it - inverting the fill would leave
- * that marker comparing against nothing.
- *
- * @param {string} provider - 'claude' or 'codex'.
- */
-function toggleBarRemaining(provider) {
-    if (!barRemainingProviders.delete(provider)) barRemainingProviders.add(provider);
-    renderBarView();
-}
-
-/**
- * Build the track, fill, dividers and elapsed-time marker for one entry.
- *
- * Shared by the detail bars and the bar view's rows so both mark elapsed time
- * the same way; an entry of null renders an empty track.
- */
-function createBarContainer(entry) {
-    const container = document.createElement('div');
-    container.className = 'bar-container';
-    const fill = document.createElement('div');
-    fill.className = 'bar-fill';
-    container.appendChild(fill);
-    updateBarContainer(container, entry);
-    fill.style.width = '0%';
-
-    return container;
-}
-
-function updateBarContainer(container, entry) {
-    const fill = container.querySelector('.bar-fill');
-    fill.style.width = `${(entry?.fill_pct || 0) * 100}%`;
-    fill.classList.toggle('warn', !!entry?.warn);
-
-    for (const divider of container.querySelectorAll('.bar-divider')) divider.remove();
-    for (const pos of entry?.dividers || []) {
-        const divider = document.createElement('div');
-        divider.className = 'bar-divider';
-        divider.style.left = `calc(${pos * 100}% - 1px)`;
-        container.appendChild(divider);
-    }
-
-    let marker = container.querySelector('.bar-marker');
-    if (entry?.marker_rel != null) {
-        if (!marker) {
-            marker = document.createElement('div');
-            marker.className = 'bar-marker';
-            container.appendChild(marker);
-        }
-        marker.style.left = `calc(${entry.marker_rel * 100}% - 1px)`;
-    } else if (marker) {
-        marker.remove();
-    }
 }
 
 /**
@@ -1077,349 +832,6 @@ function formatCountdown(totalSeconds) {
 
     const totalMin = Math.ceil(totalSeconds / 60);
     return translations.duration_hm.replace('{h}', Math.floor(totalMin / 60)).replace('{m}', totalMin % 60);
-}
-
-// Bar keys that offer local-log detail on click. Kept in one place so the
-// click handler, the render functions, and the tests all agree on which
-// two fields this applies to.
-const DETAIL_FIELDS = new Set(['five_hour', 'seven_day']);
-
-function updateUsageBars(entries) {
-    // Rebuild whenever the field set changes, not only the count - after an
-    // account switch the same number of bars can carry different quotas, and
-    // an in-place update would show the new values under the old labels.
-    const bars = els.usageBars.children;
-    const sameFields = entries.length === bars.length
-        && entries.every((entry, i) => bars[i].dataset.key === entry.key
-            && bars[i].dataset.detailSeconds === String(entry.detail_seconds || ''));
-
-    if (!sameFields) {
-        els.usageBars.replaceChildren(...entries.map(createBarElement));
-        requestAnimationFrame(() => {
-            for (let i = 0; i < entries.length; i++) {
-                els.usageBars.children[i].querySelector('.bar-fill').style.width =
-                    `${entries[i].fill_pct * 100}%`;
-            }
-        });
-    } else {
-        for (let i = 0; i < entries.length; i++) {
-            updateBarElement(els.usageBars.children[i], entries[i]);
-        }
-    }
-    updateQuotaDisclosure(entries.length);
-}
-
-function updateQuotaDisclosure(count) {
-    const extraCount = Math.max(0, count - 2);
-    if (!extraCount) allQuotasVisible = false;
-    for (let i = 0; i < count; i++) {
-        els.usageBars.children[i].classList.toggle('secondary-hidden', i >= 2 && !allQuotasVisible);
-    }
-    if (!els.moreQuotasBtn) return;
-    els.moreQuotasBtn.hidden = extraCount === 0;
-    els.moreQuotasBtn.setAttribute('aria-expanded', String(allQuotasVisible));
-    els.moreQuotasText.textContent = allQuotasVisible
-        ? translations.show_fewer_limits
-        : translations.show_more_limits.replace('{count}', extraCount);
-}
-
-function createBarElement(entry) {
-    const div = document.createElement('div');
-    div.className = 'usage-entry';
-    div.dataset.key = entry.key;
-    div.dataset.detailSeconds = String(entry.detail_seconds || '');
-    div.dataset.periodSeconds = String(entry.period_seconds || '');
-
-    const header = document.createElement('div');
-    header.className = 'bar-header';
-    const label = document.createElement('span');
-    label.className = 'quota-label';
-    const labelText = document.createElement('span');
-    labelText.textContent = entry.label;
-    label.appendChild(labelText);
-    const pct = document.createElement('span');
-    pct.className = 'bar-pct';
-    pct.textContent = entry.pct_text;
-    pct.classList.toggle('warn', entry.warn);
-    header.append(label, pct);
-
-    const container = createBarContainer(entry);
-
-    div.append(header, container);
-    updatePaceText(div, entry);
-
-    if (entry.reset_text) {
-        const reset = document.createElement('div');
-        reset.className = 'reset-text';
-        reset.textContent = entry.reset_text;
-        div.appendChild(reset);
-    }
-
-    if (DETAIL_FIELDS.has(entry.key) || entry.detail_seconds) {
-        const arrow = document.createElement('span');
-        arrow.className = 'disclosure-arrow';
-        arrow.setAttribute('aria-hidden', 'true');
-        label.appendChild(arrow);
-        div.classList.add('detail-toggleable');
-        div.setAttribute('role', 'button');
-        div.setAttribute('tabindex', '0');
-        div.setAttribute('aria-expanded', 'false');
-        div.addEventListener('click', () => toggleDetail(entry.key, div));
-        div.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                toggleDetail(entry.key, div);
-            }
-        });
-        // Bars are torn down and rebuilt whenever the field set changes
-        // (see updateUsageBars); re-open and re-fetch so an expanded panel
-        // survives that rebuild instead of silently vanishing.
-        if (expandedDetail.has(entry.key)) {
-            openDetail(entry.key, div);
-        }
-    }
-
-    return div;
-}
-
-function updateBarElement(div, entry) {
-    if (entry.detail_seconds && expandedDetail.has(entry.key)) renderCodexDetail(div);
-    const pct = div.querySelector('.bar-pct');
-    pct.textContent = entry.pct_text;
-    pct.classList.toggle('warn', entry.warn);
-    updatePaceText(div, entry);
-
-    updateBarContainer(div.querySelector('.bar-container'), entry);
-
-    let resetEl = div.querySelector('.reset-text');
-    if (entry.reset_text) {
-        if (!resetEl) {
-            resetEl = document.createElement('div');
-            resetEl.className = 'reset-text';
-            // Insert ahead of an already-open detail panel rather than
-            // appending, so a reset-text that appears after the panel was
-            // opened (e.g. a fresh five_hour bar gets its first reset time)
-            // does not land below it.
-            div.insertBefore(resetEl, div.querySelector('.usage-detail'));
-        }
-        resetEl.textContent = entry.reset_text;
-    } else if (resetEl) {
-        resetEl.remove();
-    }
-}
-
-function updatePaceText(div, entry) {
-    let pace = div.querySelector('.pace-text');
-    if (!entry.pace_text) {
-        if (pace) pace.remove();
-        return;
-    }
-    if (!pace) {
-        pace = document.createElement('div');
-        pace.className = 'pace-text';
-        div.insertBefore(pace, div.querySelector('.reset-text') || div.querySelector('.usage-detail'));
-    }
-    pace.textContent = entry.pace_text;
-    pace.classList.toggle('warn', entry.warn);
-}
-
-/**
- * Toggle the local-log detail panel under a five_hour/seven_day bar.
- *
- * @param {string} key - 'five_hour' or 'seven_day'.
- * @param {HTMLElement} div - the bar's .usage-entry element.
- */
-function toggleDetail(key, div) {
-    if (expandedDetail.has(key)) {
-        expandedDetail.delete(key);
-        div.classList.remove('expanded');
-        div.setAttribute('aria-expanded', 'false');
-        div.querySelector('.usage-detail')?.remove();
-        return;
-    }
-    openDetail(key, div);
-}
-
-function openDetail(key, div) {
-    expandedDetail.add(key);
-    div.classList.add('expanded');
-    div.setAttribute('aria-expanded', 'true');
-    if (div.dataset.detailSeconds) {
-        renderCodexDetail(div);
-        return;
-    }
-    renderDetailLoading(div);
-
-    if (!window.pywebview?.api?.session_detail) {
-        renderDetailUnavailable(div);
-        return;
-    }
-
-    pywebview.api.session_detail(key).then((result) => {
-        // The panel may have been collapsed while this call was in flight.
-        // (A full bar rebuild - see updateUsageBars - re-triggers openDetail
-        // on the fresh element instead, so this stale call simply has
-        // nothing left to update.)
-        if (!expandedDetail.has(key)) return;
-        renderDetail(div, result);
-    }).catch(() => {
-        if (!expandedDetail.has(key)) return;
-        renderDetailUnavailable(div);
-    });
-}
-
-function renderCodexDetail(div) {
-    const seconds = Number(div.dataset.detailSeconds);
-    const usage = codexData?.windows?.find(window => window.seconds === seconds);
-    if (!codexData?.available || !usage) {
-        const panel = detailPanel(div);
-        panel.classList.add('error');
-        panel.textContent = translations.codex_unavailable;
-        return;
-    }
-    const note = translations.codex_source;
-    renderDetail(div, {
-        tokens: usage.tokens.toLocaleString(),
-        models: usage.models.map(model => ({
-            model: model.model, tokens: model.tokens.toLocaleString(),
-            pct: usage.tokens > 0 ? (model.tokens / usage.tokens * 100).toFixed(1) : '0.0',
-        })),
-        source: codexData.partial ? `${note} ${translations.codex_partial}` : note,
-    });
-}
-
-/** Get (creating if needed) the .usage-detail panel, placed after reset-text. */
-function detailPanel(div) {
-    let panel = div.querySelector('.usage-detail');
-    if (!panel) {
-        panel = document.createElement('div');
-        panel.className = 'usage-detail';
-        div.appendChild(panel);
-    }
-    return panel;
-}
-
-function renderDetailLoading(div) {
-    const panel = detailPanel(div);
-    panel.classList.remove('error');
-    panel.textContent = translations.detail_loading;
-}
-
-function renderDetailUnavailable(div) {
-    const panel = detailPanel(div);
-    panel.classList.add('error');
-    panel.textContent = translations.detail_unavailable;
-}
-
-/**
- * Render a session_detail() result into the bar's detail panel.
- *
- * @param {HTMLElement} div - the bar's .usage-entry element.
- * @param {object} result - { unavailable, tokens, messages, estimated_total, models }
- */
-function renderDetail(div, result) {
-    const panel = detailPanel(div);
-    panel.classList.remove('error');
-    panel.replaceChildren();
-
-    if (result.unavailable) {
-        panel.classList.add('error');
-        panel.textContent = translations.detail_unavailable;
-        return;
-    }
-
-    if (result.tokens === '0' && result.messages === '0') {
-        // Not "you used nothing" - the local logs only cover Claude Code, so
-        // a period spent on claude.ai or the desktop app reads as empty here.
-        // The message names Claude Code for that reason, which lets the source
-        // note follow the same once-per-list rule as a panel with data.
-        const empty = document.createElement('div');
-        empty.textContent = translations.detail_no_usage;
-        panel.appendChild(empty);
-        if (carriesSourceNote(div)) panel.appendChild(createSourceNote(result.source));
-        return;
-    }
-
-    const counts = document.createElement('div');
-    counts.className = 'detail-counts';
-
-    const tokenLine = document.createElement('span');
-    tokenLine.textContent = `${translations.detail_tokens} ${result.tokens}`;
-    if (result.estimated_total) {
-        const est = document.createElement('span');
-        est.className = 'detail-estimated';
-        est.textContent = ' ' + translations.detail_estimated.replace('{total}', result.estimated_total);
-        tokenLine.appendChild(est);
-    }
-
-    counts.appendChild(tokenLine);
-    if (result.messages !== undefined) {
-        const messageLine = document.createElement('span');
-        messageLine.textContent = `${translations.detail_messages} ${result.messages}`;
-        counts.appendChild(messageLine);
-    }
-    panel.appendChild(counts);
-
-    if (result.models.length) {
-        const heading = document.createElement('div');
-        heading.className = 'detail-models-heading';
-        heading.textContent = translations.detail_models;
-        panel.appendChild(heading);
-
-        const list = document.createElement('div');
-        list.className = 'detail-models';
-        for (const model of result.models) {
-            list.appendChild(createModelRow(model));
-        }
-        panel.appendChild(list);
-    }
-
-    if (carriesSourceNote(div)) panel.appendChild(createSourceNote(result.source));
-}
-
-/**
- * Return true when this bar's panel should carry the source note.
- *
- * The note reads the same under every panel, so with the session and the
- * weekly panel open it would appear twice.  It goes under the longest
- * window among the expandable bars - the weekly one - and nowhere else,
- * whether or not that bar's period is empty.
- */
-function carriesSourceNote(div) {
-    const own = Number(div.dataset.periodSeconds) || 0;
-    const bars = div.parentNode ? Array.from(div.parentNode.children) : [div];
-    return bars.every((bar) => !bar.classList.contains('detail-toggleable') || (Number(bar.dataset.periodSeconds) || 0) <= own);
-}
-
-/** Footnote naming where these numbers come from, and what they exclude. */
-function createSourceNote(source) {
-    const note = document.createElement('div');
-    note.className = 'detail-source';
-    note.textContent = source || translations.detail_source;
-    return note;
-}
-
-function createModelRow(model) {
-    const row = document.createElement('div');
-    row.className = 'detail-model-row';
-
-    const name = document.createElement('span');
-    name.className = 'detail-model-name';
-    name.textContent = model.model;
-
-    const track = document.createElement('div');
-    track.className = 'detail-model-bar';
-    const fill = document.createElement('div');
-    fill.className = 'detail-model-bar-fill';
-    fill.style.width = `${model.pct}%`;
-    track.appendChild(fill);
-
-    const pct = document.createElement('span');
-    pct.className = 'detail-model-pct';
-    pct.textContent = `${model.pct}%`;
-
-    row.append(name, track, pct);
-    return row;
 }
 
 // Report content height changes to the host (pywebview or dev.html iframe parent).

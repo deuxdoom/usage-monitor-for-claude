@@ -7,7 +7,7 @@ the popup and bar palette, the agents' signature colors, the update window's
 own surfaces and the tray icon.
 
 ``settings.py`` lays the user's overrides over the popup palette and the tray
-colors; ``popup.py`` hands the signature colors to the page with the rest of
+colors; ``popup_data.py`` assembles the signature colors with the rest of
 the palette, and ``updater.py`` builds the update window from the same file.
 No other module, stylesheet or page writes a color of its own, so a theme
 change is an edit to ``theme.json`` alone.
