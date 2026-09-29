@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="screenshot.png" width="680" alt="Claude와 Codex의 세션·주간 한도와 모델별 토큰 사용량을 나란히 보여 주는 상세 팝업">
+  <img src="assets/images/screenshot.png" width="680" alt="Claude와 Codex의 세션·주간 한도와 모델별 토큰 사용량을 나란히 보여 주는 상세 팝업">
 </p>
 <p align="center">
-  <img src="screenshot2.png" width="360" alt="날짜·시간 옆에 Claude와 Codex의 사용률을 나란히 보여 주는 바 모드">
+  <img src="assets/images/screenshot2.png" width="360" alt="날짜·시간 옆에 Claude와 Codex의 사용률을 나란히 보여 주는 바 모드">
 </p>
 
 <h1 align="center">AI 에이전트 사용량 모니터</h1>

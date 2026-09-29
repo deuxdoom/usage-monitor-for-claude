@@ -59,6 +59,8 @@ SCREENSHOT_INPUTS = [
     'locale/ko.json',
 ]
 SCREENSHOT_STAMP = ROOT / 'screenshots.sha256'
+# Where the three screenshots live, beside the icon and the social preview card; README.md and index.html link them here.
+SCREENSHOT_DIR = ROOT / 'assets' / 'images'
 
 # The glass layer builds with the .NET Framework 4 compiler and the Windows
 # Runtime metadata that every Windows 10 and 11 installation carries, so
@@ -205,7 +207,7 @@ def check_screenshots() -> None:
     if stamp != screenshot_fingerprint():
         print(
             'Build refused - screenshot.png, screenshot2.png and screenshot3.png are older than their inputs.'
-            '\nRetake all three with the screenshot pipeline (F:\\temp\\AIAgentsUsageMonitor\\shots\\make_shots.py),'
+            '\nRetake all three with the screenshot pipeline (tests\\screenshots\\make_shots.py),'
             '\nwhich also restamps screenshots.sha256 - see the Versioning section of .claude/CLAUDE.md.'
         )
         sys.exit(1)

@@ -109,6 +109,6 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    icon='ai_agents_usage_monitor.ico',
+    icon='assets/images/ai_agents_usage_monitor.ico',
     version='version_info.py',
 )
