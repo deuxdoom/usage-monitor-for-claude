@@ -23,6 +23,14 @@
   <a href="https://deuxdoom.github.io/usage-monitor-for-claude/"><img src="https://img.shields.io/badge/WEB-%EC%95%B1%20%EC%86%8C%EA%B0%9C%20%EB%B3%B4%EA%B8%B0-82d6b7?style=for-the-badge&amp;labelColor=101316" alt="앱 소개 페이지 보기"></a>
 </p>
 
+<p align="center">
+  <a href="#-주요-기능"><img src="https://img.shields.io/badge/%EC%A3%BC%EC%9A%94%20%EA%B8%B0%EB%8A%A5-2f353a?style=for-the-badge" alt="주요 기능"></a>
+  <a href="#-시작하기"><img src="https://img.shields.io/badge/%EC%8B%9C%EC%9E%91%ED%95%98%EA%B8%B0-2f353a?style=for-the-badge" alt="시작하기"></a>
+  <a href="#-보안-및-투명성"><img src="https://img.shields.io/badge/%EB%B3%B4%EC%95%88-2f353a?style=for-the-badge" alt="보안"></a>
+  <a href="#-문서"><img src="https://img.shields.io/badge/%EB%AC%B8%EC%84%9C-2f353a?style=for-the-badge" alt="문서"></a>
+  <a href="#-자주-묻는-질문"><img src="https://img.shields.io/badge/FAQ-2f353a?style=for-the-badge" alt="FAQ"></a>
+</p>
+
 ---
 
 ## ✨ 주요 기능
@@ -88,6 +96,35 @@
 * [이벤트 명령](docs/event-commands.md) - 한도 초기화나 임계값 초과 때 명령 실행하기
 * [앱 자동 업데이트](docs/automatic-update-check.md) - 새 버전 확인, 업데이트 창, 검증·교체와 자동 재실행
 * [Claude API](docs/claude-api-reference.md) / [Codex API](docs/codex-api-reference.md) - 두 에이전트의 사용량을 어디에서 어떻게 읽는지
+
+---
+
+## ❓ 자주 묻는 질문
+
+### "Claude Code CLI 토큰을 찾을 수 없습니다"라는 알림이 떠요
+
+Claude 사용량은 Claude Code가 로그인할 때 저장하는 `%USERPROFILE%\.claude\.credentials.json` 파일의 토큰으로 조회합니다. 이 파일이 없거나 파일에 로그인 정보가 없으면 이 알림이 나타나며, 보통 아래 경우 중 하나에 해당합니다.
+
+* **Codex만 사용하는 경우:** 시작 알림은 Claude Code의 로그인 상태만 확인합니다. Codex 한도는 이 토큰과 관계없이 조회하므로 알림을 무시해도 됩니다. 트레이 메뉴의 **트레이 표시 대상**을 Codex로 바꾸면 트레이 아이콘에도 Codex 한도가 표시됩니다.
+* **Windows에서 Claude Code에 로그인하지 않은 경우:** claude.ai 웹이나 Claude 데스크톱 앱에 로그인하는 것만으로는 이 파일이 만들어지지 않습니다. PowerShell에서 `claude auth login`을 실행하거나, `claude`를 실행한 뒤 `/login`을 입력해 Pro·Max 같은 구독 계정으로 로그인하세요.
+* **API 키로 Claude Code를 사용하는 경우:** API 키로 인증하면 로그인 토큰이 저장되지 않습니다. 이 앱은 구독 계정으로 로그인했을 때만 한도를 조회할 수 있습니다.
+* **WSL에만 Claude Code를 설치한 경우:** WSL 안의 Claude Code는 로그인 정보를 WSL 내부(`/home/<사용자>/.claude/`)에 저장하므로, Windows에서 실행되는 이 앱은 그 정보를 읽을 수 없습니다. Windows에도 Claude Code를 설치해 한 번 로그인하세요.
+* **`CLAUDE_CONFIG_DIR`로 설정 폴더를 옮긴 경우:** 이 환경 변수를 터미널 안에서만 지정했다면 앱은 여전히 기본 위치를 찾습니다. Windows의 사용자 환경 변수로 등록하거나, 앱을 `--config-dir="폴더 경로"`로 실행하세요.
+
+로그인한 뒤에는 앱을 다시 실행하세요. 그래도 알림이 계속 나온다면 앱을 종료하고, 명령 프롬프트(cmd)에서 EXE가 있는 폴더로 이동해 `AIAgentsUsageMonitor.exe --verbose > log.txt`를 실행해 보세요. 앱을 다시 종료한 뒤 `log.txt`의 `Credentials` 항목을 보면, 앱이 어느 경로에서 파일을 찾았는지(`found`) 또는 찾지 못했는지(`NOT FOUND`) 확인할 수 있습니다. 이 기록에는 토큰 내용이 들어가지 않고 사용자 폴더 경로는 `~`로 가려지므로 문의할 때 첨부해도 됩니다. 반면 `.credentials.json` 파일은 로그인 정보 그 자체이므로 어디에도 올리지 마세요.
+
+### Codex 탭에 한도가 나오지 않아요
+
+Codex 한도는 설치된 Codex에 조회를 맡기므로, 팝업에 표시되는 안내에 따라 해결 방법이 다릅니다.
+
+* **"Codex 실행 파일이 없습니다":** Codex CLI를 설치하거나, VS Code·Cursor·Windsurf에 Codex 확장을 설치하세요.
+* **"ChatGPT 계정으로 로그인하세요":** Codex CLI에서 `codex login`을 실행하거나, IDE 확장에서 ChatGPT 계정으로 로그인하세요.
+* **"한도 그래프는 ChatGPT 로그인이 필요합니다":** API 키로 로그인한 Codex는 한도 정보를 제공하지 않습니다. ChatGPT 계정으로 다시 로그인하세요.
+* **"Codex 한도 조회에 실패했습니다":** 대부분 일시적인 문제이며, 앱이 자동으로 다시 조회합니다. 계속 실패한다면 인터넷 연결과 Codex 로그인 상태를 확인하세요.
+
+### 모델별 토큰 상세가 실제로 쓴 양보다 적어요
+
+한도 막대에 표시되는 퍼센트와 초기화 시점은 Anthropic과 OpenAI 서버가 알려 주는 계정 전체의 값입니다. 반면 카드를 펼쳐서 보는 모델별 토큰 상세는 이 PC에 남은 Claude Code·Codex 세션 기록으로 계산하기 때문에, 웹이나 앱에서 쓴 양과 다른 PC 또는 WSL 안에서 쓴 양은 포함되지 않습니다. Codex 토큰 상세는 이 PC에서 사용한 여러 계정의 기록을 합산합니다. 펼친 카드에 "최근 Codex 토큰 기록이 없습니다"가 보인다면, 대개 이 Windows 계정에서 Codex를 사용한 기록이 아직 없다는 뜻입니다.
 
 ---
 
