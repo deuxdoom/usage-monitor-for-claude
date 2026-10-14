@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pystray  # type: ignore[import-untyped]  # no type stubs available
+from PIL import Image
 
 from .claude_api import read_access_token
 from .autostart import is_autostart_enabled, set_autostart, sync_autostart_path
@@ -117,6 +118,9 @@ class AIAgentsUsageMonitor:
 
         # Theme state
         self._light_taskbar = taskbar_uses_light_theme()
+        # pystray releases and replaces a native handle in each icon setter.
+        # Poll, popup, provider-switch and theme threads share that handle.
+        self._tray_lock = threading.Lock()
 
         # Which agent the tray icon, its tooltip and the threshold alerts follow.
         self._tray_provider = TRAY_PROVIDER
@@ -274,7 +278,9 @@ class AIAgentsUsageMonitor:
         run_event_command(QUICK_ACTION_COMMAND, sample_quick_action_env(), capture_output=True)
 
     def on_quit(self, icon: Any = None, item: Any = None) -> None:
-        self.running = False
+        with self._tray_lock:
+            self.running = False
+        # stop() joins the polling thread, which may be waiting for the lock.
         self.icon.stop()
 
     # Popup
@@ -392,7 +398,7 @@ class AIAgentsUsageMonitor:
 
         data = self._last_response
         if 'error' in data:
-            self.icon.icon = create_status_image('C!' if data.get('auth_error') else '!', self._light_taskbar)
+            image = create_status_image('C!' if data.get('auth_error') else '!', self._light_taskbar)
         else:
             top_field, top_mode = _icon_field(ICON_FIELDS[0])
             bottom_field, bottom_mode = _icon_field(ICON_FIELDS[1])
@@ -416,13 +422,13 @@ class AIAgentsUsageMonitor:
             # A missing/null monthly_limit means uncapped pay-as-you-go extra
             # usage, which cannot be exhausted.
             extra_usage_available = bool(extra.get('is_enabled')) and (extra_limit <= 0 or extra_used < extra_limit)
-            self.icon.icon = create_icon_image(
+            image = create_icon_image(
                 pct_top, pct_bottom, self._light_taskbar,
                 mode_top=top_mode, mode_bottom=bottom_mode,
                 time_pct_top=time_pct_top, time_pct_bottom=time_pct_bottom,
                 extra_usage_available=extra_usage_available,
             )
-        self.icon.title = self._tooltip_prefix + format_tooltip(data)
+        self._set_tray_image(image, self._tooltip_prefix + format_tooltip(data))
 
     def _render_codex_tray(self, snapshot: dict[str, Any]) -> None:
         """Draw the tray icon and tooltip from the Codex account snapshot.
@@ -439,16 +445,24 @@ class AIAgentsUsageMonitor:
         """
         windows = snapshot.get('windows') or []
         if snapshot.get('error') or not windows:
-            self.icon.icon = create_status_image('!', self._light_taskbar)
+            image = create_status_image('!', self._light_taskbar)
         else:
             top, bottom = windows[0], windows[-1]
-            self.icon.icon = create_icon_image(
+            image = create_icon_image(
                 top['used'], bottom['used'], self._light_taskbar,
                 time_pct_top=elapsed_pct(codex_reset_iso(top['resets_at']), top['seconds']),
                 time_pct_bottom=elapsed_pct(codex_reset_iso(bottom['resets_at']), bottom['seconds']),
                 extra_usage_available=False,
             )
-        self.icon.title = self._tooltip_prefix + format_codex_tooltip(snapshot)
+        self._set_tray_image(image, self._tooltip_prefix + format_codex_tooltip(snapshot))
+
+    def _set_tray_image(self, image: Image.Image, title: str) -> None:
+        """Replace the shared native icon and its tooltip together while the app is running."""
+        with self._tray_lock:
+            if not self.running:
+                return
+            self.icon.icon = image
+            self.icon.title = title
 
     def _apply_tray_provider(self, provider: str) -> None:
         """Redraw the tray for a freshly selected provider, off the tray thread.
@@ -1101,7 +1115,10 @@ class AIAgentsUsageMonitor:
     def _on_icon_ready(self, icon: Any) -> None:
         """Called by pystray in a separate thread once the tray icon is set up."""
         try:
-            icon.visible = True
+            with self._tray_lock:
+                if not self.running:
+                    return
+                icon.visible = True
             if getattr(sys, 'frozen', False):
                 sync_autostart_path()
             if not read_access_token():
