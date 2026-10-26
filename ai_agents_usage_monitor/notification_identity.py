@@ -2,14 +2,7 @@
 Notification Identity
 =====================
 
-Registers a fixed toast-notification identity (name and logo) for the process.
-
-Windows shows the process's app icon in the header of a tray notification.
-Without an explicit identity that icon is the live tray icon, which reflects
-the most-exhausted quota - so a "quota reset" or "50% used" toast would carry
-the exhausted glyph and contradict its own text.  Registering an
-``AppUserModelID`` with a neutral logo makes every toast show that logo
-instead, independent of the tray icon.
+Registers the fixed name and neutral logo used by Windows Runtime toasts.
 """
 from __future__ import annotations
 
@@ -39,37 +32,37 @@ _REG_PATH = r'Software\Classes\AppUserModelId\{}'.format(APP_USER_MODEL_ID)
 _LEGACY_REG_PATH = r'Software\Classes\AppUserModelId\JensDuttke.UsageMonitorForClaude'
 
 
-def register_notification_identity() -> None:
+def register_notification_identity() -> bool:
     """Adopt a fixed notification identity for this process.
 
-    Writes the ``DisplayName`` and ``IconUri`` registration to ``HKCU`` and,
-    only if that succeeds, sets the process ``AppUserModelID`` so toasts use
-    the registered name and logo.  Re-run on every startup because a frozen
-    build extracts the logo to a fresh temporary directory each run, changing
-    its path.
+    Writes ``DisplayName`` and ``IconUri`` to ``HKCU`` and adopts the process
+    ``AppUserModelID``. The logo path changes with each private runtime, so
+    registration runs on every startup before any window is created.
 
     The key left behind by the app's previous identity is removed first, so
     the cleanup still happens on a machine where the registration below
     cannot run.
 
-    On any failure - a missing logo file or a registry write error - the
-    process keeps its default identity (the live tray icon).  This is never
-    fatal: a notification icon must not stop the app from starting, and
-    falling back to the tray icon is better than an empty one.
+    Returns
+    -------
+    bool
+        True only after registration and adoption succeed. A failure lets
+        notification delivery fall back to the tray balloon.
     """
     _remove_legacy_identity()
 
     if not _NOTIFICATION_LOGO.is_file():
-        return
+        return False
 
     try:
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, _REG_PATH) as key:
             winreg.SetValueEx(key, 'DisplayName', 0, winreg.REG_SZ, DISPLAY_NAME)
             winreg.SetValueEx(key, 'IconUri', 0, winreg.REG_EXPAND_SZ, str(_NOTIFICATION_LOGO))
+        hresult = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(ctypes.c_wchar_p(APP_USER_MODEL_ID))
     except OSError:
-        return
+        return False
 
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(ctypes.c_wchar_p(APP_USER_MODEL_ID))
+    return hresult == 0
 
 
 def _remove_legacy_identity() -> None:

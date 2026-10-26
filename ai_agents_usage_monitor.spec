@@ -1,9 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec file for AI Agents Usage Monitor.
+PyInstaller payload spec for AI Agents Usage Monitor.
 
 Build:
-  pyinstaller ai_agents_usage_monitor.spec
+  python build.py
+
+build.py embeds this payload in the portable launcher and self-tests the public EXE.
 """
 
 a = Analysis(

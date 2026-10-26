@@ -8,6 +8,24 @@
 이 변경 이력은 이 프로젝트가 독립적으로 빌드되기 시작한 시점인 1.30.0 버전 이후를 다룹니다.
 
 
+## [3.8.0] - 2026-10-26
+
+선불 잔액 조회 최적화, Windows 알림 및 입력 훅 수정은 업스트림 [usage-monitor-for-claude v1.24.0](https://github.com/jens-duttke/usage-monitor-for-claude/releases/tag/v1.24.0)에서 가져와 이 포크에 맞게 적용했습니다. [@jens-duttke](https://github.com/jens-duttke)님께 감사드립니다. 입력 훅 수정은 [@nerfarrow](https://github.com/nerfarrow)님의 기여입니다.
+
+### Changed
+
+- 선불 잔액을 상세 팝업에서만 최대 2분 간격으로 조회하도록 `UsageCache.ensure_prepaid()`로 분리해, 기본 1분 한도 조회는 유지하면서 바·백그라운드의 불필요한 요청을 없애고 계정 전환 시 잔액 캐시를 폐기합니다.
+- Windows 알림을 앱의 `AppUserModelID`를 명시하는 Windows Runtime 토스트로 보내 중립 로고를 표시하고 5분 후 만료되도록 하며, 등록이나 전송이 실패하면 기존 트레이 알림으로 대체합니다.
+
+### Fixed
+
+- 장시간 실행 중 시스템 임시 폴더 정리로 팝업 파일과 인증서가 삭제되어 컴팩트 모드가 열리지 않고 Claude 조회가 `!`로 표시되던 문제를 고쳐, 단일 EXE의 실행 파일·라이브러리·화면·WebView2 임시 파일을 EXE 옆의 실행별 작업 폴더에 두고 종료 시 삭제하며 강제 종료로 남은 폴더는 다음 실행 때 정리합니다.
+- 팝업 초기화 오류나 30초 내 표시 실패 시 숨겨진 창의 대기 상태를 해제해 이후 클릭으로 다시 열 수 있게 했습니다.
+- 팝업의 키보드·마우스 훅 반환값과 설치·해제 핸들을 포인터 크기로 선언해, 64비트 Windows에서 다른 앱의 키 입력이나 Print Screen·Win+Shift+S 전달을 방해할 수 있던 문제를 고쳤습니다.
+
+[Show all code changes](https://github.com/deuxdoom/usage-monitor-for-claude/compare/v3.7.0...v3.8.0)
+
+
 ## [3.7.0] - 2026-10-14
 
 ### Fixed

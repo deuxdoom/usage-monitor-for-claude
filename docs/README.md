@@ -21,6 +21,7 @@ The module names follow the same split: `claude_api.py` / `codex_api.py`, `claud
 | [configuration.md](configuration.md) | Settings-file locations, every key, and which menu and popup choices are saved automatically |
 | [event-commands.md](event-commands.md) | Running your own command when a quota resets, a threshold is crossed, the app starts, or you double-click the tray icon |
 | [automatic-update-check.md](automatic-update-check.md) | Startup release checks, the consent prompt, verified download and separate update process |
+| [runtime-and-build.md](runtime-and-build.md) | The portable EXE's private runtime, cleanup, writable-folder requirement and complete build workflow |
 
 ## References
 

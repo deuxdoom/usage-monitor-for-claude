@@ -44,6 +44,28 @@ _SWP_NOZORDER = 0x0004
 _SWP_NOACTIVATE = 0x0010
 _WM_QUIT = 0x0012
 
+_LRESULT = ctypes.wintypes.LPARAM
+_HOOKPROC = ctypes.WINFUNCTYPE(_LRESULT, ctypes.c_int, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM)
+_WINEVENTPROC = ctypes.WINFUNCTYPE(
+    None, ctypes.wintypes.HANDLE, ctypes.wintypes.DWORD, ctypes.wintypes.HWND,
+    ctypes.wintypes.LONG, ctypes.wintypes.LONG, ctypes.wintypes.DWORD, ctypes.wintypes.DWORD,
+)
+# A narrow callback result can leave the upper return-register bits undefined,
+# which Windows interprets as consuming the input instead of passing it on.
+ctypes.windll.user32.SetWindowsHookExW.argtypes = [ctypes.c_int, _HOOKPROC, ctypes.wintypes.HINSTANCE, ctypes.wintypes.DWORD]
+ctypes.windll.user32.SetWindowsHookExW.restype = ctypes.wintypes.HHOOK
+ctypes.windll.user32.UnhookWindowsHookEx.argtypes = [ctypes.wintypes.HHOOK]
+ctypes.windll.user32.UnhookWindowsHookEx.restype = ctypes.wintypes.BOOL
+ctypes.windll.user32.CallNextHookEx.argtypes = [ctypes.wintypes.HHOOK, ctypes.c_int, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM]
+ctypes.windll.user32.CallNextHookEx.restype = _LRESULT
+ctypes.windll.user32.SetWinEventHook.argtypes = [
+    ctypes.wintypes.DWORD, ctypes.wintypes.DWORD, ctypes.wintypes.HMODULE, _WINEVENTPROC,
+    ctypes.wintypes.DWORD, ctypes.wintypes.DWORD, ctypes.wintypes.DWORD,
+]
+ctypes.windll.user32.SetWinEventHook.restype = ctypes.wintypes.HANDLE
+ctypes.windll.user32.UnhookWinEvent.argtypes = [ctypes.wintypes.HANDLE]
+ctypes.windll.user32.UnhookWinEvent.restype = ctypes.wintypes.BOOL
+
 
 __all__ = ['UsagePopup']
 
@@ -151,6 +173,7 @@ class UsagePopup:
     BAR_WIDTH = 360
     _CHECK_MS = 2000
     _REFRESH_MIN_INTERVAL = 5.0
+    _LOAD_TIMEOUT = 30.0
 
     def __init__(self, app: AIAgentsUsageMonitor) -> None:
         """Create and display a popup window with usage details.
@@ -218,10 +241,26 @@ class UsagePopup:
         self._window.events.loaded += self._on_loaded
         self._window.events.closed += self._on_window_closed
         threading.Thread(target=self._dismiss_watch, daemon=True).start()
-        self._closed.wait()
+        load_timer = threading.Timer(self._LOAD_TIMEOUT, self._close_unshown)
+        load_timer.daemon = True
+        load_timer.start()
+        try:
+            self._closed.wait()
+        finally:
+            load_timer.cancel()
 
     def _on_loaded(self) -> None:
+        try:
+            self._initialize_page()
+        except Exception:
+            logger.exception('Popup initialization failed')
+            self._close()
+
+    def _initialize_page(self) -> None:
         """Inject config and show the window transparently for layout."""
+        if not self._running:
+            return
+
         native = self._window.native
         assert native is not None  # the WinForms form exists once the page has loaded
         self._popup_hwnd = native.Handle.ToInt32()
@@ -263,10 +302,20 @@ class UsagePopup:
 
         # Show fully transparent so JS can layout and report the real height
         ctypes.windll.user32.SetLayeredWindowAttributes(self._popup_hwnd, 0, 0, _LWA_ALPHA)
-        self._window.show()
+        if self._running:
+            self._window.show()
+
+    def _close_unshown(self) -> None:
+        """Release an opening popup whose page never became visible."""
+        if self._running and not self._shown:
+            logger.error('Popup did not become visible within %.0f seconds', self._LOAD_TIMEOUT)
+            self._close()
 
     def _show_window(self) -> None:
         """Make the popup visible after the first resize positioned it correctly."""
+        if not self._running:
+            return
+
         # Remove the layered style to restore normal rendering
         ex_style = ctypes.windll.user32.GetWindowLongW(self._popup_hwnd, _GWL_EXSTYLE)
         ctypes.windll.user32.SetWindowLongW(self._popup_hwnd, _GWL_EXSTYLE, ex_style & ~_WS_EX_LAYERED)
@@ -299,10 +348,7 @@ class UsagePopup:
             if self._shown and not self._stays_open():
                 ctypes.windll.user32.PostThreadMessageW(this_thread, _WM_QUIT, 0, 0)
 
-        # -- Shared argtypes for CallNextHookEx --
         _call_next = ctypes.windll.user32.CallNextHookEx
-        _call_next.argtypes = [ctypes.wintypes.HANDLE, ctypes.c_int, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM]
-        _call_next.restype = ctypes.c_long
 
         # -- Mouse hook: click outside popup bounds --
         class MSLLHOOKSTRUCT(ctypes.Structure):
@@ -310,7 +356,7 @@ class UsagePopup:
                          ('flags', ctypes.wintypes.DWORD), ('time', ctypes.wintypes.DWORD),
                          ('dwExtraInfo', ctypes.POINTER(ctypes.c_ulong))]
 
-        @ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_int, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM)
+        @_HOOKPROC
         def mouse_proc(code, wparam, lparam):
             if code >= 0 and wparam == 0x0201:  # WM_LBUTTONDOWN
                 popup_hwnd = self._popup_hwnd
@@ -328,7 +374,7 @@ class UsagePopup:
                          ('flags', ctypes.wintypes.DWORD), ('time', ctypes.wintypes.DWORD),
                          ('dwExtraInfo', ctypes.POINTER(ctypes.c_ulong))]
 
-        @ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_int, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM)
+        @_HOOKPROC
         def kb_proc(code, wparam, lparam):
             if code >= 0 and wparam == 0x0100:  # WM_KEYDOWN
                 info = ctypes.cast(lparam, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
@@ -337,11 +383,6 @@ class UsagePopup:
             return _call_next(None, code, wparam, lparam)
 
         # -- Foreground event with delayed check --
-        WINEVENT_CALLBACK = ctypes.WINFUNCTYPE(
-            None, ctypes.wintypes.HANDLE, ctypes.wintypes.DWORD, ctypes.wintypes.HWND,
-            ctypes.wintypes.LONG, ctypes.wintypes.LONG, ctypes.wintypes.DWORD, ctypes.wintypes.DWORD,
-        )
-
         _fg_timer: threading.Timer | None = None
 
         def _delayed_fg_check() -> None:
@@ -358,7 +399,7 @@ class UsagePopup:
                 return
             _post_quit()
 
-        @WINEVENT_CALLBACK
+        @_WINEVENTPROC
         def fg_proc(_hook, _event, hwnd, _id_obj, _id_child, _thread, _time):
             nonlocal _fg_timer
             popup_hwnd = self._popup_hwnd
@@ -468,6 +509,7 @@ class UsagePopup:
             self._last_height = 0
 
         save_setting('popup_view', view)
+        threading.Thread(target=self.app._refresh_prepaid, daemon=True).start()
 
         return True
 

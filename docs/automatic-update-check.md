@@ -4,7 +4,7 @@ The frozen Windows EXE checks GitHub's latest stable release once after each lau
 
 ## The update window
 
-If a newer release has an uploaded `AIAgentsUsageMonitor.exe` with a size and a SHA-256 digest, the app copies its own EXE to a temporary folder and starts that copy as the update window - a running file cannot replace itself, so the window has to run from somewhere else. There is no dialog before it: the window is the offer.
+If a newer release has an uploaded `AIAgentsUsageMonitor.exe` with a size and a SHA-256 digest, the app copies its public EXE to a separate `ai-agents-updater-*` folder beside the installed EXE and starts that copy as the update window - a running file cannot replace itself, so the window has to run from somewhere else. This folder is outside the installed app's private runtime, so shutting down the app cannot delete the running updater. There is no dialog before it: the window is the offer.
 
 The window is frameless and opens in the middle of the primary monitor. It shows, in one place:
 
@@ -18,7 +18,7 @@ The window is frameless and opens in the middle of the primary monitor. It shows
 
 1. **Download** - the window streams the exact EXE the release names into a temporary file beside the installed one, following HTTPS redirects only to GitHub's release-asset hosts. The app is still running.
 2. **Verify** - the byte count and SHA-256 digest must match the release metadata, and the file must be a windowed Windows executable.
-3. **Close app** - the installed EXE is copied aside as a backup, and only now is the running app asked to quit. The window waits up to 30 seconds for it to exit.
+3. **Close app** - the installed EXE is copied aside as a backup, and only now is the running app asked to quit. The window waits up to 30 seconds for the public launcher to exit, allowing its Python process and runtime cleanup to finish before replacement.
 4. **Install** - the new EXE atomically replaces the old one in its folder.
 5. **Restart** - the new version starts with the arguments the app was launched with (for example `--config-dir`), unpacking its own files rather than inheriting the window's. It has to still be running three seconds later.
 
@@ -42,3 +42,5 @@ The window names the step that failed and the technical reason. If even the prev
 - The updater writes a temporary copy of the app, a temporary download and a temporary backup beside the EXE, then replaces the app EXE. It removes the download and the backup when it finishes, and asks Windows to delete the temporary copy at the next reboot. It does not edit `config.json`, credentials or usage records.
 
 See [PRIVACY.md](../PRIVACY.md) for the complete data and file-access inventory.
+
+See [runtime and build](runtime-and-build.md) for the launcher's private runtime and the distinction between the public EXE and its embedded application.

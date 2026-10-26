@@ -11,7 +11,6 @@ any string interpolation in the command itself.
 from __future__ import annotations
 
 import ctypes
-import os
 import subprocess
 import sys
 import threading
@@ -20,6 +19,7 @@ import traceback
 from pathlib import Path
 
 from . import __version__
+from .runtime import application_executable, external_environment
 
 __all__ = ['run_event_command']
 
@@ -66,13 +66,13 @@ def run_event_command(
     if not commands:
         return
 
-    env = {**os.environ, 'USAGE_MONITOR_VERSION': __version__, **env_vars}
+    env = {**external_environment(), 'USAGE_MONITOR_VERSION': __version__, **env_vars}
 
     # Pin working directory to the executable's folder so that relative paths
     # in commands resolve predictably - even when Windows autostart sets the
     # CWD to C:\Windows\System32.
     if getattr(sys, 'frozen', False):
-        working_dir = Path(sys.executable).parent
+        working_dir = application_executable().parent
     else:
         working_dir = Path(__file__).resolve().parent.parent
 

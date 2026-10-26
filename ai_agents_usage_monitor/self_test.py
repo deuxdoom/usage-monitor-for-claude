@@ -24,10 +24,14 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
 import sys
+import tempfile
 import traceback
 from pathlib import Path
+
+from .runtime import application_executable
 
 __all__ = ['SELF_TEST_FLAG', 'run_self_test']
 
@@ -48,6 +52,7 @@ def run_self_test() -> int:
         0 when everything loaded, 1 at the first failure.
     """
     try:
+        _check_runtime_directory()
         _check_imports()
         _check_page_files()
         _check_locales()
@@ -60,15 +65,30 @@ def run_self_test() -> int:
     return 0
 
 
+def _check_runtime_directory() -> None:
+    """The launcher's Python bundle and temporary storage both belong beside the public EXE."""
+    if not getattr(sys, 'frozen', False) or not os.environ.get('AI_AGENTS_USAGE_MONITOR_EXE'):
+        return
+
+    private_dir = Path(sys.executable).resolve().parent
+    bundle_dir = Path(sys._MEIPASS).resolve()  # type: ignore[attr-defined]  # PyInstaller extraction directory
+    temporary = Path(tempfile.gettempdir()).resolve()
+    if private_dir.parent != application_executable().resolve().parent:
+        raise RuntimeError('Runtime directory is not beside the public EXE')
+    if not bundle_dir.is_relative_to(private_dir) or not temporary.is_relative_to(private_dir):
+        raise RuntimeError('Python bundle or temporary storage escaped the private runtime')
+
+
 def _check_imports() -> None:
-    """Import the app and the GUI backend ``webview.start()`` picks on Windows, then load the glass layer."""
+    """Load the app, GUI backend, glass layer and notification runtime without presenting UI."""
     import webview.platforms.winforms  # noqa: F401  # pythonnet, WinForms, the WebView2 SDK and its loaders
 
     from . import app, popup, updater  # noqa: F401
-    from . import window_backdrop
+    from . import notifications, window_backdrop
 
     # Private on purpose: this is the load set_glass() performs on first use.
     window_backdrop._glass_layer()
+    notifications._toast_types()
 
 
 def _check_page_files() -> None:

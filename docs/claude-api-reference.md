@@ -99,9 +99,13 @@ https://api.anthropic.com/api/oauth/organizations/{org_uuid}/prepaid/credits
 
 `{org_uuid}` is the `organization.uuid` from the profile response. It is the one endpoint with a
 path parameter, so `fetch_prepaid_credits()` checks the value against a canonical uuid pattern
-before substituting it and sends no request otherwise. The balance is read only while
-`extra_usage.is_enabled` is true, in the same cycle as a successful usage fetch, so it shares that
-fetch's cooldown and backoff. Every failure leaves the balance hidden rather than raising an error.
+before substituting it and sends no request otherwise. `UsageCache.ensure_prepaid()` reads the
+balance only while the detail popup is open and `extra_usage.is_enabled` is true, at most once
+every 120 seconds. Opening detail or switching from the bar to detail can read the balance even
+when usage is still fresh. Bar-only and background polling do not request it. The balance read
+respects the usage backoff, requires usage and profile tokens to match the current credentials,
+and never advances the usage-fetch timestamp. Token changes discard the old balance; a change
+during a request discards that response too. Failures hide the balance without making usage fail.
 
 Amounts are in minor units, so `5597` with `"exponent": 2` means 55.97. The money objects nested in
 the tranches are `null` on this endpoint, unlike the one behind the web app. The balance covers

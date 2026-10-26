@@ -22,6 +22,7 @@ from .settings import MAX_BACKOFF, POLL_FAST, POLL_INTERVAL
 __all__ = ['CacheSnapshot', 'UpdateResult', 'UsageCache']
 
 log = logging.getLogger(__name__)
+_PREPAID_INTERVAL = 120
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,8 @@ class UsageCache:
         self._profile: dict[str, Any] | None = None
         self._profile_token: str | None = None
         self._prepaid: dict[str, Any] | None = None
+        self._prepaid_token: str | None = None
+        self._prepaid_read_at: float | None = None
         self._last_success_time: float | None = None
         self._refreshing = False
         self._last_error: str | None = None
@@ -97,7 +100,7 @@ class UsageCache:
 
     @property
     def prepaid(self) -> dict[str, Any] | None:
-        """Prepaid credit balance from the last successful fetch, or None."""
+        """Last readable balance for the current usage and profile token, or None."""
         return self._prepaid
 
     @property
@@ -179,10 +182,50 @@ class UsageCache:
             with self._lock:
                 profile = fetch_profile()
             with self._state_lock:
+                if current_token != self._profile_token:
+                    self._prepaid = None
+                    self._prepaid_token = None
+                    self._prepaid_read_at = None
                 self._profile = profile
                 self._profile_token = current_token
                 self._version += 1
             log.info('fetch_profile -> %s', 'OK' if profile else 'failed')
+
+    def ensure_prepaid(self) -> None:
+        """Read the optional balance at most once per two minutes while detail is visible.
+
+        The caller owns visibility. Waits for an in-flight usage/profile read
+        and honors the shared 429 backoff. A balance request never advances
+        the usage timestamp or changes its one-minute polling cadence.
+        """
+        if not self._prepaid_due():
+            return
+        with self._lock:
+            if not self._prepaid_due() or self._last_error or time.time() < self._rate_limit_until:
+                return
+            token = self._usage_token
+            if not token or token != self._profile_token or token != read_access_token():
+                return
+
+            extra = self._usage.get('extra_usage')
+            profile = self._profile
+            organization = profile.get('organization') if isinstance(profile, dict) else None
+            org_uuid = organization.get('uuid') if isinstance(organization, dict) else None
+            if not isinstance(extra, dict) or not extra.get('is_enabled') or not org_uuid:
+                return
+
+            prepaid = fetch_prepaid_credits(org_uuid)
+            current_token = read_access_token()
+            with self._state_lock:
+                if current_token != token:
+                    self._prepaid = None
+                    self._prepaid_token = None
+                    self._prepaid_read_at = None
+                else:
+                    self._prepaid = prepaid
+                    self._prepaid_token = token
+                    self._prepaid_read_at = time.time()
+                self._version += 1
 
     def update(self, *, force: bool = False, bypass_rate_limit: bool = False) -> UpdateResult:
         """Fetch usage data with lock, cooldown and rate-limit protection.
@@ -298,38 +341,14 @@ class UsageCache:
         pct_5h = (data.get('five_hour') or {}).get('utilization')
         pct_7d = (data.get('seven_day') or {}).get('utilization')
         log.info('fetch_usage -> OK (5h: %s%%, 7d: %s%%)', pct_5h if pct_5h is not None else '?', pct_7d if pct_7d is not None else '?')
-        self._record_success(data, token_before, self._fetch_prepaid_balance(data))
+        self._record_success(data, token_before)
         return UpdateResult(data=data, token=token_before)
 
-    def _fetch_prepaid_balance(self, usage: dict[str, Any]) -> dict[str, Any] | None:
-        """Return the prepaid credit balance for the current organization.
-
-        Read only while extra usage is enabled, which the popup requires to
-        render the balance at all, so an account that can never show it does
-        not pay for reading it.  The request runs in the same cycle as the
-        usage fetch and therefore inherits the cooldown, the 429 backoff and
-        the reset-aligned cadence of ``update()`` instead of needing a
-        schedule of its own.  The balance is supplementary: without a known
-        organization uuid, or on any failure, it stays None and the usage
-        result is unaffected.
-
-        Parameters
-        ----------
-        usage : dict
-            Successful usage response of the current cycle.
-        """
-        extra_usage = usage.get('extra_usage')
-        if not isinstance(extra_usage, dict) or not extra_usage.get('is_enabled'):
-            return None
-
-        org_uuid = ((self._profile or {}).get('organization') or {}).get('uuid')
-        if not org_uuid:
-            return None
-
-        prepaid = fetch_prepaid_credits(org_uuid)
-        log.debug('fetch_prepaid_credits -> %s', 'OK' if prepaid else 'unavailable')
-
-        return prepaid
+    def _prepaid_due(self) -> bool:
+        if self._prepaid_read_at is None:
+            return True
+        elapsed = time.time() - self._prepaid_read_at
+        return not 0 <= elapsed < _PREPAID_INTERVAL
 
     def _apply_rate_limit_backoff(self, data: dict[str, Any]) -> None:
         """Arm the 429 backoff window from a rate-limited error response.
@@ -368,7 +387,7 @@ class UsageCache:
                 error += f'\n{server_msg}'
             self._last_error = error
 
-    def _record_success(self, data: dict[str, Any], token: str | None, prepaid: dict[str, Any] | None) -> None:
+    def _record_success(self, data: dict[str, Any], token: str | None) -> None:
         """Apply common state updates after a successful API response.
 
         Parameters
@@ -377,10 +396,6 @@ class UsageCache:
             Successful API response.
         token : str or None
             Access token that was in effect when the request was sent.
-        prepaid : dict or None
-            Prepaid credit balance read in the same cycle, or None when
-            unavailable.  Stored under the same lock as the usage, so the
-            popup never shows fresh numbers next to a stale balance.
         """
         # _usage is always reassigned (never mutated in place), so existing
         # CacheSnapshot references remain valid after this update.
@@ -392,7 +407,11 @@ class UsageCache:
             self._last_failed_token = None
             self._usage = data
             self._usage_token = token
-            self._prepaid = prepaid
+            extra = data.get('extra_usage')
+            if token != self._prepaid_token or not isinstance(extra, dict) or not extra.get('is_enabled'):
+                self._prepaid = None
+                self._prepaid_token = None
+                self._prepaid_read_at = None
             self._refreshing = False
             self._version += 1
 
@@ -440,7 +459,7 @@ class UsageCache:
         data = fetch_usage()
         if 'error' not in data:
             log.info('retry -> OK')
-            self._record_success(data, current_token, self._fetch_prepaid_balance(data))
+            self._record_success(data, current_token)
             return result, data
 
         log.warning('retry -> error: %s', data['error'])

@@ -9,6 +9,10 @@ import threading
 import traceback
 from pathlib import Path
 
+from ai_agents_usage_monitor.runtime import hold_runtime_lease
+
+hold_runtime_lease()
+
 # build.py starts the finished EXE with this flag: it loads what the app needs
 # and exits, before any configuration, single-instance or tray startup.
 from ai_agents_usage_monitor.self_test import SELF_TEST_FLAG, run_self_test
@@ -84,7 +88,7 @@ def _verbose_step(label: str) -> None:
         print(f'  [startup] {label}', flush=True)
 
 
-def _run_app() -> None:
+def _run_app(notification_identity_registered: bool) -> None:
     """Run the tray application in a background thread (called by webview)."""
     try:
         if _verbose:
@@ -92,7 +96,7 @@ def _run_app() -> None:
             print_runtime_diagnostics()
 
         _verbose_step('AIAgentsUsageMonitor()...')
-        app = AIAgentsUsageMonitor()
+        app = AIAgentsUsageMonitor(notification_identity_registered=notification_identity_registered)
         _verbose_step('AIAgentsUsageMonitor()... OK')
 
         threading.Thread(target=check_and_offer_update, args=(app,), daemon=True).start()
@@ -122,7 +126,7 @@ try:
     # Give notifications a fixed logo instead of the live tray icon.
     # Must run before any window is created (AppUserModelID requirement).
     _verbose_step('register_notification_identity...')
-    register_notification_identity()
+    _identity_registered = register_notification_identity()
 
     # pywebview requires the main thread for its GUI event loop.
     # A persistent hidden window keeps the loop alive while the
@@ -132,7 +136,7 @@ try:
     _verbose_step('webview.create_window... OK')
 
     _verbose_step('webview.start...')
-    webview.start(func=_run_app)
+    webview.start(func=_run_app, args=(_identity_registered,))
     _verbose_step('webview.start returned')
 except Exception:
     crash_log(traceback.format_exc())

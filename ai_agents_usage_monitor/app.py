@@ -32,6 +32,7 @@ from .events import (
     startup_env, threshold_env,
 )
 from .idle import get_idle_seconds, is_workstation_locked
+from .notifications import show_notification
 from .instance_id import effective_config_dir, is_default_config_dir
 from .settings import (
     ALERT_EXTRA_USAGE_SPENT, ALERT_TIME_AWARE, ALERT_TIME_AWARE_BELOW, ICON_FIELDS, IDLE_INTERVAL, IDLE_PAUSE, NOTIFY_CLAUDE_UPDATE,
@@ -84,9 +85,16 @@ def _highest_crossed(value: float, thresholds: list[float]) -> float:
 class AIAgentsUsageMonitor:
     """System tray application displaying Claude usage."""
 
-    def __init__(self) -> None:
-        """Set up the tray icon with context menu and polling state."""
+    def __init__(self, *, notification_identity_registered: bool) -> None:
+        """Set up the tray icon, polling and notification delivery.
+
+        Parameters
+        ----------
+        notification_identity_registered : bool
+            Whether startup registered and adopted the fixed toast identity.
+        """
         self.running = True
+        self._notification_identity_registered = notification_identity_registered
         self.cache = UsageCache()
         self.codex_account = CodexAccount()
         self.codex_usage = CodexUsage()
@@ -285,6 +293,10 @@ class AIAgentsUsageMonitor:
 
     # Popup
 
+    def _refresh_prepaid(self) -> None:
+        if self._popup_open and self._popup_view == 'detail':
+            self.cache.ensure_prepaid()
+
     def _should_refresh_usage(self) -> bool:
         """Return whether opening the popup should trigger a background usage fetch.
 
@@ -311,9 +323,9 @@ class AIAgentsUsageMonitor:
         try:
             needs_profile = not self.cache.profile
             needs_refresh = self._should_refresh_usage()
-            if needs_profile or needs_refresh:
-                # Single thread: ensure_profile() and update() both acquire
-                # cache._lock, so they must run sequentially.  Two threads
+            if needs_profile or needs_refresh or self._popup_view == 'detail':
+                # Profile, usage and balance reads share cache._lock and
+                # must run sequentially. Two threads
                 # would cause update()'s non-blocking acquire to fail while
                 # ensure_profile() holds the lock.
                 def _bg_refresh() -> None:
@@ -321,6 +333,7 @@ class AIAgentsUsageMonitor:
                         self.cache.ensure_profile()
                     if needs_refresh:
                         self.update()
+                    self._refresh_prepaid()
                 threading.Thread(target=_bg_refresh, daemon=True).start()
             UsagePopup(self)
         finally:
@@ -538,6 +551,7 @@ class AIAgentsUsageMonitor:
 
         result = self.cache.update(force=force, bypass_rate_limit=bypass_rate_limit)
         if result.data is None:
+            self._refresh_prepaid()
             return
 
         self._last_response = result.data
@@ -545,7 +559,7 @@ class AIAgentsUsageMonitor:
 
         # Handle CLI update notification from token refresh
         if NOTIFY_CLAUDE_UPDATE and result.token_refresh and result.token_refresh.updated:
-            self.icon.notify(
+            self._notify(
                 T['notify_update'].format(old=result.token_refresh.old_version, new=result.token_refresh.new_version),
                 T['notify_update_title'],
             )
@@ -567,6 +581,7 @@ class AIAgentsUsageMonitor:
         # When the user runs 'claude auth login', the token changes and the next profile fetch
         # returns a different account UUID, preventing a false quota-reset notification.
         self.cache.ensure_profile()
+        self._refresh_prepaid()
         current_profile = self.cache.profile
         current_account = (current_profile.get('account') or {}) if isinstance(current_profile, dict) else {}
         current_account_uuid = current_account.get('uuid')
@@ -647,6 +662,9 @@ class AIAgentsUsageMonitor:
 
     # Notifications
 
+    def _notify(self, message: str, title: str) -> None:
+        show_notification(self.icon, message, title, self._notification_identity_registered)
+
     def _notify_or_defer(self, category: str, message: str, title: str) -> None:
         """Show a notification immediately, or defer it if the user is away.
 
@@ -665,7 +683,7 @@ class AIAgentsUsageMonitor:
             with self._notify_lock:
                 self._deferred_notifications[category] = (message, title)
         else:
-            self.icon.notify(message, title)
+            self._notify(message, title)
 
     def _flush_deferred_notifications(self) -> None:
         """Show all deferred notifications and clear the queue.
@@ -677,7 +695,7 @@ class AIAgentsUsageMonitor:
         with self._notify_lock:
             pending, self._deferred_notifications = self._deferred_notifications, {}
         for message, title in pending.values():
-            self.icon.notify(message, title)
+            self._notify(message, title)
 
     def _check_codex_threshold_alerts(self, snapshot: dict[str, Any]) -> None:
         """Run the threshold alerts against the Codex quota windows.
@@ -1122,7 +1140,7 @@ class AIAgentsUsageMonitor:
             if getattr(sys, 'frozen', False):
                 sync_autostart_path()
             if not read_access_token():
-                icon.notify(f"{T['warn_no_token']}\n{T['warn_login']}", T['app_name'])
+                self._notify(f"{T['warn_no_token']}\n{T['warn_login']}", T['app_name'])
             threading.Thread(target=watch_theme_change, args=(self._on_theme_changed,), daemon=True).start()
             self.poll_loop()
         except Exception:

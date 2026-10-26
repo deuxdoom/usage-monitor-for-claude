@@ -15,6 +15,8 @@ Add these keys to your [`config.json`](configuration.md). After saving, quit fro
 
 Commands run with the same privileges as the app and **without a visible window** - no console pops up and no focus is stolen. This is ideal for background tasks like sending notifications, playing sounds, or running headless commands (e.g. `claude -p "..."`). Relative paths in commands are resolved relative to the executable's folder (or the project root when running from source).
 
+For the packaged app, that working directory is the folder holding the public `AIAgentsUsageMonitor.exe`. Commands receive the original `TEMP` and `TMP`, rather than the monitor's private runtime folder, so a program they open can keep running after the monitor exits.
+
 Each of these settings accepts a single command string or an array of strings to run multiple commands per event. When an array is provided, all commands are launched independently (fire-and-forget) - if one fails, the others still run.
 
 Commands only fire on **state changes** detected while the app is running. On app startup, already-exceeded thresholds trigger a desktop notification but do not run `on_threshold_command` - this prevents duplicate commands after a restart or reboot.
