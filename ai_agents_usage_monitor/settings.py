@@ -27,6 +27,7 @@ import sys
 from pathlib import Path
 
 from .instance_id import effective_config_dir, is_default_config_dir
+from .runtime import application_executable
 from .theme import POPUP_COLORS, TRAY_ICON_COLORS
 
 __all__ = [
@@ -110,7 +111,7 @@ def settings_search_paths() -> list[Path]:
         Absolute paths, most specific first.  Existence is not checked.
     """
     if getattr(sys, 'frozen', False):
-        app_dir = Path(sys.executable).parent
+        app_dir = application_executable().parent
     else:
         app_dir = Path(__file__).resolve().parent.parent
 

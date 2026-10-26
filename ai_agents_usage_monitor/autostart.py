@@ -8,10 +8,10 @@ registry value name and stores its ``--config-dir`` in the command.
 """
 from __future__ import annotations
 
-import sys
 import winreg
 
 from .instance_id import config_dir_suffix, effective_config_dir, is_default_config_dir
+from .runtime import application_executable
 
 __all__ = ['AUTOSTART_REG_KEY', 'AUTOSTART_REG_BASE_NAME', 'is_autostart_enabled', 'set_autostart', 'sync_autostart_path']
 
@@ -26,7 +26,7 @@ def _autostart_reg_name() -> str:
 
 def _autostart_command() -> str:
     """Return the command line to store in the registry for this instance."""
-    command = f'"{sys.executable}"'
+    command = f'"{application_executable()}"'
     if not is_default_config_dir():
         command += f' --config-dir="{effective_config_dir()}"'
     return command

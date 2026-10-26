@@ -31,6 +31,7 @@ from typing import Any
 import requests
 
 from . import __version__
+from .runtime import application_executable, application_pid
 from .theme import POPUP_COLORS, UPDATER_COLORS
 from .update_release import (
     ASSET_NAME, RELEASES_PAGE_URL, ReleaseInfo, VerificationError, check_latest_release,
@@ -135,20 +136,20 @@ def launch_update_helper(version: str, language: str, relaunch_args: list[str]) 
     if not getattr(sys, 'frozen', False):
         raise OSError('Automatic replacement requires a frozen EXE')
 
-    source = Path(sys.executable).resolve(strict=True)
+    source = application_executable().resolve(strict=True)
     if source.name != ASSET_NAME:
         raise OSError(f'Unexpected executable name: {source.name}')
 
-    staging_dir = Path(tempfile.mkdtemp(prefix='ai-agents-updater-'))
+    staging_dir = Path(tempfile.mkdtemp(prefix='ai-agents-updater-', dir=source.parent))
     helper = staging_dir / HELPER_NAME
     try:
-        quit_event = _create_quit_event(os.getpid())
+        quit_event = _create_quit_event(application_pid())
     except OSError:
         shutil.rmtree(staging_dir, ignore_errors=True)
         raise
     try:
         shutil.copy2(source, helper)
-        process = _spawn([str(helper), '--apply-update', str(source), version, str(os.getpid()), language, *relaunch_args], staging_dir)
+        process = _spawn([str(helper), '--apply-update', str(source), version, str(application_pid()), language, *relaunch_args], staging_dir)
     except OSError:
         shutil.rmtree(staging_dir, ignore_errors=True)
         _kernel32().CloseHandle(quit_event)
@@ -624,7 +625,7 @@ def _spawn(command: list[str], cwd: Path) -> subprocess.Popen:
 
 
 def _schedule_helper_cleanup() -> None:
-    helper = Path(sys.executable)
+    helper = application_executable()
     if helper.name != HELPER_NAME:
         return
     kernel32 = ctypes.windll.kernel32

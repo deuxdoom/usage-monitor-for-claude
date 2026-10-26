@@ -24,10 +24,14 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import re
 import sys
+import tempfile
 import traceback
 from pathlib import Path
+
+from .runtime import application_executable
 
 __all__ = ['SELF_TEST_FLAG', 'run_self_test']
 
@@ -48,6 +52,7 @@ def run_self_test() -> int:
         0 when everything loaded, 1 at the first failure.
     """
     try:
+        _check_runtime_directory()
         _check_imports()
         _check_page_files()
         _check_locales()
@@ -58,6 +63,20 @@ def run_self_test() -> int:
 
     _report('self-test passed')
     return 0
+
+
+def _check_runtime_directory() -> None:
+    """The launcher's Python bundle and temporary storage both belong beside the public EXE."""
+    if not getattr(sys, 'frozen', False) or not os.environ.get('AI_AGENTS_USAGE_MONITOR_EXE'):
+        return
+
+    private_dir = Path(sys.executable).resolve().parent
+    bundle_dir = Path(sys._MEIPASS).resolve()  # type: ignore[attr-defined]  # PyInstaller extraction directory
+    temporary = Path(tempfile.gettempdir()).resolve()
+    if private_dir.parent != application_executable().resolve().parent:
+        raise RuntimeError('Runtime directory is not beside the public EXE')
+    if not bundle_dir.is_relative_to(private_dir) or not temporary.is_relative_to(private_dir):
+        raise RuntimeError('Python bundle or temporary storage escaped the private runtime')
 
 
 def _check_imports() -> None:

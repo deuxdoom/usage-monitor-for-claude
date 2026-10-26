@@ -2,10 +2,10 @@
 Build Script
 =============
 
-Builds a standalone EXE for AI Agents Usage Monitor using PyInstaller.
+Builds the portable EXE from a PyInstaller payload and a .NET Framework launcher.
 
 Usage:
-    python build.py          compile the glass layer, build the EXE, then run its self-test
+    python build.py          compile the glass layer, package the launcher and payload, then self-test the public EXE
     python build.py glass    compile only the glass layer, for running from source
 
 Produces:
@@ -79,15 +79,18 @@ GLASS_REFERENCES = [
 
 
 def build() -> None:
-    """Verify the declared versions agree, compile the glass layer, run PyInstaller, then self-test the EXE."""
+    """Verify versions and screenshots, compile the glass layer and launcher, then self-test the public EXE."""
     version = check_versions()
     check_screenshots()
     compile_glass_layer()
 
     print(f'Starting PyInstaller build (version {version}) ...')
     workpath = Path(tempfile.gettempdir()) / 'ai-agents-usage-monitor-build'
-    cmd = [sys.executable, '-m', 'PyInstaller', '--clean', '--noconfirm', '--workpath', str(workpath), str(SPEC)]
+    payload_dir = workpath / 'payload'
+    cmd = [sys.executable, '-m', 'PyInstaller', '--clean', '--noconfirm', '--workpath', str(workpath),
+           '--distpath', str(payload_dir), str(SPEC)]
     subprocess.check_call(cmd, cwd=str(ROOT))
+    compile_launcher(payload_dir / EXE.name, workpath, version)
 
     if not EXE.exists():
         print('\nBuild failed - EXE not found.')
@@ -98,14 +101,36 @@ def build() -> None:
     print(f'\nBuild successful!  {EXE}  ({size_mb:.1f} MB)  v{version}')
 
 
+def compile_launcher(payload: Path, workpath: Path, version: str) -> None:
+    """Embed the Python application in a launcher that owns its runtime directory."""
+    workpath.mkdir(parents=True, exist_ok=True)
+    resource_version = version + '.0'
+    metadata = workpath / 'launcher_version.cs'
+    metadata.write_text(
+        'using System.Reflection;\n'
+        '[assembly: AssemblyTitle("AI Agents Usage Monitor")]\n'
+        '[assembly: AssemblyProduct("AI Agents Usage Monitor")]\n'
+        '[assembly: AssemblyCompany("deuxdoom")]\n'
+        f'[assembly: AssemblyVersion("{resource_version}")]\n'
+        f'[assembly: AssemblyFileVersion("{resource_version}")]\n', encoding='utf-8',
+    )
+    EXE.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.check_call([
+        str(CSC), '/nologo', '/target:winexe', '/platform:x64', '/optimize+',
+        '/reference:System.Windows.Forms.dll', f'/out:{EXE}',
+        f'/win32icon:{ROOT / "assets/images/ai_agents_usage_monitor.ico"}',
+        f'/resource:{payload},AIAgentsUsageMonitor.Payload', str(ROOT / 'launcher.cs'), str(metadata),
+    ], cwd=str(ROOT))
+
+
 def self_test(exe: Path) -> None:
     """Start the built EXE in self-test mode and fail the build unless it exits cleanly.
 
     The unit tests see the source tree; only the EXE shows what PyInstaller
     left out.  A failure before the self-test is reached makes the EXE show
     its error dialog instead of exiting, so a timeout counts as a failure and
-    the whole process tree is ended - the one-file bootloader and the Python
-    process it started.
+    the whole process tree is ended - the public launcher, the one-file
+    bootloader and the Python process it started.
     """
     print('Running the built EXE self-test ...')
     process = subprocess.Popen([str(exe), SELF_TEST_FLAG], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)

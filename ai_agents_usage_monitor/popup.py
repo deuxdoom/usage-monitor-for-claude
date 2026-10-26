@@ -151,6 +151,7 @@ class UsagePopup:
     BAR_WIDTH = 360
     _CHECK_MS = 2000
     _REFRESH_MIN_INTERVAL = 5.0
+    _LOAD_TIMEOUT = 30.0
 
     def __init__(self, app: AIAgentsUsageMonitor) -> None:
         """Create and display a popup window with usage details.
@@ -218,10 +219,26 @@ class UsagePopup:
         self._window.events.loaded += self._on_loaded
         self._window.events.closed += self._on_window_closed
         threading.Thread(target=self._dismiss_watch, daemon=True).start()
-        self._closed.wait()
+        load_timer = threading.Timer(self._LOAD_TIMEOUT, self._close_unshown)
+        load_timer.daemon = True
+        load_timer.start()
+        try:
+            self._closed.wait()
+        finally:
+            load_timer.cancel()
 
     def _on_loaded(self) -> None:
+        try:
+            self._initialize_page()
+        except Exception:
+            logger.exception('Popup initialization failed')
+            self._close()
+
+    def _initialize_page(self) -> None:
         """Inject config and show the window transparently for layout."""
+        if not self._running:
+            return
+
         native = self._window.native
         assert native is not None  # the WinForms form exists once the page has loaded
         self._popup_hwnd = native.Handle.ToInt32()
@@ -263,10 +280,20 @@ class UsagePopup:
 
         # Show fully transparent so JS can layout and report the real height
         ctypes.windll.user32.SetLayeredWindowAttributes(self._popup_hwnd, 0, 0, _LWA_ALPHA)
-        self._window.show()
+        if self._running:
+            self._window.show()
+
+    def _close_unshown(self) -> None:
+        """Release an opening popup whose page never became visible."""
+        if self._running and not self._shown:
+            logger.error('Popup did not become visible within %.0f seconds', self._LOAD_TIMEOUT)
+            self._close()
 
     def _show_window(self) -> None:
         """Make the popup visible after the first resize positioned it correctly."""
+        if not self._running:
+            return
+
         # Remove the layered style to restore normal rendering
         ex_style = ctypes.windll.user32.GetWindowLongW(self._popup_hwnd, _GWL_EXSTYLE)
         ctypes.windll.user32.SetWindowLongW(self._popup_hwnd, _GWL_EXSTYLE, ex_style & ~_WS_EX_LAYERED)

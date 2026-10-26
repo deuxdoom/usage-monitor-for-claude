@@ -13,7 +13,7 @@ All settings work out of the box - no configuration file needs to be created by 
 The app searches these directories in order (first file found wins):
 
 1. **`$CLAUDE_CONFIG_DIR/`** (only if a custom config directory is set via `--config-dir` or `CLAUDE_CONFIG_DIR` and differs from `~/.claude/`) - this lets every instance have its own settings when running one instance per Claude account
-2. **Next to the EXE** (or project root when running from source)
+2. **Next to the public `AIAgentsUsageMonitor.exe`** (or project root when running from source) - the internal executable in the private runtime folder is not a settings location
 3. **`~/.claude/`**
 
 Within each directory, `config.json` is checked before the legacy `usage-monitor-settings.json`. Directory priority comes first: a legacy file in an earlier directory takes precedence over a new-name file in a later one. Existing files do not need to be renamed, and files are not merged.

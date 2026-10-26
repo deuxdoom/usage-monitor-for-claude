@@ -20,6 +20,8 @@ import winreg
 from pathlib import Path
 from typing import TextIO
 
+from .runtime import application_executable
+
 __all__ = ['setup_console', 'print_startup_diagnostics', 'print_runtime_diagnostics']
 
 # WebView2 registry GUIDs (runtime, beta, dev, canary)
@@ -302,7 +304,7 @@ def print_startup_diagnostics() -> None:
     # Python / PyInstaller
     _section('Python')
     _row('Version', sys.version.split()[0])
-    _row('Executable', _redact_home(sys.executable))
+    _row('Executable', _redact_home(str(application_executable())))
     frozen = getattr(sys, 'frozen', False)
     _row('Frozen (PyInstaller)', str(frozen))
     if frozen:

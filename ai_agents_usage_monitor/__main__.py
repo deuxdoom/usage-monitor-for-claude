@@ -9,6 +9,10 @@ import threading
 import traceback
 from pathlib import Path
 
+from ai_agents_usage_monitor.runtime import hold_runtime_lease
+
+hold_runtime_lease()
+
 # build.py starts the finished EXE with this flag: it loads what the app needs
 # and exits, before any configuration, single-instance or tray startup.
 from ai_agents_usage_monitor.self_test import SELF_TEST_FLAG, run_self_test
