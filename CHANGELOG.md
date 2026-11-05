@@ -8,6 +8,15 @@
 이 변경 이력은 이 프로젝트가 독립적으로 빌드되기 시작한 시점인 1.30.0 버전 이후를 다룹니다.
 
 
+## [3.9.0] - 2026-11-05
+
+### Fixed
+
+- Claude 인증 오류 뒤 `claude update`의 출력을 읽을 때 Windows 기본 인코딩과 맞지 않는 문자가 있거나 출력이 `None`이면 `TypeError`로 자동 갱신이 중단되던 문제를 고쳐, 출력을 UTF-8로 읽고 해석할 수 없는 문자와 누락된 출력을 안전하게 처리합니다.
+
+[Show all code changes](https://github.com/deuxdoom/usage-monitor-for-claude/compare/v3.8.0...v3.9.0)
+
+
 ## [3.8.0] - 2026-10-26
 
 선불 잔액 조회 최적화, Windows 알림 및 입력 훅 수정은 업스트림 [usage-monitor-for-claude v1.24.0](https://github.com/jens-duttke/usage-monitor-for-claude/releases/tag/v1.24.0)에서 가져와 이 포크에 맞게 적용했습니다. [@jens-duttke](https://github.com/jens-duttke)님께 감사드립니다. 입력 훅 수정은 [@nerfarrow](https://github.com/nerfarrow)님의 기여입니다.

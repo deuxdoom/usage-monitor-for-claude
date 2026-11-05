@@ -27,7 +27,7 @@ The module names follow the same split: `claude_api.py` / `codex_api.py`, `claud
 
 | Document | What it covers |
 |---|---|
-| [claude-api-reference.md](claude-api-reference.md) | Example responses from the Anthropic OAuth endpoints, with field names and types |
+| [claude-api-reference.md](claude-api-reference.md) | Anthropic OAuth responses, field names and types, and authentication recovery through the native CLI |
 | [codex-api-reference.md](codex-api-reference.md) | The app-server protocol methods and the fields read from each, plus how local rollouts are summarised |
 
 ## Also at the repository root

@@ -101,8 +101,10 @@ Codex 화면은 `CODEX_HOME`(설정하지 않았다면 `~/.codex`) 아래에 이
 
 ## Claude Code 설치
 
-OAuth 토큰이 만료되면 이 애플리케이션은 `claude update` 명령을 실행합니다. 그러면 Claude Code CLI가 자신의
+Claude 사용량 조회에서 인증 오류가 나면 먼저 저장된 토큰이 바뀌었는지 확인해 새 토큰으로 재시도합니다.
+토큰이 그대로면 Windows에 설치된 Claude Code의 `claude update` 명령을 실행합니다. 그러면 Claude Code CLI가 자신의
 자격 증명 파일에서 토큰을 갱신합니다. 이 명령의 부수적인 결과로 더 새로운 Claude Code 버전이 설치될 수 있습니다.
+설정의 `cli_command`는 설치 버전 표시용이며, 여기에 지정한 명령으로 인증을 갱신하지 않습니다.
 시스템의 다른 소프트웨어는 변경하지 않습니다.
 
 ## 제3자 서비스

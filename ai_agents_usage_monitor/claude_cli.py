@@ -188,14 +188,14 @@ def refresh_token() -> RefreshResult:
     try:
         proc = subprocess.run(
             [str(CLAUDE_CLI_PATH), 'update'],
-            capture_output=True, text=True, timeout=60, creationflags=subprocess.CREATE_NO_WINDOW,
+            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=60, creationflags=subprocess.CREATE_NO_WINDOW,
         )
     except subprocess.TimeoutExpired:
         return RefreshResult(success=False, updated=False, old_version='', new_version='', error='Timeout')
     except OSError as e:
         return RefreshResult(success=False, updated=False, old_version='', new_version='', error=str(e))
 
-    output = proc.stdout + proc.stderr
+    output = (proc.stdout or '') + (proc.stderr or '')
 
     # Parse: "Successfully updated from X.Y.Z to version A.B.C"
     update_match = re.search(r'updated from (\S+) to (?:version )?(\S+)', output)

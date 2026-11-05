@@ -13,15 +13,29 @@ The Codex side of the same question is documented in
 | `/api/oauth/usage` | How much of each quota window is used, and when it resets | `claude_api.py` |
 | `/api/oauth/profile` | Which account and plan is signed in | `claude_api.py` |
 | `/api/oauth/organizations/{org_uuid}/prepaid/credits` | How much prepaid credit is left to pay for extra usage | `claude_api.py` |
+| `~/.claude/projects/**/*.jsonl` | Per-model token counts the endpoints do not disclose | `claude_sessions.py` |
 
 Every quota object also carries `limit_dollars`, `used_dollars` and `remaining_dollars`. They are `null` on the plan limits; a quota that fills them in is a credit grant, shown in dollars with its reset worded as an expiry. The code name `iguana_necktie` is one such grant - the cloud session credits claude.ai lists (for example `limit_dollars: 100`, `used_dollars: 11.94`, `resets_at` on the expiry). The API gives it no display name, so the app names it the way Anthropic's own client does.
-| `~/.claude/projects/**/*.jsonl` | Per-model token counts the endpoints do not disclose | `claude_sessions.py` |
 
 The credentials come from `~/.claude/.credentials.json` and are used only in the Authorization
 header. `claude_api.py` is the only module that touches them.
 
 > [!NOTE]
 > These are real-world examples with anonymized data, captured in March 2026. Fields may change without notice as these are undocumented internal endpoints. If your API response contains fields not listed here, please open an issue with an anonymized example so we can keep this reference up to date.
+
+## Authentication recovery
+
+After a usage request returns an authentication error, `UsageCache` checks whether the credentials
+already contain a different access token. If so, it retries with that token directly. Otherwise,
+`claude_cli.refresh_token()` runs the native Windows `claude update` command with a 60-second
+timeout, then the cache re-reads the credentials and retries only if the token changed. The
+`cli_command` setting is display only and is never used for authentication.
+
+The command's stdout and stderr are decoded as UTF-8, replacing invalid bytes. A missing captured
+stream is treated as empty, so neither malformed output nor an absent stream interrupts the
+refresh path. A failed refresh keeps the last successful usage and reports the authentication
+error. The app does not retry the same rejected token repeatedly; signing in again through the
+Windows CLI changes the token, which the polling loop detects without requiring an app restart.
 
 ## /api/oauth/usage
 
