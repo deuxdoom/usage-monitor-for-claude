@@ -189,10 +189,15 @@ Codex 한도는 설치된 Codex에 조회를 맡기므로, 팝업에 표시되�
 | 배포 형태 | 오픈소스 (MIT 라이선스) |
 | 소스 코드 | 공개 |
 
-이 프로젝트는 [Jens Duttke](https://github.com/jens-duttke)의 [usage-monitor-for-claude](https://github.com/jens-duttke/usage-monitor-for-claude)를 기반으로 한 포크입니다. 원작자의 저작권 표시와 MIT 라이선스를 유지합니다. 자세한 조건은 [LICENSE](LICENSE)를 확인하세요.
+- **허용:** 누구나 무료로 사용·복제·수정·배포할 수 있으며, 상업적으로 이용할 수도 있습니다.
+- **조건:** 소프트웨어의 사본이나 주요 부분을 배포할 때는 저작권 표시와 MIT 라이선스 전문을 함께 넣어야 합니다. 소프트웨어는 어떠한 보증 없이 있는 그대로 제공됩니다.
+- **원작:** [Jens Duttke](https://github.com/jens-duttke)의 [usage-monitor-for-claude](https://github.com/jens-duttke/usage-monitor-for-claude)를 기반으로 한 포크이며, 원작자의 저작권 표시와 MIT 라이선스를 유지합니다.
+- **전문:** [LICENSE](LICENSE)
 
 ### 제3자 구성 요소
 
-포함된 글꼴과 아이콘에는 각각의 라이선스가 적용되며, 고지는 [LICENSE](LICENSE)에 있습니다.
+함께 배포하는 제3자 구성 요소는 각자의 라이선스를 따르며, 위 조건은 그 라이선스가 부여하는 권리를 제한하지 않습니다. 글꼴과 아이콘의 고지는 [LICENSE](LICENSE)에 있습니다.
 
-*커뮤니티에서 독립적으로 만든 오픈소스 앱이며, Anthropic 또는 OpenAI의 공식 지원을 받지 않습니다.*
+### 상표
+
+Claude, Anthropic, Codex, OpenAI는 각 소유자의 상표입니다. AI Agents Usage Monitor는 독립적으로 만든 비공식 프로그램이며, 해당 기업과 제휴하거나 승인을 받지 않았습니다.
